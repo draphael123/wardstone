@@ -34,6 +34,77 @@ function showOverlay(el) {
   void el.offsetWidth;
   el.classList.remove('gone');
 }
+// ---------------------------------------------------------------------------
+// Key bindings.
+//
+// Every key the game reads goes through here. Nothing compares a raw key string
+// any more, which is the only way remapping stays honest — a single hardcoded
+// `k === 'q'` left behind is a control the player cannot rebind and will not
+// understand why.
+//
+// `ready` and `rotate` deliberately share a key: with a ward in hand it turns
+// the ghost, with empty hands it calls the wave. They are one binding because
+// they are one button to the player.
+// ---------------------------------------------------------------------------
+const ACTIONS = [
+  { id: 'up', name: 'Move forward', def: 'w' },
+  { id: 'down', name: 'Move back', def: 's' },
+  { id: 'left', name: 'Move left', def: 'a' },
+  { id: 'right', name: 'Move right', def: 'd' },
+  { id: 'swap', name: 'Swap weapon', def: 'q' },
+  { id: 'roll', name: 'Roll', def: ' ' },
+  { id: 'jump', name: 'Jump', def: 'shift' },
+  { id: 'block', name: 'Block', def: 'control' },
+  { id: 'rally', name: 'Rally', def: 'v' },
+  { id: 'mend', name: 'Mend (hold)', def: 'e' },
+  { id: 'build', name: 'Build view', def: 'tab' },
+  { id: 'rotate', name: 'Rotate / Ready', def: 'r' },
+  { id: 'upgrade', name: 'Upgrade ward', def: 'f' },
+  { id: 'sell', name: 'Sell ward', def: 'x' },
+  { id: 'ward1', name: 'Pick ward 1', def: '1' },
+  { id: 'ward2', name: 'Pick ward 2', def: '2' },
+  { id: 'ward3', name: 'Pick ward 3', def: '3' },
+  { id: 'ward4', name: 'Pick ward 4', def: '4' },
+];
+const ACTION_BY_ID = Object.fromEntries(ACTIONS.map(a => [a.id, a]));
+
+// Keys that always mean the same thing and cannot be rebound onto, because
+// losing them would leave the player with no way out of a menu.
+const RESERVED = new Set(['escape']);
+
+function defaultBinds() {
+  const o = {};
+  for (const a of ACTIONS) o[a.id] = a.def;
+  return o;
+}
+
+// action id -> key, and the reverse lookup rebuilt whenever it changes
+function rebuildKeymap() {
+  state.keyToAction = {};
+  for (const [id, key] of Object.entries(state.binds)) {
+    if (!key) continue;
+    (state.keyToAction[key] = state.keyToAction[key] || []).push(id);
+  }
+}
+
+// Is this action's key down right now? Movement also accepts the arrows
+// unconditionally, because a player who rebinds WASD has not thereby asked for
+// the arrow keys to stop working.
+const ARROWS = { up: 'arrowup', down: 'arrowdown', left: 'arrowleft', right: 'arrowright' };
+function held(action) {
+  const k = state.binds[action];
+  if (k && state.keys.has(k)) return true;
+  return !!(ARROWS[action] && state.keys.has(ARROWS[action]));
+}
+
+function keyLabel(k) {
+  if (!k) return '—';
+  if (k === ' ') return 'Space';
+  if (k === 'control') return 'Ctrl';
+  if (k.length === 1) return k.toUpperCase();
+  return k.charAt(0).toUpperCase() + k.slice(1);
+}
+
 const STEP = 1 / 60;
 
 const isTouch = window.matchMedia('(pointer: coarse)').matches ||
@@ -47,6 +118,7 @@ const state = {
   firing: false, mending: false, wantDodge: false, blocking: false,
   pointer: { x: 0, y: 0, has: false },
   ghostCell: null, ghostRot: null, overhead: false, showAbil: false,
+  binds: null, keyToAction: {},
   inspect: null, runFrom: null,
   acc: 0, last: 0, lastFrame: 0, hitstop: 0,
   vel: { x: 0, z: 0 },
@@ -183,18 +255,34 @@ function syncHud() {
     wp.textContent = PLAYER.weapons[p.weapon].name;
     wp.className = 'wchip ' + p.weapon;
   }
+  // Chips carry their own key, so a rebind is visible where the control is
+  // rather than only in a settings list nobody reopens.
+  const bc = $('blockChip');
+  if (bc) {
+    const canBlock = w.weaponDef(p).kind === 'melee';
+    bc.classList.toggle('ready', canBlock && !p.blocking);
+    bc.classList.toggle('on', !!p.blocking);
+    bc.textContent = canBlock
+      ? `Block ${keyLabel(state.binds.block)}`
+      : 'Block — sword only';
+  }
   const ab = $('abil');
   if (ab) {
     const ready = p.abilityCd <= 0;
     ab.classList.toggle('ready', ready);
     ab.style.setProperty('--k', ready ? 1 : (1 - p.abilityCd / ABILITY.cooldown));
-    ab.textContent = ready ? 'Rally' : Math.ceil(p.abilityCd) + 's';
+    ab.textContent = ready
+      ? `Rally ${keyLabel(state.binds.rally)}`
+      : Math.ceil(p.abilityCd) + 's';
   }
   const rl = $('roll');
   if (rl) {
     const ready = p.dodgeCd <= 0;
     rl.classList.toggle('ready', ready);
     rl.style.setProperty('--k', ready ? 1 : (1 - p.dodgeCd / PLAYER.dodge.cooldown));
+    rl.textContent = ready
+      ? `Roll ${keyLabel(state.binds.roll)}`
+      : Math.ceil(p.dodgeCd * 10) / 10 + 's';
   }
 }
 
@@ -586,18 +674,23 @@ function bindInput() {
 
   addEventListener('keydown', (e) => {
     if (e.repeat) return;
+    if (bindCapture(e)) return;   // rebinding owns the keyboard while it is armed
     const k = e.key.toLowerCase();
     state.keys.add(k);
-    if (k >= '1' && k <= '4') {
-      const wd = WARDS[+k - 1];
-      if (wd && state.world.isUnlocked(wd.id)) select(wd.id);
-      else if (wd) state.snd.play('hover', 0.6, 0.7);
-    }
     if (k === 'escape' || k === '0') {
       if (state.inspect) { inspectWard(null); return; }
       state.selected = null; select(null);
+      return;
     }
-    if (k === 'r') {
+    const acts = state.keyToAction[k];
+    if (!acts) return;
+    for (const act of acts) {
+    if (act === 'ward1' || act === 'ward2' || act === 'ward3' || act === 'ward4') {
+      const wd = WARDS[+act.slice(4) - 1];
+      if (wd && state.world.isUnlocked(wd.id)) select(wd.id);
+      else if (wd) state.snd.play('hover', 0.6, 0.7);
+    }
+    if (act === 'rotate') {
       // contextual: R rotates the thing you are holding, or readies the wave
       if (state.selected) {
         state.ghostRot = (state.ghostRot == null ? 0 : state.ghostRot) + Math.PI / 4;
@@ -609,18 +702,20 @@ function bindInput() {
         state.snd.play('click');
       }
     }
-    if (k === 'q') state.world.swapWeapon();
-    if (k === 'tab' || k === 'b') { e.preventDefault(); toggleOverhead(); }
-    if (k === ' ') { e.preventDefault(); state.wantDodge = true; }
-    if (k === 'v') state.world.rally();
-    if (k === 'x' && state.selected === null) sellUnderPointer();
-    if (k === 'f' && state.selected === null) {
+    if (act === 'swap') state.world.swapWeapon();
+    if (act === 'build') { e.preventDefault(); toggleOverhead(); }
+    if (act === 'roll') { e.preventDefault(); state.wantDodge = true; }
+    if (act === 'jump') { e.preventDefault(); state.wantJump = true; }
+    if (act === 'rally') state.world.rally();
+    if (act === 'sell' && state.selected === null) sellUnderPointer();
+    if (act === 'upgrade' && state.selected === null) {
       if (state.inspect) { upgradeInspected(); return; }
       const w = state.world;
       const near = state.overhead ? wardUnderPointer() : w.wardNear(4.2);
       const r = w.canUpgrade(near);
       if (r.ok) { w.upgrade(near); }
       else if (near) { toast(r.why); state.snd.play('hover', 0.6, 0.7); }
+    }
     }
   });
   addEventListener('keyup', (e) => state.keys.delete(e.key.toLowerCase()));
@@ -921,10 +1016,10 @@ function applyInput(dt) {
   if (!p.alive) return;
 
   let mx = state.move.x, my = state.move.y;
-  if (state.keys.has('w') || state.keys.has('arrowup')) my -= 1;
-  if (state.keys.has('s') || state.keys.has('arrowdown')) my += 1;
-  if (state.keys.has('a') || state.keys.has('arrowleft')) mx -= 1;
-  if (state.keys.has('d') || state.keys.has('arrowright')) mx += 1;
+  if (held('up')) my -= 1;
+  if (held('down')) my += 1;
+  if (held('left')) mx -= 1;
+  if (held('right')) mx += 1;
   const m = Math.hypot(mx, my);
   if (m > 1) { mx /= m; my /= m; }
 
@@ -985,10 +1080,10 @@ function applyInput(dt) {
   state._moving = sp > 0.5;
 
   // bracing behind the shield
-  w.setBlocking(state.blocking || state.keys.has('shift'));
+  w.setBlocking(state.blocking || held('block'));
 
   // mending
-  const wantMend = state.mending || state.keys.has('e');
+  const wantMend = state.mending || held('mend');
   if (wantMend) {
     const hp = w.repairStep(dt);
     if (state.tut && hp > 0) state.tut.s.mended += hp;
@@ -1169,8 +1264,11 @@ function boot() {
   initDamageNumbers();
   initDoors();
   bindInput();
+  state.binds = defaultBinds();
   bindSettings();
   loadSettings();
+  if (!state.binds) state.binds = defaultBinds();
+  rebuildKeymap();
   syncSettingsPanel();   // so the intro's difficulty buttons show what is stored
   syncResume();          // and the resume button only if there is a run to resume
   resize();
@@ -1412,6 +1510,11 @@ function loadSettings() {
     for (const k of ['musVol', 'sfxVol', 'shakeAmt', 'sens', 'fov'])
       if (typeof o[k] === 'number') state[k] = o[k];
     if (DIFFICULTY[o.difficulty]) state.difficulty = o.difficulty;
+    if (o.binds && typeof o.binds === 'object') {
+      // merge rather than replace, so a build that ADDS an action does not
+      // leave anyone who saved settings with an unbound control
+      state.binds = { ...defaultBinds(), ...o.binds };
+    }
   } catch (e) { /* no stored settings is the normal case */ }
 }
 function saveSettings() {
@@ -1420,6 +1523,7 @@ function saveSettings() {
       camDist: state.rend ? state.rend.camDist : 11,
       musVol: state.musVol, sfxVol: state.sfxVol, difficulty: state.difficulty,
       shakeAmt: state.shakeAmt, sens: state.sens, fov: state.fov,
+      binds: state.binds,
     };
     for (const k of SET_KEYS) o[k] = state[k];
     localStorage.setItem('wardstone.settings', JSON.stringify(o));
@@ -1450,6 +1554,59 @@ function applySettings() {
   saveSettings();
 }
 
+// The rebinding list. Click a key, press a new one.
+//
+// Clashes are SHOWN rather than prevented: two actions on one key is sometimes
+// exactly what someone wants (block and jump on the same finger), and silently
+// refusing a bind is more confusing than marking it. Escape is reserved,
+// because a player who binds over it has no way out of a menu.
+let listeningFor = null;
+
+function renderBinds() {
+  const host = $('binds');
+  if (!host) return;
+  const used = {};
+  for (const a of ACTIONS) {
+    const k = state.binds[a.id];
+    if (k) (used[k] = used[k] || []).push(a.id);
+  }
+  host.innerHTML = '';
+  for (const a of ACTIONS) {
+    const row = document.createElement('div');
+    row.className = 'bindRow' + ((used[state.binds[a.id]] || []).length > 1 ? ' clash' : '');
+    const label = document.createElement('span');
+    label.textContent = a.name;
+    const btn = document.createElement('button');
+    btn.textContent = listeningFor === a.id ? 'press a key' : keyLabel(state.binds[a.id]);
+    if (listeningFor === a.id) btn.classList.add('listening');
+    btn.addEventListener('click', () => {
+      listeningFor = listeningFor === a.id ? null : a.id;
+      renderBinds();
+    });
+    row.appendChild(label);
+    row.appendChild(btn);
+    host.appendChild(row);
+  }
+}
+
+// Captured before the game's own keydown handler, so binding "W" to something
+// does not also walk you forward while you are setting it.
+function bindCapture(e) {
+  if (listeningFor === null) return false;
+  const k = e.key.toLowerCase();
+  e.preventDefault();
+  e.stopPropagation();
+  if (k === 'escape') { listeningFor = null; renderBinds(); return true; }
+  if (RESERVED.has(k)) { listeningFor = null; renderBinds(); return true; }
+  state.binds[listeningFor] = k;
+  listeningFor = null;
+  rebuildKeymap();
+  saveSettings();
+  renderBinds();
+  if (state.snd) state.snd.play('select', 0.7);
+  return true;
+}
+
 function syncSettingsPanel() {
   for (const b of document.querySelectorAll('.tgl')) {
     b.classList.toggle('on', !!state[b.dataset.set]);
@@ -1463,6 +1620,7 @@ function syncSettingsPanel() {
   $('setFov').value = Math.round(state.fov);
   for (const b of document.querySelectorAll('.dif'))
     b.classList.toggle('on', b.dataset.diff === state.difficulty);
+  renderBinds();
 }
 
 // Pause. The sim simply stops being stepped while the renderer keeps running,
@@ -1530,6 +1688,29 @@ function bindSettings() {
   slider('setShake', v => { state.shakeAmt = v / 100; });
   slider('setSens', v => { state.sens = v / 100; });
   slider('setFov', v => { state.fov = v; });
+
+  $('bindReset').addEventListener('click', () => {
+    state.binds = defaultBinds();
+    listeningFor = null;
+    rebuildKeymap();
+    saveSettings();
+    renderBinds();
+  });
+
+  // Mend from the panel. Held, like the key — mending is a continuous spend,
+  // and a single click that quietly drained mana would be worse than no button.
+  const mend = $('wpMend');
+  const setMend = (on) => { state.mending = on; mend.classList.toggle('on', on); };
+  mend.addEventListener('pointerdown', (e) => { e.preventDefault(); setMend(true); });
+  addEventListener('pointerup', () => setMend(false));
+  mend.addEventListener('pointerleave', () => setMend(false));
+
+  // Block, as a button rather than only a key nobody was told about.
+  const blockChip = $('blockChip');
+  blockChip.style.pointerEvents = 'auto';
+  blockChip.style.cursor = 'pointer';
+  blockChip.addEventListener('pointerdown', (e) => { e.preventDefault(); state.blocking = true; });
+  addEventListener('pointerup', () => { state.blocking = false; });
 
   $('wpUp').addEventListener('click', upgradeInspected);
   $('wpRot').addEventListener('click', () => {

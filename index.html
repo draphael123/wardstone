@@ -179,6 +179,8 @@
   .rchip::before{content:'';position:absolute;inset:0;transform-origin:left;
     transform:scaleX(var(--k,1));background:rgba(255,179,71,.22)}
   .rchip.ready{color:#ffb347;border-color:rgba(255,179,71,.5)}
+  .rchip.on{color:#12151d;background:#ffb347;border-color:#ffb347}
+  #blockChip,#abil,#roll{pointer-events:auto;cursor:pointer;user-select:none}
 
   /* health */
   #hpWrap{position:absolute;left:max(14px,env(safe-area-inset-left));bottom:calc(max(14px,env(safe-area-inset-bottom)) + 108px);width:150px}
@@ -321,6 +323,16 @@
   #wpSell:hover:not(:disabled){border-color:rgba(224,138,128,.55);
     background:rgba(224,138,128,.14)}
   .wpHint{font-size:9.5px;color:#e08a80;margin-top:7px;min-height:12px}
+  #binds{display:flex;flex-direction:column;gap:2px;margin-bottom:6px}
+  .bindRow{display:flex;justify-content:space-between;align-items:center;
+    padding:5px 0;font-size:11.5px;color:#c8cedb}
+  .bindRow button{min-width:74px;padding:4px 9px;border-radius:3px;cursor:pointer;
+    font-family:inherit;font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+    background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);color:#9aa2b3}
+  .bindRow button:hover{border-color:rgba(255,179,71,.5);color:#ffb347}
+  .bindRow button.listening{border-color:#ffb347;color:#ffb347;
+    background:rgba(255,179,71,.16)}
+  .bindRow.clash button{border-color:rgba(224,138,128,.6);color:#e08a80}
   .skeys{font-size:11px;color:#8e97a8;line-height:1.9;margin:16px 0 18px;
     padding-top:14px;border-top:1px solid rgba(255,255,255,.08)}
   .skeys b{color:#e9e6dd;font-weight:400}
@@ -587,6 +599,10 @@
         You cannot mend a wall faster than a troll ruins it. A wall buys you
         time to kill it, and nothing more.</div></div>
     </div>
+    <div class="srow" style="border:0;padding-top:14px">
+      <span style="font-size:10px;letter-spacing:.24em;text-transform:uppercase;color:#ffb347">Controls</span>
+      <button class="opt" id="bindReset">Reset</button></div>
+    <div id="binds"></div>
     <div class="skeys">
       <b>WASD</b> move &nbsp;·&nbsp; <b>right-drag</b> look &nbsp;·&nbsp; <b>click</b> attack<br>
       <b>Q</b> swap &nbsp;·&nbsp; <b>Space</b> roll &nbsp;·&nbsp; <b>Shift</b> block &nbsp;·&nbsp; <b>V</b> rally &nbsp;·&nbsp; <b>E</b> mend<br>
@@ -617,6 +633,7 @@
   <div id="gear">
     <div class="wchip crossbow" id="weap">Crossbow</div>
     <div class="rchip" id="roll">Roll</div>
+    <div class="rchip" id="blockChip">Block</div>
     <div class="rchip" id="abil">Rally</div>
   </div>
   <div id="hpWrap">
@@ -665,6 +682,10 @@
     <div class="srow"><span>Guided tutorial</span><button class="tgl on" data-set="tutorial"></button></div>
     <div class="srow"><span>Camera distance</span>
       <input type="range" id="setCam" min="7" max="26" step="1" value="11"></div>
+    <div class="srow" style="border:0;padding-top:14px">
+      <span style="font-size:10px;letter-spacing:.24em;text-transform:uppercase;color:#ffb347">Controls</span>
+      <button class="opt" id="bindReset">Reset</button></div>
+    <div id="binds"></div>
     <div class="skeys">
       <b>WASD</b> move &nbsp;·&nbsp; <b>right-drag</b> look &nbsp;·&nbsp; <b>click</b> attack<br>
       <b>Q</b> swap &nbsp;·&nbsp; <b>Space</b> roll &nbsp;·&nbsp; <b>Shift</b> block &nbsp;·&nbsp; <b>V</b> rally &nbsp;·&nbsp; <b>E</b> mend<br>
@@ -696,6 +717,7 @@
   <div class="wpBtns">
     <button id="wpUp"><em>Upgrade</em><span id="wpUpCost">60</span></button>
     <button id="wpRot"><em>Rotate</em><span>free</span></button>
+    <button id="wpMend"><em>Mend</em><span id="wpMendCost">hold</span></button>
     <button id="wpSell"><em>Sell</em><span id="wpSellBack">+21</span></button>
   </div>
   <div class="wpHint" id="wpHint"></div>

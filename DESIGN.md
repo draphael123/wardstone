@@ -897,3 +897,44 @@ penny of income, and the bot had drifted from ~80% down to ~57%. The glade is
 mana-limited, so **income is the honest lever there**. The wave-clear bonus goes
 from `52 + 16i` to `72 + 24i`: **glade 13/21, gauntlet 16/21**, with roughly
 triple the fire left standing.
+
+---
+
+# Controls you can see, and controls you can change
+
+## Remapping
+
+Every key the game reads now goes through a binding layer. Nothing compares a
+raw key string any more, which is the only way remapping stays honest — one
+`k === 'q'` left behind is a control the player cannot rebind and cannot work
+out why.
+
+Eighteen actions, listed in Settings, click-a-key-press-a-key. Notes on the
+decisions:
+
+- **Clashes are shown, not prevented.** Two actions on one key is sometimes
+  exactly what someone wants, and silently refusing a bind is more confusing
+  than marking it in red.
+- **Escape is reserved**, because a player who binds over it has no way out of
+  a menu.
+- **Arrow keys always work** for movement regardless of binding: someone who
+  rebinds WASD has not thereby asked for the arrows to stop.
+- **Saved binds are merged over the defaults**, so a build that adds an action
+  does not leave anyone who saved settings with an unbound control.
+- Rebinding **captures the keyboard while armed**, so binding "W" to something
+  does not also walk you forward while you set it.
+
+Verified in the browser: rebind Swap from Q to G, and afterwards Q does nothing
+while G swaps.
+
+## Controls that existed only as keys
+
+- **Block** was Shift and nothing on screen said so. It is now a chip beside
+  Roll and Rally, it shows *"Block — sword only"* when the crossbow is out
+  (which is why pressing it sometimes did nothing), and it is held like the key.
+- **Mend** joins the ward panel. Held rather than clicked, because mending is a
+  continuous spend and a single click that quietly drained mana would be worse
+  than no button at all.
+- **Every chip now carries its own key** — `Roll Space`, `Rally V` — so a rebind
+  shows up where the control is rather than only in a settings list nobody
+  reopens.
