@@ -13,28 +13,31 @@
 
 import * as THREE from '../vendor/three.module.js';
 import { FOES, FOE_BY_ID, WARDS, WARD_BY_ID, WARDSTONE as STONE_DEF, PLAYER } from './defs.js';
-import { LANES, ARENA, CELL, cellCenter, laneAt } from './arena.js';
+import { LANES, ARENA, CELL, cellCenter, laneAt, nearestLane } from './arena.js';
+import { makeRng } from './rand.js';
 
 export const PAL = {
-  night:    0x0a0d14,
-  fog:      0x0b1018,
-  floor:    0x2b3242,
-  floorLit: 0x2e3648,
-  lane:     0x171c26,
-  wall:     0x1a1f2b,
-  wallTop:  0x2b3242,
+  night:    0x1a1622,   // warm dark, not blue-black
+  fog:      0x2a2233,
+  floor:    0x585044,   // lit stone. Dark floors read as a void, not a room.
+  floorInset:0x413a30,
+  floorEdge:0x7d7161,
+  lane:     0x3a3140,
+  wall:     0x4a4139,
+  wallTop:  0x5e5449,
+  wallDark: 0x332c25,
   stone:    0xffb347,
   stoneCore:0xfff0d0,
-  timber:   0x6b4a2f,
-  iron:     0x4a5162,
+  timber:   0x8a5f38,
+  iron:     0x646b7d,
   ember:    0xff8b3d,
   snare:    0xa579ff,
   player:   0xd8e2f0,
   cloak:    0x9a2f3a,
-  husk:     0xb9b3a0,
+  husk:     0xa8ae9c,
   runner:   0x8fbf6a,
   wisp:     0x63e6ff,
-  breaker:  0x8f3a34,
+  breaker:  0xa33f36,
 };
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -142,57 +145,92 @@ const box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
 // Hierarchy first: the four foes must be tellable apart as black shapes at
 // twenty metres, so they differ in MASS and PROPORTION before they differ in
 // colour. See [[character-silhouette-hierarchy]].
+//
+// Each also carries a WEAPON. A box stack with nothing in its hands reads as a
+// placeholder however well it is lit; a held object is the cheapest thing that
+// makes a shape read as a character.
 // ---------------------------------------------------------------------------
 function huskGeo() {
   return assemble([
-    { g: box(0.72, 1.02, 0.46), y: 0.62 },                       // torso
-    { g: box(0.46, 0.34, 0.42), y: 1.34 },                       // head
-    { g: box(0.20, 0.74, 0.20), x: 0.50, y: 0.62, rz: 0.22 },    // arms
-    { g: box(0.20, 0.74, 0.20), x: -0.50, y: 0.62, rz: -0.22 },
-    { g: box(0.24, 0.56, 0.24), x: 0.20, y: 0.14 },              // legs
-    { g: box(0.24, 0.56, 0.24), x: -0.20, y: 0.14 },
+    { g: box(0.78, 1.00, 0.50), y: 0.66 },                        // torso
+    { g: box(0.86, 0.22, 0.58), y: 1.12 },                        // shoulders
+    { g: box(0.44, 0.36, 0.42), y: 1.36 },                        // head
+    { g: box(0.30, 0.10, 0.44), y: 1.30, z: 0.20 },               // jaw
+    { g: box(0.20, 0.76, 0.20), x: 0.52, y: 0.66, rz: 0.20 },     // arms
+    { g: box(0.20, 0.76, 0.20), x: -0.52, y: 0.66, rz: -0.20 },
+    { g: box(0.26, 0.58, 0.26), x: 0.21, y: 0.15 },               // legs
+    { g: box(0.26, 0.58, 0.26), x: -0.21, y: 0.15 },
+    // a cleaver, held low in the right hand
+    { g: box(0.10, 0.10, 0.62), x: 0.62, y: 0.34, z: 0.22, rx: 0.5 },
+    { g: box(0.34, 0.06, 0.60), x: 0.62, y: 0.30, z: 0.62, rx: 0.5 },
   ]);
 }
+
 function runnerGeo() {
   return assemble([
-    { g: box(0.50, 0.74, 0.38), y: 0.60, rx: 0.34 },             // hunched
-    { g: box(0.36, 0.28, 0.40), y: 1.06, z: 0.22 },
-    { g: box(0.15, 0.62, 0.15), x: 0.34, y: 0.56, rz: 0.5 },
-    { g: box(0.15, 0.62, 0.15), x: -0.34, y: 0.56, rz: -0.5 },
-    { g: box(0.18, 0.50, 0.18), x: 0.15, y: 0.16 },
-    { g: box(0.18, 0.50, 0.18), x: -0.15, y: 0.16 },
+    { g: box(0.54, 0.72, 0.40), y: 0.62, rx: 0.40 },              // hunched torso
+    { g: box(0.62, 0.18, 0.34), y: 0.92, z: 0.10 },               // shoulders
+    { g: box(0.34, 0.28, 0.42), y: 1.04, z: 0.26 },               // thrust head
+    { g: box(0.14, 0.60, 0.14), x: 0.34, y: 0.56, rz: 0.55 },     // long arms
+    { g: box(0.14, 0.60, 0.14), x: -0.34, y: 0.56, rz: -0.55 },
+    { g: box(0.20, 0.52, 0.20), x: 0.16, y: 0.17, rx: -0.2 },     // sprinter legs
+    { g: box(0.20, 0.52, 0.20), x: -0.16, y: 0.17, rx: 0.2 },
+    // claws
+    { g: box(0.07, 0.07, 0.34), x: 0.46, y: 0.26, z: 0.20, rx: 0.7 },
+    { g: box(0.07, 0.07, 0.34), x: -0.46, y: 0.26, z: 0.20, rx: 0.7 },
   ]);
 }
+
 function wispGeo() {
-  const g = [];
-  g.push({ g: new THREE.IcosahedronGeometry(0.34, 0) });
+  const g = [{ g: new THREE.IcosahedronGeometry(0.30, 0) }];
   for (let i = 0; i < 4; i++) {
     const a = i * Math.PI / 2;
-    g.push({ g: box(0.1, 0.1, 0.5), x: Math.cos(a) * 0.34, z: Math.sin(a) * 0.34, ry: -a });
+    g.push({ g: box(0.09, 0.09, 0.42), x: Math.cos(a) * 0.30, z: Math.sin(a) * 0.30, ry: -a });
+  }
+  // a second, tilted ring so it reads as a turning object, not a flat star
+  for (let i = 0; i < 4; i++) {
+    const a = i * Math.PI / 2 + Math.PI / 4;
+    g.push({ g: box(0.07, 0.30, 0.07), x: Math.cos(a) * 0.24, y: 0.22, z: Math.sin(a) * 0.24, rz: 0.5 });
   }
   return assemble(g);
 }
+
 function breakerGeo() {
   return assemble([
-    { g: box(1.7, 1.5, 1.2), y: 1.5 },                           // slab chest
-    { g: box(1.0, 0.6, 0.9), y: 2.5 },                           // sunken head
-    { g: box(0.5, 1.5, 0.5), x: 1.15, y: 1.5, rz: 0.14 },        // long arms
-    { g: box(0.5, 1.5, 0.5), x: -1.15, y: 1.5, rz: -0.14 },
-    { g: box(0.9, 0.5, 0.9), x: 1.25, y: 0.55 },                 // fists
-    { g: box(0.9, 0.5, 0.9), x: -1.25, y: 0.55 },
-    { g: box(0.55, 0.75, 0.55), x: 0.45, y: 0.38 },
-    { g: box(0.55, 0.75, 0.55), x: -0.45, y: 0.38 },
+    { g: box(1.80, 1.55, 1.25), y: 1.55 },                        // slab chest
+    { g: box(2.15, 0.42, 1.40), y: 2.28 },                        // pauldron bar
+    { g: box(0.75, 0.50, 0.75), x: 1.02, y: 2.52, rz: 0.2 },      // pauldrons
+    { g: box(0.75, 0.50, 0.75), x: -1.02, y: 2.52, rz: -0.2 },
+    { g: box(0.95, 0.60, 0.90), y: 2.62 },                        // sunken head
+    { g: box(0.52, 1.55, 0.52), x: 1.18, y: 1.50, rz: 0.14 },     // long arms
+    { g: box(0.52, 1.55, 0.52), x: -1.18, y: 1.50, rz: -0.14 },
+    { g: box(0.92, 0.52, 0.92), x: 1.28, y: 0.56 },               // fists
+    { g: box(0.92, 0.52, 0.92), x: -1.28, y: 0.56 },
+    { g: box(0.58, 0.80, 0.58), x: 0.46, y: 0.40 },               // stumps
+    { g: box(0.58, 0.80, 0.58), x: -0.46, y: 0.40 },
+    // a maul, shouldered on the right — the reason it out-damages your hammer
+    { g: box(0.24, 0.24, 2.10), x: 1.34, y: 1.15, z: 0.30, rx: 0.72 },
+    { g: box(0.86, 0.80, 0.86), x: 1.34, y: 2.30, z: 1.10 },
   ]);
 }
+
 function playerGeo() {
   return assemble([
-    { g: box(0.62, 0.86, 0.42), y: 1.02 },
-    { g: box(0.40, 0.36, 0.38), y: 1.66 },
-    { g: box(0.52, 0.16, 0.34), y: 1.80 },                       // helm crest
-    { g: box(0.18, 0.66, 0.18), x: 0.42, y: 1.02 },
-    { g: box(0.18, 0.66, 0.18), x: -0.42, y: 1.02 },
-    { g: box(0.22, 0.62, 0.22), x: 0.17, y: 0.31 },
-    { g: box(0.22, 0.62, 0.22), x: -0.17, y: 0.31 },
+    { g: box(0.66, 0.84, 0.44), y: 1.04 },                        // cuirass
+    { g: box(0.80, 0.20, 0.52), y: 1.40 },                        // shoulders
+    { g: box(0.42, 0.38, 0.40), y: 1.66 },                        // helm
+    { g: box(0.46, 0.14, 0.46), y: 1.84 },                        // helm ridge
+    { g: box(0.12, 0.34, 0.12), y: 2.00 },                        // plume post
+    { g: box(0.50, 0.62, 0.10), y: 1.10, z: -0.28 },              // cloak
+    { g: box(0.46, 0.30, 0.10), y: 0.66, z: -0.32 },
+    { g: box(0.19, 0.66, 0.19), x: 0.44, y: 1.04 },               // arms
+    { g: box(0.19, 0.66, 0.19), x: -0.44, y: 1.04 },
+    { g: box(0.24, 0.64, 0.24), x: 0.18, y: 0.32 },               // legs
+    { g: box(0.24, 0.64, 0.24), x: -0.18, y: 0.32 },
+    // the bow, carried across the body in the left hand
+    { g: box(0.09, 1.30, 0.09), x: -0.52, y: 1.10, rz: 0.22 },
+    { g: box(0.09, 0.30, 0.09), x: -0.62, y: 1.68, rz: 0.8 },
+    { g: box(0.09, 0.30, 0.09), x: -0.42, y: 0.52, rz: -0.8 },
   ]);
 }
 
@@ -212,13 +250,13 @@ export class Renderer {
     this.renderer.setClearColor(PAL.night, 1);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.15;
+    this.renderer.toneMappingExposure = 1.06;
     this.renderer.shadowMap.enabled = !this.low;
     if (!this.low) this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(PAL.night);
-    this.scene.fog = new THREE.Fog(PAL.fog, 34, 96);
+    this.scene.fog = new THREE.Fog(PAL.fog, 46, 132);
 
     this.camera = new THREE.PerspectiveCamera(56, 1, 0.5, 260);
     this.camYaw = Math.PI;
@@ -249,161 +287,278 @@ export class Renderer {
 
   // ------------------------------------------------------------------ lights
   _buildLights() {
-    // A dark scene is not "less light", it is ONE light. The hemisphere is
-    // almost black so the stone's point light does all the modelling.
-    this.hemi = new THREE.HemisphereLight(0x3d4a6b, 0x0d1119, 0.95);
+    // Three-point lighting, not one. The earlier version leaned entirely on the
+    // wardstone so the room could go dark as it died — but a scene lit from a
+    // single point at floor level has no form: every box reads as a flat
+    // silhouette, which is exactly why it stopped looking like 3D at all.
+    //
+    // The stone is still the HERO light and still dims with its health; there
+    // is now enough fill and rim underneath that the dimming reads as the room
+    // getting colder rather than the geometry disappearing.
+    this.hemi = new THREE.HemisphereLight(0x8098c4, 0x3a2e22, 0.62);
     this.scene.add(this.hemi);
 
-    this.key = new THREE.PointLight(PAL.stone, 260, 78, 1.7);
-    this.key.position.set(0, 7.5, 0);
+    // key — the wardstone itself
+    this.key = new THREE.PointLight(PAL.stone, 340, 92, 1.7);
+    this.key.position.set(0, 8.5, 0);
     if (!this.low) {
       this.key.castShadow = true;
       this.key.shadow.mapSize.set(1024, 1024);
       this.key.shadow.camera.near = 1;
-      this.key.shadow.camera.far = 70;
+      this.key.shadow.camera.far = 80;
       this.key.shadow.bias = -0.004;
     }
     this.scene.add(this.key);
 
-    // A cold rim from above so silhouettes read against the floor even where
-    // the stone's warm light does not reach.
-    this.rim = new THREE.DirectionalLight(0x6f8fc0, 0.85);
-    this.rim.position.set(-24, 40, -18);
+    // fill — a high, soft, warm directional that models every surface the
+    // point light rakes. This is the light that makes boxes look solid.
+    this.fill = new THREE.DirectionalLight(0xffe6c4, 0.5);
+    this.fill.position.set(28, 46, 20);
+    this.scene.add(this.fill);
+
+    // rim — cold, from behind, so silhouettes separate from the floor
+    this.rim = new THREE.DirectionalLight(0x7fa8e8, 0.46);
+    this.rim.position.set(-30, 26, -34);
     this.scene.add(this.rim);
   }
 
   // ------------------------------------------------------------------ arena
   _buildArena() {
     const H = ARENA.half;
+    const rng = makeRng(90210);
 
-    const floorMat = new THREE.MeshStandardMaterial({
-      color: PAL.floor, roughness: 0.95, metalness: 0.0,
-    });
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(H * 2, H * 2), floorMat);
-    floor.rotation.x = -Math.PI / 2;
+    // --- base slab UNDER the flagstones, so the grout lines are a real recess
+    // with real shading rather than a grid painted on a plane.
+    const base = new THREE.Mesh(
+      new THREE.PlaneGeometry(H * 2, H * 2),
+      new THREE.MeshStandardMaterial({ color: PAL.floorInset, roughness: 1 }));
+    base.rotation.x = -Math.PI / 2;
+    base.receiveShadow = !this.low;
+    this.scene.add(base);
+
+    // apron past the walls so a camera near an edge never frames the void
+    const apron = new THREE.Mesh(
+      new THREE.PlaneGeometry(H * 4, H * 4),
+      new THREE.MeshBasicMaterial({ color: 0x171320 }));
+    apron.rotation.x = -Math.PI / 2;
+    apron.position.y = -0.08;
+    this.scene.add(apron);
+
+    // --- flagstones as actual raised slabs with height and colour jitter.
+    // This is the single biggest change to whether the floor looks 3D: one
+    // flat plane with lines drawn on it never will, however it is lit.
+    const tiles = [];
+    const T = 4, GAP = 0.34;
+    for (let x = -H; x < H; x += T) {
+      for (let z = -H; z < H; z += T) {
+        const h = 0.16 + rng() * 0.08;
+        tiles.push({ g: box(T - GAP, h, T - GAP), x: x + T / 2, y: h / 2, z: z + T / 2 });
+      }
+    }
+    const floor = new THREE.Mesh(assemble(tiles), new THREE.MeshStandardMaterial({
+      color: PAL.floor, roughness: 0.94, metalness: 0.02, flatShading: true,
+    }));
     floor.receiveShadow = !this.low;
     this.scene.add(floor);
 
-    // An apron of dark ground past the walls. The camera can sit outside the
-    // arena when the player hugs an edge, and without this the bottom of the
-    // frame is a hard black void instead of fogged floor.
-    const apron = new THREE.Mesh(
-      new THREE.PlaneGeometry(H * 4, H * 4),
-      new THREE.MeshBasicMaterial({ color: 0x0c1018 }));
-    apron.rotation.x = -Math.PI / 2;
-    apron.position.y = -0.06;
-    this.scene.add(apron);
-
-    // Flagstone seams. One merged grid of thin dark strips — far cheaper than
-    // a texture and it reads at this camera distance.
-    const seams = [];
-    for (let i = -H; i <= H; i += 4) {
-      seams.push({ g: box(H * 2, 0.02, 0.09), y: 0.011, z: i });
-      seams.push({ g: box(0.09, 0.02, H * 2), y: 0.011, x: i });
-    }
-    const seamMesh = new THREE.Mesh(assemble(seams),
-      new THREE.MeshBasicMaterial({ color: 0x11151d }));
-    this.scene.add(seamMesh);
-
-    // --- lanes, painted as sunken strips so the route is obvious before any
-    // foe walks it. The floor tells you where the danger comes from.
-    const laneParts = [];
+    // --- lanes, sitting on top of the flagstones
     this.laneStrips = {};
     for (const lane of LANES) {
       const parts = [];
       const step = 1.6;
       for (let d = 0; d < lane.total; d += step) {
         const a = laneAt(lane, d, 0), b = laneAt(lane, Math.min(lane.total, d + step), 0);
-        const mx = (a.x + b.x) / 2, mz = (a.z + b.z) / 2;
-        const ang = Math.atan2(b.x - a.x, b.z - a.z);
-        parts.push({ g: box(lane.width, 0.02, step * 1.08), x: mx, y: 0.02, z: mz, ry: ang });
+        parts.push({
+          g: box(lane.width, 0.02, step * 1.08),
+          x: (a.x + b.x) / 2, y: 0.26, z: (a.z + b.z) / 2,
+          ry: Math.atan2(b.x - a.x, b.z - a.z),
+        });
       }
       const mesh = new THREE.Mesh(assemble(parts), new THREE.MeshBasicMaterial({
-        color: PAL.lane, transparent: true, opacity: 0.8,
+        color: PAL.lane, transparent: true, opacity: 0.55,
       }));
       this.scene.add(mesh);
       this.laneStrips[lane.id] = mesh;
-      laneParts.push(...parts);
 
-      // Kerbs. Two thin emissive rails down each side of every lane — the one
-      // change that makes the route legible from the play camera, because a
-      // sunken strip is invisible the moment the floor is edge-on.
       const kerb = [];
       for (let side = -1; side <= 1; side += 2) {
         for (let d = 0; d < lane.total; d += step) {
           const a = laneAt(lane, d, side * (lane.width / 2));
           const b = laneAt(lane, Math.min(lane.total, d + step), side * (lane.width / 2));
-          const mx = (a.x + b.x) / 2, mz = (a.z + b.z) / 2;
           kerb.push({
-            g: box(0.16, 0.1, step * 1.05), x: mx, y: 0.05, z: mz,
+            g: box(0.16, 0.09, step * 1.05),
+            x: (a.x + b.x) / 2, y: 0.32, z: (a.z + b.z) / 2,
             ry: Math.atan2(b.x - a.x, b.z - a.z),
           });
         }
       }
-      const km = new THREE.Mesh(assemble(kerb), new THREE.MeshBasicMaterial({
-        color: 0x8a6fd0, transparent: true, opacity: 0.5,
-      }));
-      this.scene.add(km);
+      this.scene.add(new THREE.Mesh(assemble(kerb), new THREE.MeshStandardMaterial({
+        color: 0x7d68b0, emissive: 0x4a3390, emissiveIntensity: 0.34,
+        roughness: 0.6, flatShading: true,
+      })));
     }
 
-    // --- outer wall
-    const wallMat = new THREE.MeshStandardMaterial({
-      color: PAL.wall, roughness: 0.9, metalness: 0.05,
-    });
-    const wp = [];
+    // --- outer wall as an ARCADE: pilasters, recessed bays, a cornice.
+    // A flat extruded box reads as a backdrop. A wall with rhythm and depth
+    // reads as a room you are standing inside, which is most of the job.
+    const wp = [], dk = [], trim = [];
     const t = 2.2, hh = 12;
     wp.push({ g: box(H * 2 + t * 2, hh, t), y: hh / 2, z: -H - t / 2 });
     wp.push({ g: box(H * 2 + t * 2, hh, t), y: hh / 2, z: H + t / 2 });
     wp.push({ g: box(t, hh, H * 2 + t * 2), y: hh / 2, x: -H - t / 2 });
     wp.push({ g: box(t, hh, H * 2 + t * 2), y: hh / 2, x: H + t / 2 });
-    // buttresses, so the wall is not one flat extrusion
-    for (let i = -H + 6; i < H; i += 12) {
-      wp.push({ g: box(1.6, hh * 0.82, 1.3), x: i, y: hh * 0.41, z: -H + 0.5 });
-      wp.push({ g: box(1.6, hh * 0.82, 1.3), x: i, y: hh * 0.41, z: H - 0.5 });
-      wp.push({ g: box(1.3, hh * 0.82, 1.6), x: -H + 0.5, y: hh * 0.41, z: i });
-      wp.push({ g: box(1.3, hh * 0.82, 1.6), x: H - 0.5, y: hh * 0.41, z: i });
+
+    const SP = 9.5;
+    for (let i = -H + SP / 2; i < H; i += SP) {
+      const spots = [
+        { x: i, z: -H + 0.9, ry: 0 },
+        { x: i, z: H - 0.9, ry: 0 },
+        { x: -H + 0.9, z: i, ry: Math.PI / 2 },
+        { x: H - 0.9, z: i, ry: Math.PI / 2 },
+      ];
+      for (const sp of spots) {
+        wp.push({ g: box(2.4, 1.0, 2.0), x: sp.x, y: 0.5, z: sp.z, ry: sp.ry });
+        wp.push({ g: box(1.9, hh - 2.2, 1.6), x: sp.x, y: hh / 2, z: sp.z, ry: sp.ry });
+        trim.push({ g: box(2.6, 0.7, 2.2), x: sp.x, y: hh - 1.1, z: sp.z, ry: sp.ry });
+        const ox = sp.ry ? 0 : SP / 2;
+        const oz = sp.ry ? SP / 2 : 0;
+        dk.push({
+          g: box(SP - 3.4, hh - 4.6, 0.7),
+          x: sp.x + ox, y: (hh - 1.6) / 2, z: sp.z + oz, ry: sp.ry,
+        });
+      }
     }
-    const wall = new THREE.Mesh(assemble(wp), wallMat);
+    const wall = new THREE.Mesh(assemble(wp), new THREE.MeshStandardMaterial({
+      color: PAL.wall, roughness: 0.92, metalness: 0.04, flatShading: true,
+    }));
     wall.receiveShadow = !this.low;
+    wall.castShadow = !this.low;
     this.scene.add(wall);
 
-    // A cornice band near the top of the wall. Without it a 16m wall is a flat
-    // slab filling the upper frame; with it there is a horizontal line that
-    // catches the stone's light and gives the room a ceiling height.
-    const corn = [];
-    const cy = 8.2;
-    corn.push({ g: box(H * 2 + t * 2, 0.55, 0.5), y: cy, z: -H + 0.35 });
-    corn.push({ g: box(H * 2 + t * 2, 0.55, 0.5), y: cy, z: H - 0.35 });
-    corn.push({ g: box(0.5, 0.55, H * 2 + t * 2), y: cy, x: -H + 0.35 });
-    corn.push({ g: box(0.5, 0.55, H * 2 + t * 2), y: cy, x: H - 0.35 });
-    const cornice = new THREE.Mesh(assemble(corn), new THREE.MeshStandardMaterial({
-      color: 0x39415a, roughness: 0.85, metalness: 0.1,
-    }));
-    this.scene.add(cornice);
+    this.scene.add(new THREE.Mesh(assemble(dk), new THREE.MeshStandardMaterial({
+      color: PAL.wallDark, roughness: 1, flatShading: true,
+    })));
+    this.scene.add(new THREE.Mesh(assemble(trim), new THREE.MeshStandardMaterial({
+      color: PAL.wallTop, roughness: 0.85, flatShading: true,
+    })));
 
-    // --- the three doors, each a lit arch so you can see where they come from
+    const corn = [];
+    const cy = hh - 1.9;
+    corn.push({ g: box(H * 2 + t * 2, 0.6, 0.9), y: cy, z: -H + 0.55 });
+    corn.push({ g: box(H * 2 + t * 2, 0.6, 0.9), y: cy, z: H - 0.55 });
+    corn.push({ g: box(0.9, 0.6, H * 2 + t * 2), y: cy, x: -H + 0.55 });
+    corn.push({ g: box(0.9, 0.6, H * 2 + t * 2), y: cy, x: H - 0.55 });
+    this.scene.add(new THREE.Mesh(assemble(corn), new THREE.MeshStandardMaterial({
+      color: PAL.wallTop, roughness: 0.8, flatShading: true,
+    })));
+
+    // --- wall sconces. Emissive bowls everywhere, but only a few real lights:
+    // point lights are the expensive thing in this scene, not triangles.
+    this.sconces = [];
+    const sPos = [];
+    for (let i = -H + SP; i < H - 2; i += SP * 2) {
+      sPos.push([i, -H + 2.4], [i, H - 2.4], [-H + 2.4, i], [H - 2.4, i]);
+    }
+    const bowls = [];
+    sPos.forEach((p, n) => {
+      bowls.push({ g: new THREE.CylinderGeometry(0.52, 0.26, 0.62, 6), x: p[0], y: 5.3, z: p[1] });
+      bowls.push({ g: box(0.3, 1.0, 0.3), x: p[0], y: 4.6, z: p[1] });
+      const spr = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: this.glowTex, color: 0xff9c4a, transparent: true,
+        blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.7,
+      }));
+      spr.position.set(p[0], 5.8, p[1]);
+      spr.scale.set(4.4, 4.4, 1);
+      this.scene.add(spr);
+      const rec = { spr, seed: n * 1.7 };
+      if (!this.low && n % 3 === 0) {
+        const li = new THREE.PointLight(0xffa85a, 44, 27, 2);
+        li.position.set(p[0], 5.8, p[1]);
+        this.scene.add(li);
+        rec.light = li;
+      }
+      this.sconces.push(rec);
+    });
+    this.scene.add(new THREE.Mesh(assemble(bowls), new THREE.MeshStandardMaterial({
+      color: PAL.iron, roughness: 0.5, metalness: 0.7, flatShading: true,
+    })));
+
+    // --- broken columns standing in the room. Vertical objects AWAY from the
+    // walls are what give a floor-level scene depth: things pass in front of
+    // and behind them, which is the strongest 3D cue available.
+    const cols = [];
+    const colSpots = [];
+    for (let a = 0; a < 10; a++) {
+      const ang = (a / 10) * Math.PI * 2 + 0.31;
+      const r = 17 + ((a % 3) * 5);
+      const x = Math.cos(ang) * r, z = Math.sin(ang) * r;
+      if (nearestLane(x, z).dist < 6.5) continue;   // never stand in a road
+      colSpots.push([x, z, 3 + rng() * 5.5]);
+    }
+    for (const [x, z, ch] of colSpots) {
+      cols.push({ g: box(2.6, 0.55, 2.6), x, y: 0.42, z });
+      cols.push({ g: box(1.9, ch, 1.9), x, y: 0.6 + ch / 2, z });
+      if (ch > 6) cols.push({ g: box(2.5, 0.5, 2.5), x, y: 0.6 + ch + 0.2, z });
+    }
+    if (cols.length) {
+      const cm = new THREE.Mesh(assemble(cols), new THREE.MeshStandardMaterial({
+        color: 0x5a5247, roughness: 0.95, flatShading: true,
+      }));
+      cm.castShadow = !this.low;
+      cm.receiveShadow = !this.low;
+      this.scene.add(cm);
+    }
+
+    // --- rubble. Set dressing is what stops a floor reading as a chessboard:
+    // a scatter of broken blocks gives the eye something to scale the room by.
+    const rub = [];
+    for (let i = 0; i < 110; i++) {
+      const a = rng() * Math.PI * 2, r = 8 + rng() * 27;
+      const x = Math.cos(a) * r, z = Math.sin(a) * r;
+      if (nearestLane(x, z).dist < 5.2) continue;
+      const sc = 0.4 + rng() * 1.2;
+      rub.push({
+        g: box(sc, sc * (0.4 + rng() * 0.8), sc * (0.6 + rng() * 0.8)),
+        x, y: sc * 0.26, z, ry: rng() * Math.PI,
+      });
+    }
+    if (rub.length) {
+      const rm = new THREE.Mesh(assemble(rub), new THREE.MeshStandardMaterial({
+        color: 0x504839, roughness: 1, flatShading: true,
+      }));
+      rm.castShadow = !this.low;
+      rm.receiveShadow = !this.low;
+      this.scene.add(rm);
+    }
+
+    // --- the three doors
     this.doorGlows = [];
     for (const lane of LANES) {
       const p = lane.points[0];
       const ang = Math.atan2(lane.segs[0].dx, lane.segs[0].dz);
       const arch = new THREE.Mesh(assemble([
-        { g: box(lane.width + 2.4, 0.9, 1.4), y: 6.2 },
-        { g: box(1.3, 6.4, 1.4), x: (lane.width + 1.1) / 2, y: 3.2 },
-        { g: box(1.3, 6.4, 1.4), x: -(lane.width + 1.1) / 2, y: 3.2 },
-      ]), new THREE.MeshStandardMaterial({ color: PAL.wallTop, roughness: 0.85 }));
+        { g: box(lane.width + 3.4, 1.3, 2.2), y: 7.0 },
+        { g: box(1.8, 7.2, 2.2), x: (lane.width + 1.8) / 2, y: 3.6 },
+        { g: box(1.8, 7.2, 2.2), x: -(lane.width + 1.8) / 2, y: 3.6 },
+        { g: box(lane.width + 4.8, 0.8, 2.6), y: 8.0 },
+      ]), new THREE.MeshStandardMaterial({
+        color: PAL.wallTop, roughness: 0.85, flatShading: true,
+      }));
       arch.position.set(p[0], 0, p[1]);
       arch.rotation.y = ang;
+      arch.castShadow = !this.low;
       this.scene.add(arch);
 
       const g = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: this.glowTex, color: 0x6f3fbf, transparent: true,
+        map: this.glowTex, color: 0x8a4fd0, transparent: true,
         blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.5,
       }));
-      g.position.set(p[0], 2.4, p[1]);
-      g.scale.set(11, 11, 1);
+      g.position.set(p[0], 2.8, p[1]);
+      g.scale.set(12, 12, 1);
       this.scene.add(g);
-      const dl = new THREE.PointLight(0x7a4fd0, 46, 26, 2);
-      dl.position.set(p[0] - lane.segs[0].dx * 2, 4.4, p[1] - lane.segs[0].dz * 2);
+
+      const dl = new THREE.PointLight(0x8a4fd0, 48, 28, 2);
+      dl.position.set(p[0] - lane.segs[0].dx * 2, 4.6, p[1] - lane.segs[0].dz * 2);
       this.scene.add(dl);
       this.doorGlows.push({ sprite: g, lane: lane.id, base: 0.5, light: dl });
     }
@@ -412,30 +567,73 @@ export class Renderer {
   // -------------------------------------------------------------- wardstone
   _buildStone() {
     const grp = new THREE.Group();
-    const plinth = new THREE.Mesh(assemble([
-      { g: new THREE.CylinderGeometry(STONE_DEF.radius, STONE_DEF.radius + 0.5, 0.5, 8), y: 0.25 },
-      { g: new THREE.CylinderGeometry(STONE_DEF.radius - 0.7, STONE_DEF.radius, 0.5, 8), y: 0.75 },
-      { g: new THREE.CylinderGeometry(1.5, STONE_DEF.radius - 0.7, 0.6, 8), y: 1.3 },
-    ]), new THREE.MeshStandardMaterial({ color: 0x2c3346, roughness: 0.8, metalness: 0.15 }));
-    plinth.receiveShadow = !this.low;
-    plinth.castShadow = !this.low;
-    grp.add(plinth);
+    const R = STONE_DEF.radius;
 
+    // A stepped octagonal dais, not a smooth dome. A high-segment cylinder
+    // reads as a beige blob at this camera distance; eight sides, flat shaded,
+    // with a visible riser per tier reads as cut stone.
+    const steps = [];
+    const tiers = [
+      { r: R + 1.6, h: 0.40, y: 0.00 },
+      { r: R + 0.9, h: 0.40, y: 0.40 },
+      { r: R + 0.2, h: 0.40, y: 0.80 },
+      { r: R - 0.6, h: 0.46, y: 1.20 },
+    ];
+    for (const t of tiers) {
+      steps.push({ g: new THREE.CylinderGeometry(t.r, t.r, t.h, 8), y: t.y + t.h / 2 });
+    }
+    const dais = new THREE.Mesh(assemble(steps), new THREE.MeshStandardMaterial({
+      color: 0x6e6559, roughness: 0.9, metalness: 0.06, flatShading: true,
+    }));
+    dais.receiveShadow = !this.low;
+    dais.castShadow = !this.low;
+    grp.add(dais);
+
+    // Four corner obelisks. They give the centrepiece a silhouette and, more
+    // usefully, something for the crystal's light to actually fall on — a lone
+    // floating gem lights nothing and so looks pasted on.
+    const posts = [];
+    for (let i = 0; i < 4; i++) {
+      const a = Math.PI / 4 + i * Math.PI / 2;
+      const px = Math.cos(a) * (R + 0.6), pz = Math.sin(a) * (R + 0.6);
+      posts.push({ g: box(0.85, 0.5, 0.85), x: px, y: 1.9, z: pz, ry: a });
+      posts.push({ g: box(0.62, 2.5, 0.62), x: px, y: 3.15, z: pz, ry: a });
+      posts.push({ g: box(0.9, 0.42, 0.9), x: px, y: 4.55, z: pz, ry: a });
+    }
+    const obelisks = new THREE.Mesh(assemble(posts), new THREE.MeshStandardMaterial({
+      color: 0x565d70, roughness: 0.55, metalness: 0.45, flatShading: true,
+    }));
+    obelisks.castShadow = !this.low;
+    grp.add(obelisks);
+
+    // The stone itself: two counter-rotating shells so it reads as a solid
+    // object turning in space rather than a flat lozenge.
+    // See [[a-sphere-must-show-its-rotation]].
     this.crystal = new THREE.Mesh(
-      new THREE.OctahedronGeometry(1.5, 0),
+      new THREE.OctahedronGeometry(1.45, 0),
       new THREE.MeshStandardMaterial({
         color: PAL.stoneCore, emissive: PAL.stone, emissiveIntensity: 2.4,
-        roughness: 0.25, metalness: 0.1,
+        roughness: 0.22, metalness: 0.1, flatShading: true,
       }));
-    this.crystal.position.y = 3.3;
+    this.crystal.position.y = 3.5;
     this.crystal.castShadow = !this.low;
     grp.add(this.crystal);
+
+    this.crystalShell = new THREE.Mesh(
+      new THREE.OctahedronGeometry(2.15, 0),
+      new THREE.MeshStandardMaterial({
+        color: PAL.stone, emissive: PAL.stone, emissiveIntensity: 0.5,
+        transparent: true, opacity: 0.16, roughness: 0.1,
+        flatShading: true, side: THREE.DoubleSide, depthWrite: false,
+      }));
+    this.crystalShell.position.y = 3.5;
+    grp.add(this.crystalShell);
 
     this.stoneGlow = new THREE.Sprite(new THREE.SpriteMaterial({
       map: this.glowTex, color: PAL.stone, transparent: true,
       blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.9,
     }));
-    this.stoneGlow.position.y = 3.3;
+    this.stoneGlow.position.y = 3.5;
     this.stoneGlow.scale.set(13, 13, 1);
     grp.add(this.stoneGlow);
 
@@ -759,12 +957,19 @@ export class Renderer {
     // --- the stone is the health bar. Its light dims as it is worn down.
     const sf = Math.max(0, world.stone.hp / world.stone.maxHp);
     const pulse = 1 + Math.sin(this.t * 2.2) * 0.06;
-    this.key.intensity = (70 + 230 * sf) * pulse;
-    this.hemi.intensity = 0.5 + 0.55 * sf;
+    this.key.intensity = (95 + 250 * sf) * pulse;
+    // floor is 0.62 so the room stays readable even at zero stone health
+    this.hemi.intensity = 0.34 + 0.34 * sf;
     this.crystal.material.emissiveIntensity = (0.7 + 2.2 * sf) * pulse;
     this.crystal.rotation.y += dt * 0.5;
     this.crystal.rotation.x = Math.sin(this.t * 0.7) * 0.12;
-    this.crystal.position.y = 3.3 + Math.sin(this.t * 1.4) * 0.14;
+    this.crystal.position.y = 3.5 + Math.sin(this.t * 1.4) * 0.16;
+    if (this.crystalShell) {
+      this.crystalShell.position.y = this.crystal.position.y;
+      this.crystalShell.rotation.y -= dt * 0.34;
+      this.crystalShell.rotation.z += dt * 0.16;
+      this.crystalShell.material.opacity = 0.06 + 0.16 * sf;
+    }
     this.stoneGlow.material.opacity = (0.20 + 0.40 * sf) * pulse;
     const gs = 8 + 6 * sf;
     this.stoneGlow.scale.set(gs, gs, 1);
