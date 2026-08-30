@@ -212,3 +212,73 @@ legs and we currently do not.
 - DD1's mana is both currency AND ammunition for abilities, which makes the
   economy hard to reason about. Ours does two jobs (build, mend) and that is
   already the ceiling.
+
+---
+
+# Second pass against The Deeper Well (after the autonomous sessions)
+
+## Closed since the first comparison
+
+| Gap | How |
+|---|---|
+| **Overhead build camera** | Tab. Blended, pannable, works mid-wave. Was ranked the single biggest gap; it is gone. |
+| **Nothing to do in the muster** | Seven breakable caches scatter every muster, off-road and away from the fire. |
+| **No bomber** | *still open — see below* |
+| **No difficulty selection** | *still open* |
+| **No loot** | *still deferred, deliberately* |
+| Repair had no feedback | Ward health bars in their own colour while mending, plus a visible stream. |
+| No in-world spawn markers | Count + foe-type pips + track name floating over each gate during muster. |
+| No between-wave summary | What died, wards lost, fire remaining, what is coming next. |
+| No range preview on existing wards | Stand next to one, or point at it in the build view. |
+
+## Where we now go beyond DD1's first level
+
+- **The balance is measured, not asserted.** 30 assertions, 11 fuzz invariants,
+  a swept unit budget on two maps, and a test that proves the player's anti-air
+  work is load-bearing by taking it away and showing the same bot lose.
+- **A guided tutorial with real checks**, not a text popup.
+- **Weapon switching, block, roll and an ability** — DD1's opening hero has one
+  weapon and class towers.
+- **A slow ward.** DD1's starting classes have no pure area-denial tower;
+  caltrops give the set a fourth VERB rather than a fourth damage type.
+- **Wards arrive with the problem they answer**, rather than all at once.
+
+## Still missing, in order of what it costs
+
+### 1. A bomber — the last missing threat SHAPE
+Every foe we have walks up and hits something. DD's kobolds run at your
+defences and explode. It is the only archetype that punishes stacking one
+line and the only one that rewards killing BEFORE contact — a defensive verb
+nothing in our set currently demands. This is the highest-value single addition
+left, and it needs the suite re-run because it changes what walls are worth.
+
+### 2. Difficulty levels
+We ship one curve, tuned so a near-optimal bot wins 7–9 of 10 with the fire
+around a fifth to a third remaining. A human's first run is a different game.
+Cheap to add, and it is the standard answer to "too hard / too easy".
+
+### 3. A reason to replay a cleared map
+DD1's hook is gear that buffs your TOWERS, so replaying advances you. We have
+upgrades within a run and nothing across runs. Still correctly deferred until
+a human confirms the core is fun, but it is why DD1 has legs.
+
+### 4. Things noticed only now that the rest exists
+- **No pause, and no restart without reloading.** Esc opens settings mid-fight
+  and the game keeps running underneath.
+- **No volume control** — music and sound are on/off only.
+- **No save or resume.** A six-wave run is ~10 minutes; losing it to a closed
+  tab will sting.
+- **Sell has no confirmation and no refund feedback** beyond the mana counter.
+- **The tutorial only covers the glade.** The gauntlet has no introduction.
+- **One objective.** Later DD maps have several crystals, which turns the unit
+  budget from "which lane" into "which objective" — a genuinely different
+  problem, and the natural shape for level 3 or 4.
+
+## The honest headline
+
+**Nobody has played this to the end.** Every number in the suite is defended by
+a bot that plays near-optimally, never panics, and now upgrades. It cannot tell
+us whether wave 6 is thrilling or exhausting, whether the caches are a nice
+ritual or a chore, or whether the fire dimming as it dies actually lands. That
+remains the only question measurement cannot answer, and it still gates
+everything above.
