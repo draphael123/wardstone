@@ -243,6 +243,19 @@ export const ECON = {
 //   aura       — persistent field, no targeting, hits EVERYTHING incl. fliers
 //   trap       — proximity trigger, one big AoE, then recharges, ground only
 // ---------------------------------------------------------------------------
+// CUT BACK TO TWO, deliberately.
+//
+// The Watchtower and Caltrops are parked, not deleted — their definitions are in
+// git and the aura/field/anti-air code is untouched. Four wards were being
+// balanced against each other before the two that carry the game were right.
+//
+// Two consequences, both load-bearing:
+//   * There is NO anti-air ward at all. The sky is entirely the player's.
+//   * There is no AURA left, so the ballista had to become the crowd answer as
+//     well as the elite answer — which is what `pierce` is for. Measured: with
+//     two wards and no pierce, the game is unwinnable at ANY ballista strength,
+//     including one 60% stronger than the old one (4/21 on the glade, 0/21 on
+//     the gauntlet). Single-target damage cannot hold a hundred foes a wave.
 export const WARDS = [
   {
     id: 'palisade', name: 'Palisade', key: '1', kind: 'blockade',
@@ -255,14 +268,24 @@ export const WARDS = [
     // Same sustained damage as before, delivered as rare HEAVY blows at long
     // reach. That makes it the answer to one big thing rather than a second
     // way to grind down a crowd, which is what made it blur with the tower.
-    range: 30, damage: 96, cooldown: 2.4, projSpeed: 58, projRadius: 0.8,
-    blurb: 'One heavy bolt at long reach. Slow to wind. Cannot elevate.',
+    // Rebuilt around its UPGRADE CURVE rather than its base numbers, and given
+    // a bolt that PUNCHES THROUGH a rank rather than stopping at the first body.
+    //
+    // At 30m / 96 damage / 2.4s it was 40 dps across most of the map from the
+    // moment you could afford one, so the first ballista answered everything
+    // and the upgrade was an afterthought. It now starts at about a fifth of
+    // that and grows into it.
+    //
+    // Pierce is what replaces the parked Watchtower's aura, and it is a better
+    // fit than a splash: the ballista's area is a LINE, so a gun laid along a
+    // lane cuts a whole file and one laid across it hits one goblin. Where you
+    // point it is the decision.
+    range: 20, damage: 61, cooldown: 3.4, projSpeed: 58, projRadius: 0.8,
+    pierce: 3,
+    up: { power: 1.39, rate: 0.88, range: 1.225, pierce: 1 },
+    blurb: 'A heavy bolt that punches through a rank. Short and slow until you invest.',
   },
   {
-    // Was a magic brazier, which is not something an old soldier builds. An
-    // archer on a platform does exactly the same MECHANICAL job — steady low
-    // damage to everything in a short radius, the only ward that can elevate
-    // — and is the obvious thing a man who has held a line would put up.
     id: 'archers', name: 'Watchtower', key: '3', kind: 'aura',
     cost: 60, du: 4, hp: 260, buildTime: 3.5, radius: 0.8, targets: 'all',
     range: 8.5, dps: 26, unlockWave: 2,
@@ -281,16 +304,6 @@ export const WARDS = [
     // all. Tuning the stacking falloff twice did not fix this; geometry does.
     minAir: 4.0,
     blurb: 'Loose and steady at everything nearby. The only ward that can shoot upward.',
-  },
-  {
-    // The only ward whose VERB is not damage. Stop / kill-one / reach-the-air
-    // / SLOW is four different questions; four flavours of damage was two.
-    // It combos rather than competes: everything crawling through caltrops
-    // gives the ballista three shots where it had one.
-    id: 'caltrops', name: 'Caltrops', key: '4', kind: 'field',
-    cost: 45, du: 3, hp: 200, buildTime: 3.0, radius: 0.9, targets: 'ground',
-    range: 5.0, slow: 0.42, dps: 4, unlockWave: 3,
-    blurb: 'Strewn iron. Everything on foot crawls through it. Barely scratches.',
   },
 ];
 

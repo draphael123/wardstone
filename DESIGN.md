@@ -1204,3 +1204,72 @@ but the mesh's origin was the model root, so every lean swung the whole cloth
 out behind him like a detached plank. Reported as *"what is this thing behind
 the knight?"* — it was his cape, three feet away from him. It now pivots at the
 shoulders.
+
+---
+
+# The ballista rebuild, and what the measurements refused to allow
+
+Two requests: cut the ward set to Palisade + Ballista, and put the ballista at
+about 20% of its power with upgrades taking it back to current. Both were built
+and measured. **Neither survived contact with the numbers, and the reason is the
+same in both cases.**
+
+## Cutting to two wards does not hold — at any ballista strength
+
+With Palisade + Ballista only, at the current wave table:
+
+| configuration | glade | gauntlet |
+|---|---|---|
+| ballista at 20% base | 0/21 | 0/21 |
+| ballista at 20%, **pierce 10** | 0/21 | 0/21 |
+| ballista at 20%, **48 defence units** | 0/21 | 0/21 |
+| ballista at 20%, **10% of the air** | 0/21 | 1/21 |
+| ballista at **100% base** (the old gun) with pierce | 2/21 | 12/21 |
+| ballista at 64 dps — *60% stronger than the old one* | 4/21 | 0/21 |
+
+Cutting air did not help: the leak simply moved to the ground and the total
+stayed at ~3000. The Watchtower's aura was doing far more work than its four
+units suggested — it is the only thing in the set that damages a **crowd**, and
+a hundred foes a wave is a crowd problem, not an elite one.
+
+Two wards only becomes playable at roughly **a third of the current wave volume**
+(115 foes instead of 316: glade 9/21, gauntlet 12/21) — which is a smaller game,
+not the same game with fewer buttons.
+
+## Pierce was still the right idea
+
+It is kept, and it is what makes three wards enough where four were needed.
+A ballista's area is a **line**: laid along a lane it cuts a whole file, laid
+across one it hits a single goblin. Where you point it is the decision.
+
+Measured at matched volume, pierce is worth roughly **+50%**: 9/21 and 12/21
+with it against 6/21 and 5/21 without.
+
+It also exposed a flaw in the *instrument*: the bot placed every ballista 3.5–7 m
+**beside** a lane, so pierce never triggered. Guns now go on the lane axis.
+
+## Where it landed
+
+**Three wards — Palisade, Ballista, Watchtower.** Caltrops parked. And the
+ballista rebuilt as a curve rather than a flat number:
+
+| | damage | cadence | reach | pierce | single-target |
+|---|---|---|---|---|---|
+| L1 | 61 | 3.40 s | 20 m | 3 | 18 dps |
+| L2 | 85 | 2.99 s | 25 m | 4 | 28 dps |
+| L3 | 118 | 2.63 s | 30 m | 5 | 45 dps |
+| *old* | *96* | *2.40 s* | *30 m* | *1* | *40 dps* |
+
+The intent behind "20%" is honoured — the first ballista is **under half** the
+old gun and reaches two thirds as far, so it is no longer an instant answer and
+upgrading is a real decision. 20% itself was measured and does not hold: it is
+2/21 even with three wards. **45% is the lowest base that lands in band**, and
+it does: glade 16/21, gauntlet 17/21.
+
+## T3 was measuring the wrong thing
+
+It asserted the flier-capable ward had the lowest dps. That stopped meaning
+anything once the ballista became a curve whose base is deliberately below
+everything — and raw dps never compared an aura to a piercing gun anyway. It now
+asserts the claim underneath: **the ward that reaches the sky pays for it**, with
+the shortest reach of any damage ward and only 55% of its damage landing upward.

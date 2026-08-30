@@ -93,7 +93,7 @@ function auditType(foeId, opts = {}) {
     for (let j = -16; j < 16 && built.length < 3; j++) {
       for (let i = -16; i < 16 && built.length < 3; i++) {
         if (Math.hypot(i, j) < 4) continue;
-        const id = built.length === 0 ? 'palisade' : (built.length === 1 ? 'ballista' : 'archers');
+        const id = built.length === 0 ? 'palisade' : 'ballista';
         if (w.canBuild(id, i, j).ok && nearestLane(...Object.values(cellXZ(i, j))).dist < 6) {
           const b = w.build(id, i, j, 0);
           if (b) built.push(b);

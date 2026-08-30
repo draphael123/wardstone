@@ -226,6 +226,26 @@ export class World {
   // NOTE: sell() and hurtWard() MARK a ward dead; `this.wards` is compacted at
   // the end of step(). Callers must not loop on wards.length expecting it to
   // shrink — it will not until the next step, and that loop will hang.
+  // Effective stats for a ward at its current level. A ward may declare `up` to
+  // scale reach, rate and pierce with level, not just damage — the ballista
+  // does, because its problem was that a LEVEL 1 one already reached across the
+  // map. Anything without `up` behaves exactly as before.
+  wardRange(w) {
+    const u = w.def.up;
+    return u && u.range ? w.def.range * Math.pow(u.range, w.level - 1) : w.def.range;
+  }
+
+  wardCooldown(w) {
+    const u = w.def.up;
+    return u && u.rate ? w.def.cooldown * Math.pow(u.rate, w.level - 1) : w.def.cooldown;
+  }
+
+  wardPierce(w) {
+    const u = w.def.up;
+    const base = w.def.pierce || 1;
+    return u && u.pierce ? base + u.pierce * (w.level - 1) : base;
+  }
+
   upgradeCost(w) {
     return Math.round(w.def.cost * UPGRADE.costMul * w.level);
   }
@@ -247,7 +267,10 @@ export class World {
     this.mana -= cost;
     this.stats.manaSpent += cost;
     w.level++;
-    w.power = Math.pow(UPGRADE.power, w.level - 1);
+    // A ward may declare its own damage growth; the ballista's is steeper
+    // because it starts far weaker and has to arrive back at useful.
+    const pw = (w.def.up && w.def.up.power) || UPGRADE.power;
+    w.power = Math.pow(pw, w.level - 1);
     const frac = w.hp / w.maxHp;
     w.maxHp = Math.round(w.def.hp * w.power);
     w.hp = Math.round(w.maxHp * Math.max(frac, 0.5));   // a top-up comes with it
@@ -1522,9 +1545,10 @@ export class World {
         // Retarget on a timer, not every frame — 120 foes x N wards every
         // frame is the one place this sim could actually get expensive.
         w.retarget -= dt;
+        const wRange = this.wardRange(w);
         if (w.retarget <= 0 || !w.target || w.target.dead ||
-            Math.hypot(w.target.x - w.x, w.target.z - w.z) > def.range) {
-          this.foeHash.query(w.x, w.z, def.range, near);
+            Math.hypot(w.target.x - w.x, w.target.z - w.z) > wRange) {
+          this.foeHash.query(w.x, w.z, wRange, near);
           w.target = this._pickTarget(w, near);
           w.retarget = 0.2;
         }
@@ -1538,8 +1562,10 @@ export class World {
             dx: dx / d, dy: dy / d, dz: dz / d,
             speed: def.projSpeed, damage: def.damage * w.power, radius: def.projRadius,
             target: t, life: 3, dead: false,
+            // how many bodies this bolt can still punch through
+            pierce: this.wardPierce(w), hit: null,
           });
-          w.cd = def.cooldown;
+          w.cd = this.wardCooldown(w);
           this.emit({ type: 'shoot', x: w.x, z: w.z, ward: def.id });
         }
       }
@@ -1621,12 +1647,24 @@ export class World {
       for (let n = 0; n < near.length; n++) {
         const f = near[n];
         if (f.dead) continue;
+        if (b.hit && b.hit.has(f.id)) continue;      // already punched through
         const dy = Math.abs((f.y + f.def.height * 0.5) - b.y);
         if (dy > f.def.height * 0.5 + b.radius) continue;
         if (Math.hypot(f.x - b.x, f.z - b.z) > f.def.radius + b.radius) continue;
+        // A piercing bolt keeps going. It records who it has already hit so a
+        // single shot cannot chew the same body twice on consecutive steps,
+        // and it stops homing once it is through its first target — a bolt
+        // that curved onto each new victim would be a seeking missile, not a
+        // line through a rank.
         this.hurtFoe(f, b.damage, b.source);
-        b.dead = true;
         this.emit({ type: 'impact', x: b.x, y: b.y, z: b.z, source: b.source });
+        if (b.pierce && b.pierce > 1) {
+          b.pierce--;
+          (b.hit || (b.hit = new Set())).add(f.id);
+          b.target = null;
+        } else {
+          b.dead = true;
+        }
         break;
       }
     }

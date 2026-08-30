@@ -64,6 +64,17 @@ function sealCells(lane, d) {
 }
 
 // Somewhere beside the lane, in range of it, out of the walking line.
+// ON the lane's own axis, which is where a PIERCING gun wants to be: it fires
+// back up the queue and the bolt runs the length of the file. A ballista set
+// beside a lane shoots across it and punches through exactly one goblin.
+function onLaneCell(lane, d) {
+  for (const o of [0, 1.2, -1.2, 2.4, -2.4]) {
+    const c = cellsAcross(lane, d, [o])[0];
+    if (c) return c;
+  }
+  return null;
+}
+
 function supportCell(lane, d, side) {
   for (const o of [side * 5, side * 7, side * 3.5, -side * 5, -side * 7]) {
     const c = cellsAcross(lane, d, [o])[0];
@@ -97,7 +108,7 @@ function shoppingList(plan = 'balanced') {
     const lane = LANE_BY_ID[id];
     const d = at(lane, 0.16, 6);
     for (const c of sealCells(lane, d)) list.push({ ward: 'palisade', ...c });
-    const b = supportCell(lane, d + 5, 1);
+    const b = onLaneCell(lane, d + 5);
     if (b) list.push({ ward: 'ballista', ...b });
   }
   // pass 2 — braziers, the only answer to a wisp that is not the player
@@ -110,7 +121,6 @@ function shoppingList(plan = 'balanced') {
   for (const id of laneOrder) {
     const lane = LANE_BY_ID[id];
     const c = cellsAcross(lane, at(lane, 0.24, 9), [0, -2, 2])[0];
-    if (c) list.push({ ward: 'caltrops', ...c });
   }
   // pass 4 — a second ballista per lane, deeper in
   for (const id of laneOrder) {
@@ -154,7 +164,7 @@ function groundHeavyList() {
     const lane = LANE_BY_ID[id];
     const d = Math.max(6, lane.total * 0.16);
     for (const c of sealCells(lane, d)) list.push({ ward: 'palisade', ...c });
-    const b = supportCell(lane, d + 5, 1);
+    const b = onLaneCell(lane, d + 5);
     if (b) list.push({ ward: 'ballista', ...b });
   }
   for (const id of laneOrder) {
@@ -162,7 +172,6 @@ function groundHeavyList() {
     const c = supportCell(lane, Math.max(18, lane.total * 0.5), 1);
     if (c) list.push({ ward: 'ballista', ...c });
     const t = cellsAcross(lane, Math.max(9, lane.total * 0.24), [0, -2, 2])[0];
-    if (t) list.push({ ward: 'caltrops', ...t });
   }
   return list;
 }
@@ -483,10 +492,24 @@ export function runTests(log = console.log) {
     WARDS.filter(x => x.targets === 'all').length === 1,
     WARDS.filter(x => x.targets === 'all').map(x => x.name).join(','));
 
-  ok('T3  the flier-capable ward is the weakest',
-    Math.min(...WARDS.filter(w => w.kind === 'projectile').map(w => w.damage / w.cooldown)) >
-      WARD_BY_ID.archers.dps,
-    `brazier ${WARD_BY_ID.archers.dps} dps vs ballista ${(WARD_BY_ID.ballista.damage / WARD_BY_ID.ballista.cooldown).toFixed(0)}`);
+  // Was "the flier-capable ward has the lowest dps". That stopped being a
+  // meaningful comparison once the ballista became an upgrade CURVE — its base
+  // is deliberately below everything — and raw dps was never comparable between
+  // an aura and a piercing gun anyway.
+  //
+  // The claim underneath it is what actually matters and is what is asserted
+  // now: the ward that can reach the sky PAYS for it. It has the shortest reach
+  // of any damage ward, and it lands only a fraction of its damage upward.
+  {
+    const air = WARDS.filter(x => x.airMul != null);
+    const shortest = air.every(a =>
+      WARDS.filter(x => x.range && x.id !== a.id).every(x => x.range > a.range));
+    const weakUp = air.every(a => a.airMul < 0.7);
+    ok('T3  the ward that reaches the sky pays for it — shortest reach, partial damage',
+      air.length > 0 && shortest && weakUp,
+      air.map(a => `${a.name} ${a.range}m, ${(a.airMul * 100).toFixed(0)}% damage upward`).join('; ') +
+      ` (ballista reaches ${WARD_BY_ID.ballista.range}m at level 1)`);
+  }
 
   ok('T4  six waves, escalating foe count',
     WAVES.length === 6 && WAVES.every((w, i) => i === 0 || waveFoeCount(w) >= waveFoeCount(WAVES[i - 1])),
@@ -616,33 +639,8 @@ export function runTests(log = console.log) {
 
   // --- Caltrops are the one ward whose output is not damage, so "does it
   // work?" has to be measured as TIME over a fixed stretch, not as hit points.
-  {
-    const walkTime = (withField) => {
-      const w = sandbox();
-      w.mana = 99999;
-      if (withField) {
-        for (const d of [10, 14, 18]) {
-          const c = cellsAcross(LANE_BY_ID.north, d, [0])[0];
-          if (c) w.build('caltrops', c.i, c.j);
-        }
-      }
-      w._spawn('north', 'husk');
-      const f = w.foes[0];
-      f.off = 0;
-      w.phase = 'combat';
-      let t = 0;
-      for (let i = 0; i < Math.round(40 / DT); i++) {
-        w.step(DT); t += DT;
-        if (f.dist >= 22) break;
-      }
-      return t;
-    };
-    const open = walkTime(false), strewn = walkTime(true);
-    ok('T10b caltrops slow what crosses them (A/B over the same 22m)',
-      strewn > open * 1.3,
-      `${open.toFixed(1)}s clear vs ${strewn.toFixed(1)}s strewn ` +
-      `(${((strewn / open - 1) * 100).toFixed(0)}% slower)`);
-  }
+  // The caltrops A/B lived here. Caltrops are parked for now, so there is
+  // nothing for it to measure; it returns when the ward does.
 
   {
     const w = sandbox();
