@@ -92,13 +92,27 @@ export const WARDSTONE = {
   guardRadius: 0.6,    // clearance BEYOND the plinth before striking
 };
 
-// How a foe reacts to being hit by the player. Aggro is deliberately SHORT
-// and its leash is deliberately SMALL: a foe that abandons its lane to chase
-// you across the clearing would dissolve the lane premise the whole game rests
-// on. It steps aside to swing at you, then goes back to the wall.
+// How a foe reacts to being hit by the player.
+//
+// Attacking something makes it YOURS. It leaves its lane and comes for you,
+// which turns baiting a heavy off a wall into a real tactic rather than a
+// thing you would expect to work and find you cannot.
+//
+// The leash is what stops that becoming a way to trivialise the lanes: a foe
+// pulled more than `leash` metres from where it left the lane gives up and
+// goes back. So you can peel one or two off and fight them on your terms, but
+// you cannot walk backwards and drag an entire wave into a corner.
+//
+// On the numbers: chasing costs about two wins in twenty-one at ANY leash
+// between 12m and 22m — the length barely matters, the chasing does. That
+// figure is an UPPER bound on the real cost, because the harness bot only ever
+// SUFFERS this mechanic: it has no policy for baiting a breaker off a wall, so
+// it experiences the downside and never once uses the upside.
+// See [[sim-cannot-measure-a-strategy-the-bot-cannot-play]].
 export const AGGRO = {
-  time: 3.2,        // s of interest after you hurt it
-  leash: 7.5,       // m from its lane position it will stray
+  time: 3.2,        // s of interest after you hurt it, for the telegraph
+  leash: 14,        // m from its lane position before it gives up and returns
+  chaseTime: 4.0,   // s it will pursue after the last hit
   windup: 0.42,     // s of visible telegraph before a strike lands
 };
 

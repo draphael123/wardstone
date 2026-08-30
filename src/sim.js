@@ -514,7 +514,7 @@ export class World {
     // and unidentifiable. A bolt is 26, an aura tick is 0.4.
     if (dealt > 4) f.hitT = 0.1;
     if (source === 'player' && dealt > 0) {
-      f.aggroT = AGGRO.time;      // it noticed
+      f.aggroT = AGGRO.chaseTime;   // it noticed, and it is coming
       this.emit({ type: 'dmg', x: f.x, y: f.y + f.def.height * 0.8, z: f.z, amount: dealt });
     }
     const bucket = this.stats.dmgToFoeBy[source];
@@ -972,8 +972,16 @@ export class World {
       }
       // An aggroed ground foe leaves its lane to come at you — but only within
       // a short leash, so a whole wave can never be kited off the map.
+      // How far it has been pulled from the lane it left, not how far it is
+      // from the player — otherwise backing away from a foe would call it off
+      // at exactly the moment it should be committing to you.
+      const q = laneAt(f.lane, f.dist, f.off);
+      const strayed = Math.hypot(f.x - q.x, f.z - q.z);
       const chasing = !def.flying && f.aggroT > 0 && p.alive && !hitPlayer &&
-        dPlayer < AGGRO.leash;
+        strayed < AGGRO.leash;
+      // Given up on you: walk back to its lane rather than standing where it
+      // stopped, or a peeled foe would simply be deleted from the wave.
+      const returning = !def.flying && !chasing && strayed > 1.2 && f.aggroT <= 0;
 
       if (def.flying) {
         // Fliers ignore lanes and blockades entirely. This is the gap the
@@ -1066,7 +1074,13 @@ export class World {
           this.emit({ type: 'fuse', x: f.x, z: f.z });
           continue;
         }
-        if (f.standing) {
+        if (returning) {
+          const rx = q.x - f.x, rz = q.z - f.z;
+          const rl = Math.hypot(rx, rz) || 1;
+          f.x += (rx / rl) * spd * dt;
+          f.z += (rz / rl) * spd * dt;
+          f.targetKind = null;
+        } else if (f.standing) {
           // held in place by its own firing line
         } else if (chasing && !blocked) {
           // walk at the player directly, in world space, off the lane

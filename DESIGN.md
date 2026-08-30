@@ -775,3 +775,35 @@ were not moved to make them pass.
 Every weapon must sit at `position.x > 0.32`, because that is the side the swing
 shader rotates. A weapon anywhere else does not move when the goblin attacks.
 That is now a rule for authoring foes rather than an accident of the first one.
+
+---
+
+# Attacking something makes it yours
+
+Reported: "enemies should attack the player when attacked, not just move
+forward." They already retaliated — but the leash was **7.5 m**, so a foe you
+hit took two steps toward you and went back to the lane. The intent was there
+and the number made it invisible.
+
+The leash is now **14 m** with a 4 s pursuit, and — this is the part that was
+missing — a foe that gives up **walks back to its lane** rather than standing
+where it stopped, which would have quietly deleted it from the wave.
+
+The leash is also measured from **where it left the lane**, not from the player.
+Measuring from the player means backing away calls the foe off at exactly the
+moment it should be committing to you.
+
+## What the measurement can and cannot say
+
+Chasing costs about **two wins in twenty-one, at any leash between 12 m and
+22 m** — the length barely matters, the chasing does.
+
+That number is an **upper bound**, and the reason is worth stating: the harness
+bot only ever *suffers* this mechanic. It has no policy for baiting a breaker
+off a wall, so it takes the whole downside and never once uses the upside. A
+human who peels a heavy away from a lane and kills it on open ground is playing
+a mechanic the measurement cannot see
+([[sim-cannot-measure-a-strategy-the-bot-cannot-play]]).
+
+So the leash was set at the point where the suite still holds — 14 m, nearly
+double the old one — rather than at the point the bot happens to prefer.
