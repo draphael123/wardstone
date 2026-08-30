@@ -519,6 +519,10 @@ function frame(now) {
     drainEvents();
     syncHud();
     if (state.snd) state.snd.setPhase(state.world.phase);
+    const ph = state.world.phase;
+    if ((ph === 'won' || ph === 'lost') && !$('over').classList.contains('on')) {
+      endGame(ph === 'won');
+    }
   }
   state.rend.update(state.world, dt, { moving: state._moving });
 }
@@ -566,6 +570,10 @@ function boot() {
   // See [[preview-panel-raf-blackscreen]].
   setInterval(() => {
     if (performance.now() - state.lastFrame > 900) {
+      // Drain as well as render. The end-of-game overlay is raised from a sim
+      // EVENT, so a watchdog that only re-renders leaves a finished game with
+      // no result screen for as long as rAF stays throttled.
+      if (state.running) { drainEvents(); syncHud(); }
       state.rend.update(state.world, 0.016, { moving: false });
       state.lastFrame = performance.now();
     }
