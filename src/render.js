@@ -38,7 +38,7 @@ export const PAL = {
   timber:   0x8a5f38,
   iron:     0x646b7d,
   ember:    0xff8b3d,
-  deadfall:    0xa579ff,
+  caltrops:    0xa579ff,
   player:   0x9aa8bd,
   cloak:    0x9a2f3a,
   husk:     0xa8ae9c,
@@ -1559,7 +1559,7 @@ export class Renderer {
       archer.castShadow = !this.low;
       g.add(archer);
       g.userData.head = archer;         // turns toward its target like the ballista
-    } else if (def.id === 'deadfall') {
+    } else if (def.id === 'caltrops') {
       // a rigged log held up over the track; it drops, then has to be hauled
       // back up, which is exactly the trap's recharge
       const frame = new THREE.Mesh(assemble([

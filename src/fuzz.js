@@ -118,6 +118,15 @@ const INVARIANTS = [
       : w.wards.length > 200 ? `${w.wards.length} wards`
       : w.events.length > 600 ? `${w.events.length} events` : null],
 
+  ['slow stays a sane multiplier', (w) => {
+    for (let i = 0; i < w.foes.length; i++) {
+      const f = w.foes[i];
+      if (!num(f.slowK) || f.slowK <= 0 || f.slowK > 1) return `${f.kind} slowK ${f.slowK}`;
+      if (!num(f.slowT) || f.slowT > 2) return `${f.kind} slowT ${f.slowT}`;
+    }
+    return null;
+  }],
+
   ['phase is a known value', (w) =>
     ['build', 'combat', 'won', 'lost'].includes(w.phase) ? null : `phase is ${w.phase}`],
 

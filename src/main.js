@@ -88,7 +88,7 @@ function cellAhead() {
 function buildBar() {
   const bar = $('bar');
   bar.innerHTML = '';
-  const icons = { palisade: '&#9776;', ballista: '&#10142;', archers: '&#9670;', deadfall: '&#9678;' };
+  const icons = { palisade: '&#9776;', ballista: '&#10142;', archers: '&#9670;', caltrops: '&#9678;' };
   for (const w of WARDS) {
     const el = document.createElement('div');
     el.className = 'ward';
@@ -296,7 +296,7 @@ function drainEvents() {
         r.spark(e.x, 1, e.z, 0x8a7a5a, 20, 6, 1.5);
         r.addShake(0.25);
         break;
-      case 'deadfall':
+      case 'caltrops':
         r.ringBurst(e.x, 0.3, e.z, PAL.snare, e.r, 22);
         r.addShake(0.16);
         break;

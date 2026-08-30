@@ -283,7 +283,7 @@ export class World {
       hp: def.hp, maxHp: def.hp,
       atkCd: this.rng.range(0, 0.4),
       target: null, targetKind: null, dead: false, hitT: 0,
-      aggroT: 0, windT: 0, stunT: 0,
+      aggroT: 0, windT: 0, stunT: 0, slowT: 0, slowK: 1,
       // fliers cut the corner: they take the straight line to the stone
       fx: 0, fz: 0,
     };
@@ -527,7 +527,8 @@ export class World {
       id: NEXT_ID++, source: 'player',
       x: p.x, y: p.y + 1.2, z: p.z,
       dx: ux, dy: uy, dz: uz,
-      speed: wd.speed, damage: wd.damage,
+      speed: wd.speed,
+      damage: wd.damage * (best && best.def.flying && wd.airMul ? wd.airMul : 1),
       radius: wd.radius, target: best, life: wd.range / wd.speed,
       dead: false,
     };
@@ -565,7 +566,7 @@ export class World {
     // Wards are solid. Push out of any we ended up inside — a simple circle
     // resolve is enough because everything is a disc on a 2m grid.
     for (const w of this.wards) {
-      if (w.dead) continue;
+      if (w.dead || w.def.kind === 'field') continue;       // you walk over these too
       const dx = nx - w.x, dz = nz - w.z;
       const min = PLAYER.radius + w.def.radius;
       const d = Math.hypot(dx, dz);
@@ -655,7 +656,11 @@ export class World {
     // ---- wave end
     if (!this.sandbox && this.phase === 'combat' && !this.spawnQueue.length && !this.foes.length) {
       this.stats.wavesCleared++;
-      const bonus = 60 + 20 * this.waveIndex;
+      // Tuned, not guessed. At 60+20i the clear bonus alone funded a full
+      // rebuild after every wave regardless of how that wave had gone, which
+      // flattened the consequence of a bad one. Swept against the wave curve
+      // until the bot wins ~7/10 with roughly a fifth of the fire left.
+      const bonus = 52 + 16 * this.waveIndex;
       this.mana = Math.min(ECON.manaCap, this.mana + bonus);
       this.stats.manaEarned += bonus;
       this.emit({ type: 'waveClear', index: this.waveIndex, bonus });
@@ -687,6 +692,9 @@ export class World {
       // or the safe play is to park on top of the palisade and hold repair.
       if (f.aggroT > 0) f.aggroT -= dt;
       if (f.stunT > 0) { f.stunT -= dt; continue; }   // off its feet
+      // slow decays rather than switching off, so leaving a field reads
+      if (f.slowT > 0) { f.slowT -= dt; if (f.slowT <= 0) f.slowK = 1; }
+      const spd = def.speed * (f.slowT > 0 ? f.slowK : 1);
       let hitPlayer = false;
       let dPlayer = Infinity;
       if (p.alive) {
@@ -707,8 +715,8 @@ export class World {
         const stop = stoneStandoff(def);
         f.y += ((def.flyHeight) - f.y) * Math.min(1, dt * 2);
         if (d > stop) {
-          f.x += (dx / d) * def.speed * dt;
-          f.z += (dz / d) * def.speed * dt;
+          f.x += (dx / d) * spd * dt;
+          f.z += (dz / d) * spd * dt;
           f.targetKind = null;
         } else {
           f.targetKind = 'stone';
@@ -726,7 +734,7 @@ export class World {
         let bestAlong = Infinity;
         for (let n = 0; n < near.length; n++) {
           const w = near[n];
-          if (w.dead) continue;
+          if (w.dead || w.def.kind === 'field') continue;   // walk over, not into
           const dx = w.x - f.x, dz = w.z - f.z;
           // Resolve into travel-frame components rather than testing a raw
           // distance and a cone. A cone test says a ward SIDE-ON is not in the
@@ -746,11 +754,11 @@ export class World {
           // walk at the player directly, in world space, off the lane
           const cx = p.x - f.x, cz = p.z - f.z;
           const cl = Math.hypot(cx, cz) || 1;
-          f.x += (cx / cl) * def.speed * dt;
-          f.z += (cz / cl) * def.speed * dt;
+          f.x += (cx / cl) * spd * dt;
+          f.z += (cz / cl) * spd * dt;
           f.targetKind = null;
         } else if (!blocked && !atStone) {
-          f.dist += def.speed * dt;
+          f.dist += spd * dt;
           const q = laneAt(f.lane, f.dist, f.off);
           f.x = q.x; f.z = q.z;
           f.targetKind = null;
@@ -809,8 +817,16 @@ export class World {
     return best;
   }
 
+  // Overlapping AURAS give diminishing returns. Linear stacking meant the
+  // dominant strategy was to blanket one point rather than cover ground — and
+  // since every wisp converges on the fire, a ring of watchtowers there was a
+  // complete answer to the air with no player at all. Coverage is what units
+  // are supposed to buy; stacking must not be a way around them.
+  static AURA_FALLOFF = [1, 0.34, 0.15, 0.07];
+
   _stepWards(dt) {
     const near = this._scratch;
+    for (let i = 0; i < this.foes.length; i++) this.foes[i]._auraN = 0;
     for (const w of this.wards) {
       if (w.dead) continue;
       const def = w.def;
@@ -828,6 +844,22 @@ export class World {
       }
       if (def.kind === 'blockade') continue;
 
+      if (def.kind === 'field') {
+        // Persistent, no cooldown, almost no damage — its whole output is the
+        // slow. Refreshed every step while you stand in it, decays when you
+        // leave, so a foe drags out of it rather than snapping back to speed.
+        this.foeHash.query(w.x, w.z, def.range, near);
+        for (let n = 0; n < near.length; n++) {
+          const f = near[n];
+          if (f.dead || f.def.flying) continue;
+          if (Math.hypot(f.x - w.x, f.z - w.z) > def.range) continue;
+          f.slowT = 0.45;
+          f.slowK = def.slow;
+          if (def.dps) this.hurtFoe(f, def.dps * w.power * dt, 'ward');
+        }
+        continue;
+      }
+
       if (def.kind === 'aura') {
         // No targeting at all — it just burns whatever is standing in it.
         this.foeHash.query(w.x, w.z, def.range, near);
@@ -835,7 +867,21 @@ export class World {
           const f = near[n];
           if (f.dead) continue;
           if (Math.hypot(f.x - w.x, f.z - w.z) > def.range) continue;
-          this.hurtFoe(f, def.dps * w.power * (w.buffT > 0 ? ABILITY.wardBuff : 1) * dt, 'ward');
+          // Upgrades do NOT scale anti-air. This is load-bearing: defence
+          // units cap COVERAGE, but upgrades multiply POWER inside it — and
+          // for the sky coverage was never the constraint, because every wisp
+          // converges on the fire. Measured: with upgrades scaling air, a ring
+          // of levelled watchtowers won the whole game with the player stood
+          // still, which is the exact failure the unit budget exists to
+          // prevent. More arrows do not make hitting a darting light easier.
+          const flying = f.def.flying && def.airMul != null;
+          const power = flying ? 1 : w.power;
+          const airK = flying ? def.airMul : 1;
+          const fo = World.AURA_FALLOFF;
+          const stack = fo[Math.min(f._auraN || 0, fo.length - 1)];
+          f._auraN = (f._auraN || 0) + 1;
+          this.hurtFoe(f, def.dps * power * airK * stack *
+            (w.buffT > 0 ? ABILITY.wardBuff : 1) * dt, 'ward');
         }
         continue;
       }

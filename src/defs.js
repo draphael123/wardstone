@@ -34,7 +34,12 @@ export const PLAYER = {
   weapons: {
     crossbow: {
       name: 'Crossbow', kind: 'ranged', targets: 'all',
-      damage: 34, cooldown: 0.55,      // 62 dps
+      damage: 34, cooldown: 0.55,      // 62 dps on the ground
+      // and half as much again against anything airborne. Total anti-air in
+      // the game is roughly unchanged; what moves is WHO provides it. Simply
+      // nerfing the watchtower made the air leak and the run unwinnable —
+      // the capacity has to go somewhere, and the premise says it goes here.
+      airMul: 1.6,
       speed: 62, radius: 0.9, range: 34,
     },
     sword: {
@@ -158,26 +163,38 @@ export const WARDS = [
   {
     id: 'ballista', name: 'Ballista', key: '2', kind: 'projectile',
     cost: 70, du: 4, hp: 300, buildTime: 4.0, unlockWave: 1, radius: 0.8, targets: 'ground',
-    range: 22, damage: 42, cooldown: 1.1, projSpeed: 46, projRadius: 0.7,
-    blurb: 'Long reach, heavy bolt. Cannot elevate — ground only.',
+    // Same sustained damage as before, delivered as rare HEAVY blows at long
+    // reach. That makes it the answer to one big thing rather than a second
+    // way to grind down a crowd, which is what made it blur with the tower.
+    range: 30, damage: 96, cooldown: 2.4, projSpeed: 58, projRadius: 0.8,
+    blurb: 'One heavy bolt at long reach. Slow to wind. Cannot elevate.',
   },
   {
     // Was a magic brazier, which is not something an old soldier builds. An
     // archer on a platform does exactly the same MECHANICAL job — steady low
     // damage to everything in a short radius, the only ward that can elevate
     // — and is the obvious thing a man who has held a line would put up.
-    id: 'archers', name: 'Archer Post', key: '3', kind: 'aura',
+    id: 'archers', name: 'Watchtower', key: '3', kind: 'aura',
     cost: 60, du: 4, hp: 260, buildTime: 3.5, radius: 0.8, targets: 'all',
     range: 8.5, dps: 26, unlockWave: 2,
-    blurb: 'Loose and steady, at anything in reach. The only ward that can shoot upward.',
+    // It can shoot upward; it is BAD at it. "Only one ward reaches a flier"
+    // stopped being enough once you could ring the hearth with them, because
+    // every wisp converges there — measured, the player's share of the air had
+    // fallen to 39%, i.e. no specialisation at all. Loosing at something in
+    // the sky is hard, so it lands 40% of its damage there and the body still
+    // has to finish the job.
+    airMul: 0.55,
+    blurb: 'Loose and steady at everything nearby. The only ward that can shoot upward.',
   },
   {
-    // Was a magic snare. A rigged log is the same thing: one heavy blow to
-    // everything on the ground beneath it, then you have to haul it back up.
-    id: 'deadfall', name: 'Deadfall', key: '4', kind: 'trap',
+    // The only ward whose VERB is not damage. Stop / kill-one / reach-the-air
+    // / SLOW is four different questions; four flavours of damage was two.
+    // It combos rather than competes: everything crawling through caltrops
+    // gives the ballista three shots where it had one.
+    id: 'caltrops', name: 'Caltrops', key: '4', kind: 'field',
     cost: 45, du: 3, hp: 200, buildTime: 3.0, radius: 0.9, targets: 'ground',
-    range: 4.5, damage: 90, cooldown: 6.0, unlockWave: 3,
-    blurb: 'A rigged log. Drops once on whatever is under it, then must be re-set.',
+    range: 5.0, slow: 0.42, dps: 4, unlockWave: 3,
+    blurb: 'Strewn iron. Everything on foot crawls through it. Barely scratches.',
   },
 ];
 
@@ -264,35 +281,44 @@ export const WAVES = [
   { // 4 — the first BREAKER. A wall stops buying safety and starts buying time.
     name: 'Something Heavy',
     groups: [
-      { lane: 'east',  foe: 'husk',    count: 10, at: 0.0,  gap: 1.0 },
-      { lane: 'west',  foe: 'runner',  count: 12, at: 1.0,  gap: 0.6 },
+      { lane: 'east',  foe: 'husk',    count: 12, at: 0.0,  gap: 0.9 },
+      { lane: 'west',  foe: 'runner',  count: 14, at: 1.0,  gap: 0.55 },
       { lane: 'north', foe: 'breaker', count: 1,  at: 4.0,  gap: 0 },
-      { lane: 'north', foe: 'husk',    count: 8,  at: 5.0,  gap: 1.1 },
-      { lane: 'east',  foe: 'wisp',    count: 5,  at: 12.0, gap: 1.5 },
+      { lane: 'north', foe: 'husk',    count: 10, at: 5.0,  gap: 1.0 },
+      { lane: 'east',  foe: 'wisp',    count: 6,  at: 11.0, gap: 1.4 },
+      { lane: 'west',  foe: 'wisp',    count: 4,  at: 16.0, gap: 1.5 },
     ],
   },
   { // 5 — two pressures at once, on lanes deliberately far apart.
     name: 'Both Hands Full',
     groups: [
-      { lane: 'north', foe: 'runner',  count: 16, at: 0.0,  gap: 0.5 },
+      { lane: 'north', foe: 'runner',  count: 20, at: 0.0,  gap: 0.42 },
       { lane: 'west',  foe: 'breaker', count: 1,  at: 2.0,  gap: 0 },
-      { lane: 'east',  foe: 'husk',    count: 12, at: 3.0,  gap: 0.9 },
-      { lane: 'west',  foe: 'husk',    count: 10, at: 6.0,  gap: 1.0 },
-      { lane: 'north', foe: 'wisp',    count: 6,  at: 10.0, gap: 1.4 },
+      { lane: 'east',  foe: 'breaker', count: 1,  at: 9.0,  gap: 0 },
+      { lane: 'east',  foe: 'husk',    count: 14, at: 3.0,  gap: 0.8 },
+      { lane: 'west',  foe: 'husk',    count: 12, at: 6.0,  gap: 0.9 },
+      { lane: 'north', foe: 'wisp',    count: 9,  at: 9.0,  gap: 1.1 },
+      { lane: 'east',  foe: 'wisp',    count: 4,  at: 15.0, gap: 1.3 },
     ],
   },
+  // NOTE on tuning the finale: a FOURTH breaker here reads as a small change
+  // on the glade (8/10 wins) and swings the gauntlet to 3/10 every time — its
+  // two 36m lanes cannot absorb heavies the way three 38m ones can. Breaker
+  // count is the most map-sensitive dial in the game; reach for volume or air
+  // first, and re-run .dbg/diff2.mjs on BOTH maps after touching it.
   { // 6 — everything, on every lane.
     name: 'The Long Dark',
     groups: [
-      { lane: 'north', foe: 'runner',  count: 18, at: 0.0,  gap: 0.45 },
-      { lane: 'east',  foe: 'runner',  count: 18, at: 0.5,  gap: 0.45 },
+      { lane: 'north', foe: 'runner',  count: 22, at: 0.0,  gap: 0.40 },
+      { lane: 'east',  foe: 'runner',  count: 22, at: 0.5,  gap: 0.40 },
       { lane: 'west',  foe: 'breaker', count: 1,  at: 2.0,  gap: 0 },
       { lane: 'north', foe: 'breaker', count: 1,  at: 8.0,  gap: 0 },
-      { lane: 'east',  foe: 'husk',    count: 14, at: 5.0,  gap: 0.8 },
-      { lane: 'west',  foe: 'husk',    count: 14, at: 6.0,  gap: 0.8 },
-      { lane: 'west',  foe: 'wisp',    count: 4,  at: 12.0, gap: 1.5 },
-      { lane: 'north', foe: 'wisp',    count: 4,  at: 17.0, gap: 1.5 },
-      { lane: 'east',  foe: 'wisp',    count: 4,  at: 22.0, gap: 1.5 },
+      { lane: 'east',  foe: 'breaker', count: 1,  at: 15.0, gap: 0 },
+      { lane: 'east',  foe: 'husk',    count: 18, at: 5.0,  gap: 0.72 },
+      { lane: 'west',  foe: 'husk',    count: 18, at: 6.0,  gap: 0.72 },
+      { lane: 'west',  foe: 'wisp',    count: 6,  at: 10.0, gap: 1.2 },
+      { lane: 'north', foe: 'wisp',    count: 6,  at: 15.0, gap: 1.2 },
+      { lane: 'east',  foe: 'wisp',    count: 6,  at: 20.0, gap: 1.2 },
     ],
   },
 ];
