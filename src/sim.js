@@ -127,9 +127,14 @@ export class World {
       x: p.x, z: p.z,
       hp: def.hp, maxHp: def.hp,
       cd: 0, target: null, retarget: 0, dead: false,
+      // Under construction: solid and attackable from the moment it is placed,
+      // but it does not FIRE, and its hit points ramp up as it goes together.
+      buildT: this.phase === 'combat' ? (def.buildTime || 0) : 0,
+      buildTotal: this.phase === 'combat' ? (def.buildTime || 0) : 0,
       // A trap starts armed; everything else starts ready.
       charge: def.kind === 'trap' ? 1 : 1,
     };
+    if (w.buildT > 0) w.hp = w.maxHp * 0.25;
     this.wards.push(w);
     this.occupancy.set(cellKey(i, j), w);
     this.mana -= def.cost;
@@ -218,13 +223,16 @@ export class World {
     // the breaker, the one foe whose colour matters most — permanently white
     // and unidentifiable. A bolt is 26, an aura tick is 0.4.
     if (dealt > 4) f.hitT = 0.1;
+    if (source === 'player' && dealt > 0) {
+      this.emit({ type: 'dmg', x: f.x, y: f.y + f.def.height * 0.8, z: f.z, amount: dealt });
+    }
     const bucket = this.stats.dmgToFoeBy[source];
     if (bucket) bucket[f.kind] = (bucket[f.kind] || 0) + dealt;
-    if (f.hp <= 0) this._killFoe(f);
+    if (f.hp <= 0) this._killFoe(f, source);
     return dealt;
   }
 
-  _killFoe(f) {
+  _killFoe(f, by) {
     if (f.dead) return;
     f.dead = true;
     this.stats.kills[f.kind] = (this.stats.kills[f.kind] || 0) + 1;
@@ -234,7 +242,10 @@ export class World {
       id: NEXT_ID++, x: f.x, z: f.z, y: f.def.flying ? f.y : 0.6,
       value: f.def.bounty, life: 35, taken: false, vx: 0, vz: 0,
     });
-    this.emit({ type: 'kill', x: f.x, y: f.y, z: f.z, foe: f.kind });
+    this.emit({
+      type: 'kill', x: f.x, y: f.y, z: f.z, foe: f.kind,
+      by: by || 'ward', withWeapon: by === 'player' ? this.player.weapon : null,
+    });
   }
 
   hurtWard(w, amount) {
@@ -614,6 +625,18 @@ export class World {
     for (const w of this.wards) {
       if (w.dead) continue;
       const def = w.def;
+      if (w.buildT > 0) {
+        const was = w.buildT;
+        w.buildT -= dt;
+        // hit points come up with the frame, from a quarter to full
+        const k = 1 - Math.max(0, w.buildT) / w.buildTotal;
+        w.hp = Math.min(w.maxHp, Math.max(w.hp, w.maxHp * (0.25 + 0.75 * k)));
+        if (was > 0 && w.buildT <= 0) {
+          w.buildT = 0;
+          this.emit({ type: 'built', x: w.x, z: w.z, ward: def.id });
+        }
+        continue;                     // no shooting from a half-built ward
+      }
       if (def.kind === 'blockade') continue;
 
       if (def.kind === 'aura') {

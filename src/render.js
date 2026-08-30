@@ -17,6 +17,7 @@ import {
 } from './defs.js';
 import {
   LANES, ARENA, CELL, cellOf, cellCenter, laneAt, nearestLane, isBuildableCell,
+  currentMap,
 } from './arena.js';
 import { makeRng } from './rand.js';
 
@@ -36,12 +37,21 @@ export const PAL = {
   iron:     0x646b7d,
   ember:    0xff8b3d,
   snare:    0xa579ff,
-  player:   0xd8e2f0,
+  player:   0x9aa8bd,
   cloak:    0x9a2f3a,
   husk:     0xa8ae9c,
   runner:   0x8fbf6a,
   wisp:     0x63e6ff,
   breaker:  0xa33f36,
+
+  // forest theme
+  duskSky:  0x1d2438,
+  grass:    0x4e6b38,
+  grassDark:0x3b5230,
+  dirt:     0x51422f,
+  bark:     0x3d3227,
+  leaf:     0x37552f,
+  bush:     0x44663a,
 };
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -85,9 +95,11 @@ function glowTexture() {
 // walks and a crowd that slides.
 function withInstanceFlash(mat) {
   mat.onBeforeCompile = (sh) => {
-    sh.vertexShader = 'attribute float aFlash;\nattribute float aPhase;\nvarying float vFlash;\n' +
+    sh.vertexShader =
+      'attribute float aFlash;\nattribute float aPhase;\nattribute float emis;\n' +
+      'varying float vFlash;\nvarying float vEmis;\n' +
       sh.vertexShader
-        .replace('void main() {', 'void main() {\n\tvFlash = aFlash;')
+        .replace('void main() {', 'void main() {\n\tvFlash = aFlash;\n\tvEmis = emis;')
         .replace('#include <begin_vertex>',
           '#include <begin_vertex>\n' +
           '\tfloat legMask = 1.0 - smoothstep(0.10, 0.85, position.y);\n' +
@@ -97,9 +109,11 @@ function withInstanceFlash(mat) {
           '\tfloat armMask = smoothstep(0.55, 1.05, position.y) * step(0.32, abs(position.x));\n' +
           '\ttransformed.z -= sw * 0.30 * armMask;\n' +
           '\ttransformed.y += abs(sin(aPhase)) * 0.055 * step(0.2, position.y);\n');
-    sh.fragmentShader = 'varying float vFlash;\n' +
+    sh.fragmentShader = 'varying float vFlash;\nvarying float vEmis;\n' +
       sh.fragmentShader.replace('#include <emissivemap_fragment>',
-        '#include <emissivemap_fragment>\n\ttotalEmissiveRadiance += vec3(vFlash);');
+        '#include <emissivemap_fragment>\n' +
+        '\ttotalEmissiveRadiance += vec3(vFlash);\n' +
+        '\ttotalEmissiveRadiance += diffuseColor.rgb * vEmis * 2.6;');
   };
   return mat;
 }
@@ -111,9 +125,13 @@ function flashAttr(geo, n) {
   return a;
 }
 
-// merge a list of [geometry, x,y,z, rx,ry,rz] into one buffer geometry
+// Merge a list of placed boxes into one geometry. A part may carry `c`, a hex
+// colour, which becomes a VERTEX COLOUR — that is what lets a single instanced
+// mesh with one material have skin, cloth, iron and EYES on it. Without it
+// every unit is one flat colour and reads as a mannequin.
 function assemble(parts) {
   const geos = [];
+  let anyColor = false;
   for (const p of parts) {
     const g = p.g.clone();
     const mm = new THREE.Matrix4();
@@ -122,13 +140,34 @@ function assemble(parts) {
     mm.compose(new THREE.Vector3(p.x || 0, p.y || 0, p.z || 0), qq,
       new THREE.Vector3(p.sx || 1, p.sy || 1, p.sz || 1));
     g.applyMatrix4(mm);
+    if (p.c != null) {
+      anyColor = true;
+      const ne = g.attributes.position.count;
+      const ea = new Float32Array(ne).fill(p.e || 0);
+      g.setAttribute('emis', new THREE.BufferAttribute(ea, 1));
+      const n = g.attributes.position.count;
+      const arr = new Float32Array(n * 3);
+      _c.setHex(p.c).convertSRGBToLinear();
+      for (let i = 0; i < n; i++) { arr[i * 3] = _c.r; arr[i * 3 + 1] = _c.g; arr[i * 3 + 2] = _c.b; }
+      g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+    }
     geos.push(g);
   }
-  return mergeGeometries(geos);
+  // every part needs the attribute if any part has it, or the merge misaligns
+  if (anyColor) {
+    for (const g of geos) {
+      if (g.attributes.color) continue;
+      const n = g.attributes.position.count;
+      const arr = new Float32Array(n * 3).fill(1);
+      g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+      g.setAttribute('emis', new THREE.BufferAttribute(new Float32Array(n), 1));
+    }
+  }
+  return mergeGeometries(geos, anyColor);
 }
 
 // Minimal merge — avoids pulling in BufferGeometryUtils for four attributes.
-function mergeGeometries(geos) {
+function mergeGeometries(geos, withColor) {
   let vc = 0, ic = 0;
   for (const g of geos) {
     vc += g.attributes.position.count;
@@ -136,12 +175,17 @@ function mergeGeometries(geos) {
   }
   const pos = new Float32Array(vc * 3);
   const nrm = new Float32Array(vc * 3);
+  const col = withColor ? new Float32Array(vc * 3) : null;
+  const emi = withColor ? new Float32Array(vc) : null;
   const idx = new Uint32Array(ic);
   let vo = 0, io = 0;
   for (const g of geos) {
-    const p = g.attributes.position, n = g.attributes.normal;
+    const p = g.attributes.position, n = g.attributes.normal, c = g.attributes.color;
+    const em = g.attributes.emis;
     pos.set(p.array.subarray(0, p.count * 3), vo * 3);
     if (n) nrm.set(n.array.subarray(0, n.count * 3), vo * 3);
+    if (col && c) col.set(c.array.subarray(0, c.count * 3), vo * 3);
+    if (emi && em) emi.set(em.array.subarray(0, em.count), vo);
     if (g.index) {
       for (let i = 0; i < g.index.count; i++) idx[io + i] = g.index.array[i] + vo;
       io += g.index.count;
@@ -154,6 +198,8 @@ function mergeGeometries(geos) {
   const out = new THREE.BufferGeometry();
   out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   out.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+  if (col) out.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  if (emi) out.setAttribute('emis', new THREE.BufferAttribute(emi, 1));
   out.setIndex(new THREE.BufferAttribute(idx, 1));
   return out;
 }
@@ -161,100 +207,194 @@ function mergeGeometries(geos) {
 const box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
 
 // ---------------------------------------------------------------------------
-// Unit silhouettes. Each is one merged geometry, built once, drawn instanced.
+// Unit silhouettes. One merged geometry each, drawn instanced.
+//
 // Hierarchy first: the four foes must be tellable apart as black shapes at
 // twenty metres, so they differ in MASS and PROPORTION before they differ in
 // colour. See [[character-silhouette-hierarchy]].
 //
-// Each also carries a WEAPON. A box stack with nothing in its hands reads as a
-// placeholder however well it is lit; a held object is the cheapest thing that
-// makes a shape read as a character.
+// Every part may carry `c` (a colour) and `e` (emissive strength), which is
+// how a single instanced mesh with one material gets skin, cloth, iron and
+// GLOWING EYES. A body in one flat colour reads as a mannequin however good
+// its proportions are; two lit eyes turn the same box stack into a creature.
 // ---------------------------------------------------------------------------
+const EYE = (x, y, z, s, col) =>
+  ({ g: box(s, s * 0.8, s * 0.5), x, y, z, c: col, e: 1 });
+
 function huskGeo() {
+  const bone = 0xb0b5a2, dark = 0x8d9280, iron = 0x8a8f9c;
   return assemble([
-    { g: box(0.78, 1.00, 0.50), y: 0.66 },                        // torso
-    { g: box(0.86, 0.22, 0.58), y: 1.12 },                        // shoulders
-    { g: box(0.44, 0.36, 0.42), y: 1.36 },                        // head
-    { g: box(0.30, 0.10, 0.44), y: 1.30, z: 0.20 },               // jaw
-    { g: box(0.20, 0.76, 0.20), x: 0.52, y: 0.66, rz: 0.20 },     // arms
-    { g: box(0.20, 0.76, 0.20), x: -0.52, y: 0.66, rz: -0.20 },
-    { g: box(0.26, 0.58, 0.26), x: 0.21, y: 0.15 },               // legs
-    { g: box(0.26, 0.58, 0.26), x: -0.21, y: 0.15 },
-    // a cleaver, held low in the right hand
-    { g: box(0.10, 0.10, 0.62), x: 0.62, y: 0.34, z: 0.22, rx: 0.5 },
-    { g: box(0.34, 0.06, 0.60), x: 0.62, y: 0.30, z: 0.62, rx: 0.5 },
+    { g: box(0.78, 1.00, 0.50), y: 0.66, c: bone },
+    { g: box(0.86, 0.22, 0.58), y: 1.12, c: dark },
+    { g: box(0.44, 0.36, 0.42), y: 1.36, c: bone },
+    { g: box(0.30, 0.10, 0.44), y: 1.28, z: 0.20, c: 0xe8e2cc },   // jaw
+    EYE(0.11, 1.40, 0.22, 0.10, 0x9fe8ff),
+    EYE(-0.11, 1.40, 0.22, 0.10, 0x9fe8ff),
+    { g: box(0.20, 0.76, 0.20), x: 0.52, y: 0.66, rz: 0.20, c: dark },
+    { g: box(0.20, 0.76, 0.20), x: -0.52, y: 0.66, rz: -0.20, c: dark },
+    { g: box(0.26, 0.58, 0.26), x: 0.21, y: 0.15, c: dark },
+    { g: box(0.26, 0.58, 0.26), x: -0.21, y: 0.15, c: dark },
+    { g: box(0.10, 0.10, 0.62), x: 0.62, y: 0.34, z: 0.22, rx: 0.5, c: 0x5a4634 },
+    { g: box(0.34, 0.06, 0.60), x: 0.62, y: 0.30, z: 0.62, rx: 0.5, c: iron },
   ]);
 }
 
 function runnerGeo() {
+  const skin = 0x8fbf6a, dark = 0x74a252;
   return assemble([
-    { g: box(0.54, 0.72, 0.40), y: 0.62, rx: 0.40 },              // hunched torso
-    { g: box(0.62, 0.18, 0.34), y: 0.92, z: 0.10 },               // shoulders
-    { g: box(0.34, 0.28, 0.42), y: 1.04, z: 0.26 },               // thrust head
-    { g: box(0.14, 0.60, 0.14), x: 0.34, y: 0.56, rz: 0.55 },     // long arms
-    { g: box(0.14, 0.60, 0.14), x: -0.34, y: 0.56, rz: -0.55 },
-    { g: box(0.20, 0.52, 0.20), x: 0.16, y: 0.17, rx: -0.2 },     // sprinter legs
-    { g: box(0.20, 0.52, 0.20), x: -0.16, y: 0.17, rx: 0.2 },
-    // claws
-    { g: box(0.07, 0.07, 0.34), x: 0.46, y: 0.26, z: 0.20, rx: 0.7 },
-    { g: box(0.07, 0.07, 0.34), x: -0.46, y: 0.26, z: 0.20, rx: 0.7 },
+    { g: box(0.54, 0.72, 0.40), y: 0.62, rx: 0.40, c: skin },
+    { g: box(0.62, 0.18, 0.34), y: 0.92, z: 0.10, c: dark },
+    { g: box(0.34, 0.28, 0.42), y: 1.04, z: 0.26, c: skin },
+    EYE(0.09, 1.08, 0.46, 0.09, 0xffdd44),
+    EYE(-0.09, 1.08, 0.46, 0.09, 0xffdd44),
+    { g: box(0.14, 0.60, 0.14), x: 0.34, y: 0.56, rz: 0.55, c: dark },
+    { g: box(0.14, 0.60, 0.14), x: -0.34, y: 0.56, rz: -0.55, c: dark },
+    { g: box(0.20, 0.52, 0.20), x: 0.16, y: 0.17, rx: -0.2, c: dark },
+    { g: box(0.20, 0.52, 0.20), x: -0.16, y: 0.17, rx: 0.2, c: dark },
+    { g: box(0.07, 0.07, 0.34), x: 0.46, y: 0.26, z: 0.20, rx: 0.7, c: 0xc8d2e2 },
+    { g: box(0.07, 0.07, 0.34), x: -0.46, y: 0.26, z: 0.20, rx: 0.7, c: 0xc8d2e2 },
   ]);
 }
 
 function wispGeo() {
-  const g = [{ g: new THREE.IcosahedronGeometry(0.30, 0) }];
+  const g = [{ g: new THREE.IcosahedronGeometry(0.30, 0), c: 0xa8f2ff, e: 0.9 }];
   for (let i = 0; i < 4; i++) {
     const a = i * Math.PI / 2;
-    g.push({ g: box(0.09, 0.09, 0.42), x: Math.cos(a) * 0.30, z: Math.sin(a) * 0.30, ry: -a });
+    g.push({ g: box(0.09, 0.09, 0.42), x: Math.cos(a) * 0.30, z: Math.sin(a) * 0.30,
+             ry: -a, c: 0x63e6ff, e: 0.7 });
   }
-  // a second, tilted ring so it reads as a turning object, not a flat star
   for (let i = 0; i < 4; i++) {
     const a = i * Math.PI / 2 + Math.PI / 4;
-    g.push({ g: box(0.07, 0.30, 0.07), x: Math.cos(a) * 0.24, y: 0.22, z: Math.sin(a) * 0.24, rz: 0.5 });
+    g.push({ g: box(0.07, 0.30, 0.07), x: Math.cos(a) * 0.24, y: 0.22,
+             z: Math.sin(a) * 0.24, rz: 0.5, c: 0x63e6ff, e: 0.6 });
   }
+  // a dim core so it is not uniformly bright
+  g.push({ g: box(0.16, 0.16, 0.16), y: 0.02, c: 0x1a5a70, e: 0 });
   return assemble(g);
 }
 
 function breakerGeo() {
+  const hide = 0xa33f36, dark = 0x7c2f28, iron = 0x6a6f7d;
   return assemble([
-    { g: box(1.80, 1.55, 1.25), y: 1.55 },                        // slab chest
-    { g: box(2.15, 0.42, 1.40), y: 2.28 },                        // pauldron bar
-    { g: box(0.75, 0.50, 0.75), x: 1.02, y: 2.52, rz: 0.2 },      // pauldrons
-    { g: box(0.75, 0.50, 0.75), x: -1.02, y: 2.52, rz: -0.2 },
-    { g: box(0.95, 0.60, 0.90), y: 2.62 },                        // sunken head
-    { g: box(0.52, 1.55, 0.52), x: 1.18, y: 1.50, rz: 0.14 },     // long arms
-    { g: box(0.52, 1.55, 0.52), x: -1.18, y: 1.50, rz: -0.14 },
-    { g: box(0.92, 0.52, 0.92), x: 1.28, y: 0.56 },               // fists
-    { g: box(0.92, 0.52, 0.92), x: -1.28, y: 0.56 },
-    { g: box(0.58, 0.80, 0.58), x: 0.46, y: 0.40 },               // stumps
-    { g: box(0.58, 0.80, 0.58), x: -0.46, y: 0.40 },
-    // a maul, shouldered on the right — the reason it out-damages your hammer
-    { g: box(0.24, 0.24, 2.10), x: 1.34, y: 1.15, z: 0.30, rx: 0.72 },
-    { g: box(0.86, 0.80, 0.86), x: 1.34, y: 2.30, z: 1.10 },
+    { g: box(1.80, 1.55, 1.25), y: 1.55, c: hide },
+    { g: box(2.15, 0.42, 1.40), y: 2.28, c: dark },
+    { g: box(0.75, 0.50, 0.75), x: 1.02, y: 2.52, rz: 0.2, c: iron },
+    { g: box(0.75, 0.50, 0.75), x: -1.02, y: 2.52, rz: -0.2, c: iron },
+    { g: box(0.95, 0.60, 0.90), y: 2.62, c: hide },
+    EYE(0.22, 2.66, 0.48, 0.15, 0xffcc33),
+    EYE(-0.22, 2.66, 0.48, 0.15, 0xffcc33),
+    { g: box(0.52, 1.55, 0.52), x: 1.18, y: 1.50, rz: 0.14, c: dark },
+    { g: box(0.52, 1.55, 0.52), x: -1.18, y: 1.50, rz: -0.14, c: dark },
+    { g: box(0.92, 0.52, 0.92), x: 1.28, y: 0.56, c: iron },
+    { g: box(0.92, 0.52, 0.92), x: -1.28, y: 0.56, c: iron },
+    { g: box(0.58, 0.80, 0.58), x: 0.46, y: 0.40, c: dark },
+    { g: box(0.58, 0.80, 0.58), x: -0.46, y: 0.40, c: dark },
+    { g: box(0.24, 0.24, 2.10), x: 1.34, y: 1.15, z: 0.30, rx: 0.72, c: 0x4a3a2c },
+    { g: box(0.86, 0.80, 0.86), x: 1.34, y: 2.30, z: 1.10, c: iron },
   ]);
 }
 
 function playerGeo() {
   return assemble([
-    { g: box(0.66, 0.84, 0.44), y: 1.04 },                        // cuirass
-    { g: box(0.80, 0.20, 0.52), y: 1.40 },                        // shoulders
-    { g: box(0.42, 0.38, 0.40), y: 1.66 },                        // helm
-    { g: box(0.46, 0.14, 0.46), y: 1.84 },                        // helm ridge
-    { g: box(0.12, 0.34, 0.12), y: 2.00 },                        // plume post
-    { g: box(0.50, 0.62, 0.10), y: 1.10, z: -0.28 },              // cloak
-    { g: box(0.46, 0.30, 0.10), y: 0.66, z: -0.32 },
-    { g: box(0.19, 0.66, 0.19), x: 0.44, y: 1.04 },               // arms
-    { g: box(0.19, 0.66, 0.19), x: -0.44, y: 1.04 },
-    { g: box(0.24, 0.64, 0.24), x: 0.18, y: 0.32 },               // legs
+    { g: box(0.66, 0.84, 0.44), y: 1.04 },
+    { g: box(0.42, 0.38, 0.40), y: 1.66 },
+    { g: box(0.24, 0.64, 0.24), x: 0.18, y: 0.32 },
     { g: box(0.24, 0.64, 0.24), x: -0.18, y: 0.32 },
-    // the bow, carried across the body in the left hand
-    { g: box(0.09, 1.30, 0.09), x: -0.52, y: 1.10, rz: 0.22 },
-    { g: box(0.09, 0.30, 0.09), x: -0.62, y: 1.68, rz: 0.8 },
-    { g: box(0.09, 0.30, 0.09), x: -0.42, y: 0.52, rz: -0.8 },
   ]);
 }
 
-const FOE_GEO = { husk: huskGeo, runner: runnerGeo, wisp: wispGeo, breaker: breakerGeo };
+// --- forest cast -----------------------------------------------------------
+// Same four ROLES, different bodies. Goblins are short and top-heavy so they
+// read as a different species from the player at a glance, and every one of
+// them carries something and looks back at you.
+function goblinGeo() {
+  const skin = 0x7d9c46, limb = 0x6b883a, rag = 0x7a6440;
+  return assemble([
+    { g: box(0.62, 0.62, 0.44), y: 0.62, rx: 0.16, c: skin },
+    { g: box(0.70, 0.18, 0.48), y: 0.92, c: limb },
+    { g: box(0.52, 0.46, 0.46), y: 1.18, z: 0.06, c: skin },
+    { g: box(0.30, 0.14, 0.12), y: 1.08, z: 0.28, c: limb },        // snout
+    { g: box(0.22, 0.05, 0.05), y: 1.02, z: 0.31, c: 0xf2ecd6 },    // teeth
+    EYE(0.13, 1.26, 0.26, 0.12, 0xffe14a),
+    EYE(-0.13, 1.26, 0.26, 0.12, 0xffe14a),
+    { g: box(0.06, 0.03, 0.03), x: 0.13, y: 1.34, z: 0.26, c: 0x3a2c14 },  // brow
+    { g: box(0.06, 0.03, 0.03), x: -0.13, y: 1.34, z: 0.26, c: 0x3a2c14 },
+    { g: box(0.30, 0.20, 0.06), x: 0.36, y: 1.30, rz: 0.5, c: skin },
+    { g: box(0.30, 0.20, 0.06), x: -0.36, y: 1.30, rz: -0.5, c: skin },
+    { g: box(0.17, 0.54, 0.17), x: 0.42, y: 0.66, rz: 0.24, c: limb },
+    { g: box(0.17, 0.54, 0.17), x: -0.42, y: 0.66, rz: -0.24, c: limb },
+    { g: box(0.22, 0.40, 0.22), x: 0.17, y: 0.16, c: limb },
+    { g: box(0.22, 0.40, 0.22), x: -0.17, y: 0.16, c: limb },
+    { g: box(0.44, 0.26, 0.40), y: 0.34, c: rag },
+    { g: box(0.13, 0.13, 0.66), x: 0.52, y: 0.36, z: 0.24, rx: 0.6, c: 0x4a3a2c },
+    { g: box(0.28, 0.28, 0.34), x: 0.52, y: 0.24, z: 0.70, rx: 0.6, c: 0x5b4a34 },
+  ]);
+}
+
+function scoutGeo() {
+  const skin = 0x9fae56, dark = 0x84924a, hood = 0x4d5c33;
+  return assemble([
+    { g: box(0.46, 0.56, 0.36), y: 0.56, rx: 0.42, c: skin },
+    { g: box(0.56, 0.16, 0.30), y: 0.84, z: 0.12, c: hood },
+    { g: box(0.40, 0.36, 0.38), y: 0.98, z: 0.28, c: skin },
+    { g: box(0.42, 0.20, 0.34), y: 1.10, z: 0.20, c: hood },        // hood
+    { g: box(0.24, 0.12, 0.10), y: 0.92, z: 0.48, c: dark },
+    EYE(0.10, 1.02, 0.46, 0.10, 0xff7a3a),
+    EYE(-0.10, 1.02, 0.46, 0.10, 0xff7a3a),
+    { g: box(0.34, 0.16, 0.05), x: 0.30, y: 1.10, rz: 0.7, c: skin },
+    { g: box(0.34, 0.16, 0.05), x: -0.30, y: 1.10, rz: -0.7, c: skin },
+    { g: box(0.13, 0.50, 0.13), x: 0.30, y: 0.52, rz: 0.6, c: dark },
+    { g: box(0.13, 0.50, 0.13), x: -0.30, y: 0.52, rz: -0.6, c: dark },
+    { g: box(0.18, 0.44, 0.18), x: 0.15, y: 0.18, rx: -0.24, c: dark },
+    { g: box(0.18, 0.44, 0.18), x: -0.15, y: 0.18, rx: 0.24, c: dark },
+    { g: box(0.07, 0.07, 0.42), x: 0.40, y: 0.30, z: 0.26, rx: 0.8, c: 0xc8d2e2 },
+    { g: box(0.07, 0.07, 0.42), x: -0.40, y: 0.30, z: 0.26, rx: 0.8, c: 0xc8d2e2 },
+  ]);
+}
+
+function trollGeo() {
+  const hide = 0x8a6a4a, dark = 0x6e523a, horn = 0xd6c9ae;
+  return assemble([
+    { g: box(1.70, 1.45, 1.20), y: 1.55, rx: 0.12, c: hide },
+    { g: box(2.10, 0.46, 1.30), y: 2.22, c: dark },
+    { g: box(0.80, 0.52, 0.80), x: 0.98, y: 2.44, rz: 0.22, c: dark },
+    { g: box(0.80, 0.52, 0.80), x: -0.98, y: 2.44, rz: -0.22, c: dark },
+    { g: box(0.86, 0.70, 0.86), y: 2.48, z: 0.24, c: hide },
+    { g: box(0.46, 0.18, 0.14), y: 2.34, z: 0.62, c: dark },        // jaw
+    { g: box(0.30, 0.07, 0.07), y: 2.27, z: 0.64, c: 0xf2ecd6 },    // tusks
+    EYE(0.20, 2.58, 0.62, 0.15, 0xff5030),
+    EYE(-0.20, 2.58, 0.62, 0.15, 0xff5030),
+    { g: box(0.10, 0.30, 0.10), x: 0.22, y: 2.86, rz: 0.2, c: horn },
+    { g: box(0.10, 0.30, 0.10), x: -0.22, y: 2.86, rz: -0.2, c: horn },
+    { g: box(0.54, 1.70, 0.54), x: 1.14, y: 1.42, rz: 0.16, c: hide },
+    { g: box(0.54, 1.70, 0.54), x: -1.14, y: 1.42, rz: -0.16, c: hide },
+    { g: box(0.92, 0.56, 0.92), x: 1.26, y: 0.48, c: dark },
+    { g: box(0.92, 0.56, 0.92), x: -1.26, y: 0.48, c: dark },
+    { g: box(0.62, 0.86, 0.62), x: 0.44, y: 0.43, c: dark },
+    { g: box(0.62, 0.86, 0.62), x: -0.44, y: 0.43, c: dark },
+    { g: box(0.34, 0.34, 2.30), x: 1.32, y: 1.05, z: 0.34, rx: 0.68, c: 0x4a3a2c },
+    { g: box(0.95, 0.95, 0.95), x: 1.32, y: 2.24, z: 1.22, c: 0x5b4a34 },
+  ]);
+}
+
+// Roles are fixed; bodies are per theme. Nothing in sim.js knows any of this
+// exists — a husk is a husk whether it is a dead thing in a crypt or a goblin
+// in a wood.
+const SKINS = {
+  crypt: {
+    husk:    { geo: huskGeo,    name: 'Husk' },
+    runner:  { geo: runnerGeo,  name: 'Runner' },
+    wisp:    { geo: wispGeo,    name: 'Wisp' },
+    breaker: { geo: breakerGeo, name: 'Breaker' },
+  },
+  forest: {
+    husk:    { geo: goblinGeo, name: 'Goblin' },
+    runner:  { geo: scoutGeo,  name: 'Scout' },
+    wisp:    { geo: wispGeo,   name: 'Will-o-wisp' },
+    breaker: { geo: trollGeo,  name: 'Troll' },
+  },
+};
+
 const FOE_CAP = { husk: 90, runner: 110, wisp: 40, breaker: 8 };
 
 // ---------------------------------------------------------------------------
@@ -274,9 +414,10 @@ export class Renderer {
     this.renderer.shadowMap.enabled = !this.low;
     if (!this.low) this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
+    const forest = (currentMap() && currentMap().theme) === 'forest';
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(PAL.night);
-    this.scene.fog = new THREE.Fog(PAL.fog, 46, 132);
+    this.scene.background = new THREE.Color(forest ? PAL.duskSky : PAL.night);
+    this.scene.fog = new THREE.Fog(forest ? 0x27324a : PAL.fog, 40, 118);
 
     this.camera = new THREE.PerspectiveCamera(56, 1, 0.5, 260);
     this.camYaw = Math.PI;
@@ -288,6 +429,8 @@ export class Renderer {
     this.camDist = 11;
     this.camHeight = 7.5;
     this.shake = 0;
+    this.showHpBars = true;
+    this.allowShake = true;
     // How far past the player the camera aims. Without it the player sits in
     // the middle of frame with dead floor below and the lane you are walking
     // toward cropped off the top — worst on a tall portrait phone.
@@ -298,9 +441,10 @@ export class Renderer {
     this.glowTex = glowTexture();
     this.t = 0;
 
+    this.theme = (currentMap() && currentMap().theme) || 'crypt';
     this._buildLights();
-    this._buildArena();
-    this._buildStone();
+    if (this.theme === 'forest') { this._buildForest(); this._buildHearth(); }
+    else { this._buildArena(); this._buildStone(); }
     this._buildUnits();
     this._buildPools();
 
@@ -318,12 +462,15 @@ export class Renderer {
     // The stone is still the HERO light and still dims with its health; there
     // is now enough fill and rim underneath that the dimming reads as the room
     // getting colder rather than the geometry disappearing.
-    this.hemi = new THREE.HemisphereLight(0x8098c4, 0x3a2e22, 0.62);
+    const forest = this.theme === 'forest';
+    this.hemi = forest
+      ? new THREE.HemisphereLight(0x7d9ad0, 0x3a4a26, 1.05)   // dusk sky, mossy ground
+      : new THREE.HemisphereLight(0x8098c4, 0x3a2e22, 0.62);
     this.scene.add(this.hemi);
 
     // key — the wardstone itself
-    this.key = new THREE.PointLight(PAL.stone, 340, 92, 1.7);
-    this.key.position.set(0, 8.5, 0);
+    this.key = new THREE.PointLight(forest ? 0xff9a3c : PAL.stone, 340, 92, 1.7);
+    this.key.position.set(0, forest ? 5.6 : 8.5, 0);
     if (!this.low) {
       this.key.castShadow = true;
       this.key.shadow.mapSize.set(1024, 1024);
@@ -335,7 +482,7 @@ export class Renderer {
 
     // fill — a high, soft, warm directional that models every surface the
     // point light rakes. This is the light that makes boxes look solid.
-    this.fill = new THREE.DirectionalLight(0xffe6c4, 0.5);
+    this.fill = new THREE.DirectionalLight(forest ? 0xbcd2f5 : 0xffe6c4, forest ? 0.85 : 0.5);
     this.fill.position.set(28, 46, 20);
     this.scene.add(this.fill);
 
@@ -664,15 +811,302 @@ export class Renderer {
     this.stoneGrp = grp;
   }
 
+  // ---------------------------------------------------------------- forest
+  // A clearing at dusk. The lanes are worn dirt tracks through grass, the
+  // boundary is a treeline rather than a wall, and the light in the middle is
+  // a fire — which keeps the "the world dims as the objective dies" mechanic
+  // literal rather than metaphorical.
+  _buildForest() {
+    const H = ARENA.half;
+    const rng = makeRng(4242);
+
+    const grass = new THREE.Mesh(
+      new THREE.PlaneGeometry(H * 2, H * 2),
+      new THREE.MeshStandardMaterial({ color: PAL.grassDark, roughness: 1 }));
+    grass.rotation.x = -Math.PI / 2;
+    grass.receiveShadow = !this.low;
+    this.scene.add(grass);
+
+    const apron = new THREE.Mesh(
+      new THREE.PlaneGeometry(H * 5, H * 5),
+      new THREE.MeshBasicMaterial({ color: 0x10160f }));
+    apron.rotation.x = -Math.PI / 2;
+    apron.position.y = -0.1;
+    this.scene.add(apron);
+
+    // --- turf. Slabs of grass with height and tone jitter, so the ground has
+    // relief instead of being a painted plane. Same trick as the flagstones,
+    // but irregular rather than gridded so it does not read as tiling.
+    // A low sward over the base, then TUFTS. Big slabs read as cracked paving;
+    // a scatter of small blades at this camera distance reads as grass.
+    const sward = new THREE.Mesh(
+      new THREE.PlaneGeometry(H * 2, H * 2),
+      new THREE.MeshStandardMaterial({ color: PAL.grass, roughness: 1 }));
+    sward.rotation.x = -Math.PI / 2;
+    sward.position.y = 0.16;
+    sward.receiveShadow = !this.low;
+    this.scene.add(sward);
+
+    const tufts = [];
+    for (let i = 0; i < 1050; i++) {
+      const x = (rng() * 2 - 1) * H, z = (rng() * 2 - 1) * H;
+      if (nearestLane(x, z).dist < 3.4) continue;      // tracks are worn bare
+      const h = 0.14 + rng() * 0.26;
+      const w = 0.09 + rng() * 0.11;
+      tufts.push({ g: box(w, h, w), x, y: 0.16 + h / 2, z, ry: rng() * 3 });
+      // clump: a blade alone reads as a stick, three together read as grass
+      const blades = 2 + ((rng() * 2) | 0);
+      for (let b = 0; b < blades; b++) {
+        const hh = h * (0.55 + rng() * 0.6);
+        tufts.push({
+          g: box(w * 0.85, hh, w * 0.85),
+          x: x + (rng() - 0.5) * 0.62, y: 0.16 + hh / 2, z: z + (rng() - 0.5) * 0.62,
+          ry: rng() * 3, rz: (rng() - 0.5) * 0.45,
+        });
+      }
+    }
+    const turfMesh = new THREE.Mesh(assemble(tufts), new THREE.MeshStandardMaterial({
+      color: 0x5f7d40, roughness: 1, flatShading: true,
+    }));
+    this.scene.add(turfMesh);
+
+    // --- the tracks: bare earth worn through the grass. Dirt against green is
+    // a strong enough contrast that the lanes need no glowing markers at all.
+    this.laneStrips = {};
+    for (const lane of LANES) {
+      const parts = [], edge = [];
+      const step = 1.5;
+      for (let d = 0; d < lane.total; d += step) {
+        const a = laneAt(lane, d, 0), b = laneAt(lane, Math.min(lane.total, d + step), 0);
+        const mx = (a.x + b.x) / 2, mz = (a.z + b.z) / 2;
+        const ry = Math.atan2(b.x - a.x, b.z - a.z);
+        parts.push({ g: box(lane.width * (0.92 + rng() * 0.14), 0.09, step * 1.12),
+                     x: mx, y: 0.24, z: mz, ry });
+        // stones kicked to the verge
+        if (rng() < 0.5) {
+          const side = rng() < 0.5 ? -1 : 1;
+          const q = laneAt(lane, d, side * (lane.width / 2 + rng() * 0.5));
+          const sc = 0.28 + rng() * 0.42;
+          edge.push({ g: box(sc, sc * 0.7, sc), x: q.x, y: 0.26, z: q.z, ry: rng() * 3 });
+        }
+      }
+      const mesh = new THREE.Mesh(assemble(parts), new THREE.MeshStandardMaterial({
+        color: PAL.dirt, roughness: 1, flatShading: true,
+      }));
+      mesh.receiveShadow = !this.low;
+      this.scene.add(mesh);
+      this.laneStrips[lane.id] = mesh;
+      if (edge.length) {
+        this.scene.add(new THREE.Mesh(assemble(edge), new THREE.MeshStandardMaterial({
+          color: 0x6e6a5c, roughness: 0.95, flatShading: true,
+        })));
+      }
+    }
+
+    // --- trees. One merged mesh for trunks, one for canopy, so a whole wood
+    // costs two draw calls. Stacked tapering boxes read as conifer at this
+    // camera without a single triangle of foliage detail.
+    const trunks = [], canopy = [];
+    const addTree = (x, z, scale) => {
+      const th = (3.2 + rng() * 2.6) * scale;
+      trunks.push({ g: box(0.62 * scale, th, 0.62 * scale), x, y: th / 2, z });
+      let r = 2.5 * scale, y = th * 0.86;
+      for (let i = 0; i < 4; i++) {
+        canopy.push({ g: box(r, 1.5 * scale, r), x, y, z, ry: rng() * 0.7 });
+        y += 1.15 * scale;
+        r *= 0.72;
+      }
+    };
+
+    // the treeline: a dense band just outside the playable floor
+    for (let a = 0; a < 200; a++) {
+      const ang = (a / 200) * Math.PI * 2;
+      const r = H - 1 + rng() * 12;
+      addTree(Math.cos(ang) * r, Math.sin(ang) * r, 1.0 + rng() * 0.5);
+    }
+    // and trees standing IN the clearing, off the tracks — the depth cue that
+    // stops the middle reading as an empty field
+    for (let i = 0; i < 20; i++) {
+      const ang = rng() * Math.PI * 2, r = 15 + rng() * 18;
+      const x = Math.cos(ang) * r, z = Math.sin(ang) * r;
+      if (nearestLane(x, z).dist < 6.5) continue;
+      // deliberately smaller than the treeline: a full-size canopy this close
+      // to the camera blots out the half of the clearing you are fighting in
+      addTree(x, z, 0.45 + rng() * 0.25);
+    }
+    const trunkMesh = new THREE.Mesh(assemble(trunks), new THREE.MeshStandardMaterial({
+      color: PAL.bark, roughness: 1, flatShading: true,
+    }));
+    trunkMesh.castShadow = !this.low;
+    this.scene.add(trunkMesh);
+    const leafMesh = new THREE.Mesh(assemble(canopy), new THREE.MeshStandardMaterial({
+      color: PAL.leaf, roughness: 1, flatShading: true,
+    }));
+    leafMesh.castShadow = !this.low;
+    this.scene.add(leafMesh);
+
+    // --- undergrowth: bushes, ferns, stumps, fallen logs, mushrooms
+    const bush = [], rock = [], wood = [];
+    for (let i = 0; i < 150; i++) {
+      const ang = rng() * Math.PI * 2, r = 6 + rng() * 30;
+      const x = Math.cos(ang) * r, z = Math.sin(ang) * r;
+      if (nearestLane(x, z).dist < 4.4) continue;
+      const roll = rng();
+      if (roll < 0.5) {
+        const sc = 0.55 + rng() * 0.55;
+        bush.push({ g: box(sc, sc * 0.72, sc), x, y: sc * 0.34, z, ry: rng() * 3 });
+        bush.push({ g: box(sc * 0.7, sc * 0.6, sc * 0.7), x: x + 0.3, y: sc * 0.6, z, ry: rng() * 3 });
+      } else if (roll < 0.78) {
+        const sc = 0.38 + rng() * 0.6;
+        rock.push({ g: box(sc, sc * 0.68, sc * 0.85), x, y: sc * 0.3, z, ry: rng() * 3 });
+      } else if (roll < 0.92) {
+        const L = 1.5 + rng() * 1.9;
+        wood.push({ g: box(0.52, 0.52, L), x, y: 0.3, z, ry: rng() * 3, rx: 0.06 });
+      } else {
+        wood.push({ g: box(0.72, 0.56, 0.72), x, y: 0.28, z });   // stump
+      }
+    }
+    const addMesh = (parts, color, rough) => {
+      if (!parts.length) return;
+      const m = new THREE.Mesh(assemble(parts), new THREE.MeshStandardMaterial({
+        color, roughness: rough == null ? 1 : rough, flatShading: true,
+      }));
+      m.castShadow = !this.low;
+      m.receiveShadow = !this.low;
+      this.scene.add(m);
+    };
+    addMesh(bush, PAL.bush);
+    addMesh(rock, 0x6e6a5c, 0.95);
+    addMesh(wood, PAL.bark);
+
+    // --- the three tracks in. Rough timber frames the goblins have worn
+    // through, rather than carved arches.
+    this.doorGlows = [];
+    for (const lane of LANES) {
+      const p = lane.points[0];
+      const ang = Math.atan2(lane.segs[0].dx, lane.segs[0].dz);
+      const post = new THREE.Mesh(assemble([
+        { g: box(0.7, 5.2, 0.7), x: (lane.width + 1.2) / 2, y: 2.6, rz: 0.05 },
+        { g: box(0.7, 5.2, 0.7), x: -(lane.width + 1.2) / 2, y: 2.6, rz: -0.05 },
+        { g: box(lane.width + 2.6, 0.5, 0.5), y: 5.0 },
+        { g: box(0.4, 0.4, 0.4), x: 0, y: 5.5 },
+      ]), new THREE.MeshStandardMaterial({
+        color: 0x4e4034, roughness: 1, flatShading: true,
+      }));
+      post.position.set(p[0], 0, p[1]);
+      post.rotation.y = ang;
+      post.castShadow = !this.low;
+      this.scene.add(post);
+
+      const g = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: this.glowTex, color: 0x4a7f5a, transparent: true,
+        blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.28,
+      }));
+      g.position.set(p[0], 2.2, p[1]);
+      g.scale.set(10, 10, 1);
+      this.scene.add(g);
+
+      const dl = new THREE.PointLight(0x6fae7a, 22, 22, 2);
+      dl.position.set(p[0] - lane.segs[0].dx * 2, 3.4, p[1] - lane.segs[0].dz * 2);
+      this.scene.add(dl);
+      this.doorGlows.push({ sprite: g, lane: lane.id, base: 0.28, light: dl });
+    }
+    this.sconces = [];
+  }
+
+  // ------------------------------------------------------------- hearthfire
+  _buildHearth() {
+    const grp = new THREE.Group();
+    const R = STONE_DEF.radius;
+    const rng = makeRng(77);
+
+    // a ring of hearth stones, deliberately irregular
+    const ring = [];
+    for (let i = 0; i < 14; i++) {
+      const a = (i / 14) * Math.PI * 2 + rng() * 0.15;
+      const rr = R + 0.3 + rng() * 0.3;
+      const sc = 0.52 + rng() * 0.4;
+      ring.push({
+        g: box(sc, sc * (0.6 + rng() * 0.5), sc * 0.9),
+        x: Math.cos(a) * rr, y: sc * 0.3, z: Math.sin(a) * rr, ry: a + rng(),
+      });
+    }
+    const stones = new THREE.Mesh(assemble(ring), new THREE.MeshStandardMaterial({
+      color: 0x6a6459, roughness: 0.96, flatShading: true,
+    }));
+    stones.castShadow = !this.low;
+    stones.receiveShadow = !this.low;
+    grp.add(stones);
+
+    // ash bed
+    const ash = new THREE.Mesh(
+      new THREE.CylinderGeometry(R, R, 0.24, 12),
+      new THREE.MeshStandardMaterial({ color: 0x3a332c, roughness: 1, flatShading: true }));
+    ash.position.y = 0.12;
+    grp.add(ash);
+
+    // stacked logs
+    const logs = [];
+    for (let i = 0; i < 7; i++) {
+      const a = (i / 7) * Math.PI * 2;
+      logs.push({
+        g: box(0.42, 0.42, 2.5), x: Math.cos(a) * 0.75, y: 0.5 + (i % 2) * 0.42,
+        z: Math.sin(a) * 0.75, ry: a + 1.57, rx: -0.24,
+      });
+    }
+    const logMesh = new THREE.Mesh(assemble(logs), new THREE.MeshStandardMaterial({
+      color: 0x5a4231, roughness: 1, flatShading: true,
+    }));
+    logMesh.castShadow = !this.low;
+    grp.add(logMesh);
+
+    // the flame: three nested tapering shells that counter-rotate, so it reads
+    // as a moving fire rather than an orange cone
+    this.flames = [];
+    for (let i = 0; i < 3; i++) {
+      const h = 2.15 - i * 0.5;
+      const m = new THREE.Mesh(
+        new THREE.ConeGeometry(0.92 - i * 0.22, h, 5),
+        new THREE.MeshStandardMaterial({
+          color: i === 0 ? 0xff7a2a : (i === 1 ? 0xffa23d : 0xffe08a),
+          emissive: i === 0 ? 0xff5a10 : (i === 1 ? 0xff9020 : 0xffd070),
+          emissiveIntensity: 1.6 + i * 0.9,
+          roughness: 0.4, flatShading: true,
+          transparent: true, opacity: 0.92 - i * 0.06,
+        }));
+      m.position.y = 0.85 + h / 2;
+      m.position.x = (i - 1) * 0.12;
+      m.rotation.z = (i - 1) * 0.09;
+      grp.add(m);
+      this.flames.push({ mesh: m, base: m.position.y, spin: (i % 2 ? -1 : 1) * (0.5 + i * 0.4) });
+    }
+    // kept under the old names so update() needs no branching
+    this.crystal = this.flames[0].mesh;
+    this.crystalShell = this.flames[2].mesh;
+
+    this.stoneGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: this.glowTex, color: 0xffa23d, transparent: true,
+      blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.9,
+    }));
+    this.stoneGlow.position.y = 1.9;
+    this.stoneGlow.scale.set(9.5, 9.5, 1);
+    grp.add(this.stoneGlow);
+
+    this.scene.add(grp);
+    this.stoneGrp = grp;
+  }
+
   // ------------------------------------------------------------------ units
   _buildUnits() {
     this.foeMeshes = {};
+    const skins = SKINS[this.theme] || SKINS.crypt;
     for (const def of FOES) {
-      const geo = FOE_GEO[def.id]();
+      const skin = skins[def.id];
+      const geo = skin.geo();
       const n = FOE_CAP[def.id];
       const isWisp = def.id === 'wisp';
       const mat = withInstanceFlash(new THREE.MeshStandardMaterial({
-        color: PAL[def.id],
+        color: 0xffffff, vertexColors: true,
         roughness: isWisp ? 0.3 : 0.85,
         metalness: isWisp ? 0.0 : 0.12,
         emissive: isWisp ? 0x1aa8d8 : 0x000000,
@@ -709,14 +1143,14 @@ export class Renderer {
     this._buildPlayerRig();
 
     // the lantern you carry — a second, small, moving light source
-    this.lantern = new THREE.PointLight(0xffd9a0, 26, 17, 2);
+    this.lantern = new THREE.PointLight(0xffd9a0, 10, 9.5, 2);
     this.lantern.position.set(0, 1.7, 0);
     this.scene.add(this.lantern);
     this.lanternGlow = new THREE.Sprite(new THREE.SpriteMaterial({
       map: this.glowTex, color: 0xffd9a0, transparent: true,
       blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.5,
     }));
-    this.lanternGlow.scale.set(5, 5, 1);
+    this.lanternGlow.scale.set(3.2, 3.2, 1);
     this.scene.add(this.lanternGlow);
   }
 
@@ -726,8 +1160,8 @@ export class Renderer {
   // held weapon actually change when you swap.
   _buildPlayerRig() {
     const steel = new THREE.MeshStandardMaterial({
-      color: PAL.player, roughness: 0.55, metalness: 0.45,
-      emissive: 0x2a3550, emissiveIntensity: 0.35, flatShading: true,
+      color: PAL.player, roughness: 0.62, metalness: 0.35,
+      emissive: 0x1e2740, emissiveIntensity: 0.25, flatShading: true,
     });
     const cloth = new THREE.MeshStandardMaterial({
       color: PAL.cloak, roughness: 0.9, flatShading: true,
@@ -866,6 +1300,23 @@ export class Renderer {
       this.threatRings.push(m);
     }
 
+    // Health bars. Two instanced billboards: a dark backing and a coloured
+    // fill whose geometry is offset so scaling X grows it from the LEFT.
+    this.HPN = 160;
+    const barGeo = () => new THREE.PlaneGeometry(1, 1).translate(0.5, 0, 0);
+    this.hpBack = new THREE.InstancedMesh(barGeo(),
+      new THREE.MeshBasicMaterial({ color: 0x101319, transparent: true, opacity: 0.72,
+        depthWrite: false, depthTest: false }), this.HPN);
+    this.hpFill = new THREE.InstancedMesh(barGeo(),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.95,
+        depthWrite: false, depthTest: false }), this.HPN);
+    this.hpFill.instanceColor = new THREE.InstancedBufferAttribute(
+      new Float32Array(this.HPN * 3), 3);
+    for (const m of [this.hpBack, this.hpFill]) {
+      m.frustumCulled = false; m.count = 0; m.renderOrder = 6;
+      this.scene.add(m);
+    }
+
     // Build grid. Shown the moment a ward is picked: without it you are
     // guessing where placement is legal, which was the single most common
     // complaint after the first playtest.
@@ -890,6 +1341,18 @@ export class Renderer {
     this.gridMesh.instanceColor = new THREE.InstancedBufferAttribute(
       new Float32Array(this.GRIDN * 3), 3);
     this.scene.add(this.gridMesh);
+
+    // A sword arc. Appears on the swing and sweeps through the strike, so a
+    // melee hit has a visible shape rather than just a number leaving a foe.
+    this.arc = new THREE.Mesh(
+      new THREE.RingGeometry(1.1, 2.6, 22, 1, -0.85, 1.7).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({
+        color: 0xffeab0, transparent: true, opacity: 0, side: THREE.DoubleSide,
+        depthWrite: false, blending: THREE.AdditiveBlending,
+      }));
+    this.arc.visible = false;
+    this.arc.renderOrder = 4;
+    this.scene.add(this.arc);
 
     // ward range ring, shown while placing
     this.ring = new THREE.Mesh(
@@ -934,7 +1397,7 @@ export class Renderer {
     }
   }
 
-  addShake(v) { this.shake = Math.min(1.5, this.shake + v); }
+  addShake(v) { if (this.allowShake) this.shake = Math.min(1.5, this.shake + v); }
 
   // --------------------------------------------------------------- wards
   _wardMesh(def) {
@@ -1001,7 +1464,7 @@ export class Renderer {
     return g;
   }
 
-  syncWards(world) {
+  syncWards(world, dt) {
     const seen = new Set();
     for (const w of world.wards) {
       if (w.dead) continue;
@@ -1014,6 +1477,21 @@ export class Renderer {
         this.wardViews.set(w.id, v);
         this.spark(w.x, 0.6, w.z, 0x7fe08a, 14, 5, 1.1);
       }
+      // Under construction: rise out of the ground. Everything else about the
+      // ward is already correct, so the animation is just the reveal.
+      if (w.buildT > 0) {
+        const k = 1 - w.buildT / w.buildTotal;
+        v.scale.y = 0.08 + 0.92 * k;
+        v.scale.x = v.scale.z = 0.7 + 0.3 * k;
+        v.rotation.z = (1 - k) * 0.07 * Math.sin(this.t * 22);   // judder
+        if (Math.random() < dt * 26) {
+          this.spark(w.x + (Math.random() - 0.5) * 1.4, 0.25 + k * 1.4,
+            w.z + (Math.random() - 0.5) * 1.4, 0xd8b070, 1, 2.4, 0.7, -5);
+        }
+        continue;
+      }
+      v.scale.x = v.scale.z = 1;
+
       // damage reads as a lean and a sink, not a floating bar
       const f = w.hp / w.maxHp;
       v.scale.y = 0.55 + 0.45 * f;
@@ -1081,14 +1559,26 @@ export class Renderer {
     // --- the stone is the health bar. Its light dims as it is worn down.
     const sf = Math.max(0, world.stone.hp / world.stone.maxHp);
     const pulse = 1 + Math.sin(this.t * 2.2) * 0.06;
-    this.key.intensity = (95 + 250 * sf) * pulse;
+    this.key.intensity = (this.theme === 'forest' ? 70 : 95) * pulse +
+      (this.theme === 'forest' ? 170 : 250) * sf * pulse;
     // floor is 0.62 so the room stays readable even at zero stone health
-    this.hemi.intensity = 0.34 + 0.34 * sf;
-    this.crystal.material.emissiveIntensity = (0.7 + 2.2 * sf) * pulse;
-    this.crystal.rotation.y += dt * 0.5;
-    this.crystal.rotation.x = Math.sin(this.t * 0.7) * 0.12;
-    this.crystal.position.y = 3.5 + Math.sin(this.t * 1.4) * 0.16;
-    if (this.crystalShell) {
+    this.hemi.intensity = (this.theme === 'forest' ? 0.42 : 0.34) + 0.34 * sf;
+    if (!this.flames) this.crystal.material.emissiveIntensity = (0.7 + 2.2 * sf) * pulse;
+    if (this.flames) {
+      for (let i = 0; i < this.flames.length; i++) {
+        const fl = this.flames[i];
+        fl.mesh.rotation.y += dt * fl.spin;
+        const flick = 0.82 + Math.sin(this.t * (8 + i * 4) + i * 2) * 0.13 + Math.random() * 0.07;
+        fl.mesh.scale.set(flick, (0.7 + 0.55 * sf) * flick, flick);
+        fl.mesh.position.y = fl.base * (0.55 + 0.5 * sf);
+        fl.mesh.visible = sf > 0.02 || i === 0;
+      }
+    } else {
+      this.crystal.rotation.y += dt * 0.5;
+      this.crystal.rotation.x = Math.sin(this.t * 0.7) * 0.12;
+    }
+    if (!this.flames) this.crystal.position.y = 3.5 + Math.sin(this.t * 1.4) * 0.16;
+    if (this.crystalShell && !this.flames) {
       this.crystalShell.position.y = this.crystal.position.y;
       this.crystalShell.rotation.y -= dt * 0.34;
       this.crystalShell.rotation.z += dt * 0.16;
@@ -1098,9 +1588,10 @@ export class Renderer {
     const gs = 8 + 6 * sf;
     this.stoneGlow.scale.set(gs, gs, 1);
     // as it dies the light goes cold
-    _c.setHex(PAL.stone).lerp(new THREE.Color(0x4466aa), 1 - sf);
+    _c.setHex(this.flames ? 0xff9a3c : PAL.stone)
+      .lerp(new THREE.Color(this.flames ? 0x6a3a20 : 0x4466aa), 1 - sf);
     this.key.color.copy(_c);
-    this.crystal.material.emissive.copy(_c);
+    if (!this.flames) this.crystal.material.emissive.copy(_c);
 
     // --- player
     if (p.alive) {
@@ -1143,6 +1634,19 @@ export class Renderer {
         rig.body.rotation.x = 0;
       }
 
+      // the arc follows the swing and fades out over it
+      if (p.swingT > 0) {
+        const k = 1 - (p.swingT / 0.18);
+        this.arc.visible = true;
+        this.arc.position.set(p.x, 0.9, p.z);
+        this.arc.rotation.y = -p.yaw + Math.PI / 2;
+        const sc = 0.7 + k * 0.55;
+        this.arc.scale.set(sc, 1, sc);
+        this.arc.material.opacity = 0.34 * (1 - k) + 0.05;
+      } else {
+        this.arc.visible = false;
+      }
+
       rig.sword.visible = p.weapon === 'sword';
       rig.bow.visible = p.weapon === 'crossbow';
       rig.mat.emissiveIntensity = p.hurtT > 0 ? 2.4
@@ -1150,7 +1654,7 @@ export class Renderer {
       this.lantern.position.set(p.x + Math.sin(p.yaw + 1.2) * 0.6, 1.55,
         p.z + Math.cos(p.yaw + 1.2) * 0.6);
       this.lanternGlow.position.copy(this.lantern.position);
-      this.lantern.intensity = 24 + Math.sin(this.t * 7) * 3;
+      this.lantern.intensity = 9.5 + Math.sin(this.t * 7) * 1.4;
     } else {
       this.player.visible = false;
       this.lantern.intensity = 0;
@@ -1192,6 +1696,12 @@ export class Renderer {
           lean = -sw * 0.5;
           sc = 1 + sw * 0.06;
         }
+        // recoil: a squash-and-stretch punch on the frame a hit lands
+        if (f.hitT > 0) {
+          const hk = f.hitT / 0.1;
+          sc *= 1 + hk * 0.13;
+          lean += hk * 0.16;
+        }
       }
       _q.setFromEuler(new THREE.Euler(lean, ang, 0));
       _s.set(sc, sc, sc);
@@ -1216,6 +1726,34 @@ export class Renderer {
     }
     this.wispGlow.count = wg;
     this.wispGlow.instanceMatrix.needsUpdate = true;
+
+    // --- health bars over anything that has been hurt (and every breaker,
+    // which is worth tracking before it is hurt)
+    let hb = 0;
+    const hcol = this.hpFill.instanceColor.array;
+    for (const f of world.foes) {
+      if (f.dead || hb >= this.HPN || !this.showHpBars) continue;
+      const frac = f.hp / f.maxHp;
+      if (frac >= 0.999 && f.kind !== 'breaker') continue;
+      const big = f.kind === 'breaker';
+      const W = big ? 2.6 : 1.15, Hh = big ? 0.24 : 0.13;
+      const y = f.y + f.def.height + (big ? 0.45 : 0.30);
+      _q.copy(this.camera.quaternion);
+      _m.compose(_v.set(f.x - W / 2, y, f.z), _q, _s.set(W, Hh, 1));
+      this.hpBack.setMatrixAt(hb, _m);
+      _m.compose(_v.set(f.x - W / 2, y, f.z), _q, _s.set(W * Math.max(0, frac), Hh * 0.74, 1));
+      this.hpFill.setMatrixAt(hb, _m);
+      // green -> amber -> red as it drops
+      const cr = frac > 0.5 ? (1 - frac) * 2 : 1;
+      const cg = frac > 0.5 ? 1 : frac * 2;
+      hcol[hb * 3] = cr * 0.95; hcol[hb * 3 + 1] = cg * 0.9; hcol[hb * 3 + 2] = 0.28;
+      hb++;
+    }
+    this.hpBack.count = hb;
+    this.hpFill.count = hb;
+    this.hpBack.instanceMatrix.needsUpdate = true;
+    this.hpFill.instanceMatrix.needsUpdate = true;
+    this.hpFill.instanceColor.needsUpdate = true;
 
     // threat rings follow live breakers; the pulse rate rises as one closes on
     // the stone, so urgency is readable without reading a number
@@ -1292,7 +1830,7 @@ export class Renderer {
       if (d.light) d.light.intensity = 42 + Math.max(0, f) * 70 + puls * 40;
     }
 
-    this.syncWards(world);
+    this.syncWards(world, dt);
     this.renderer.render(this.scene, this.camera);
   }
 

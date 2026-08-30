@@ -365,7 +365,7 @@ export function runTests(log = console.log) {
   // Pin the map and remember the shipped budget: several assertions below move
   // both, and a leaked value would silently retarget every later test.
   // See [[sim-level-default-retargets-suite]].
-  setMap('crypt');
+  setMap('glade');
   const SHIPPED_DU = ECON.duBudget;
 
   log('\n--- WARDSTONE assertions ---\n');
@@ -634,7 +634,7 @@ export function runTests(log = console.log) {
         playRun({ seed: sd, build: true, fight: true }).phase === 'won').length;
       perMap[id] = { idleWins, wins, of: seeds.length };
     }
-    setMap('crypt');
+    setMap('glade');
 
     const anyIdle = Object.values(perMap).some(m => m.idleWins > 0);
     ok('T21 no ward build wins unattended on ANY map',
@@ -665,7 +665,7 @@ export function runTests(log = console.log) {
       cliffs[id] = cliff;
     }
     ECON.duBudget = SHIPPED_DU;
-    setMap('crypt');
+    setMap('glade');
     const margins = Object.entries(cliffs)
       .map(([k, v]) => `${k} ${v == null ? '>+8' : '+' + (v - SHIPPED_DU)}`).join(', ');
     ok('T23 the premise cliff sits above the shipped budget on every map',

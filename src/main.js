@@ -9,6 +9,7 @@ import { World } from './sim.js';
 import { Renderer, PAL } from './render.js';
 import { Sound, playEvent } from './audio.js';
 import { Minimap } from './minimap.js';
+import { Tutorial, STEPS } from './tutorial.js';
 import { WARDS, WARD_BY_ID, ECON, WAVES, PLAYER } from './defs.js';
 import { cellOf, cellCenter, isBuildableCell, ARENA } from './arena.js';
 
@@ -42,11 +43,12 @@ const state = {
   firing: false, mending: false, wantDodge: false,
   pointer: { x: 0, y: 0, has: false },
   ghostCell: null,
-  acc: 0, last: 0, lastFrame: 0,
+  acc: 0, last: 0, lastFrame: 0, hitstop: 0,
   vel: { x: 0, z: 0 },
   hintShown: new Set(),
   low: isTouch,
-  musicOn: true, soundOn: true,
+  musicOn: true, soundOn: true, dmgNums: false,
+  hpBars: true, shake: true, tutorial: true, tut: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -203,16 +205,41 @@ function drainEvents() {
   const w = state.world, r = state.rend, s = state.snd;
   for (const e of w.events) {
     if (s) playEvent(s, e);
+    if (state.tut && !state.tut.done) state.tut.note(e, w);
     switch (e.type) {
       case 'impact':
-        r.spark(e.x, e.y, e.z, e.source === 'player' ? 0xffe0a8 : 0xffc27a, 5, 5, 0.8);
+        r.spark(e.x, e.y, e.z, e.source === 'player' ? 0xffe0a8 : 0xffc27a,
+          e.source === 'player' ? 11 : 5, e.source === 'player' ? 8 : 5, 0.9);
+        if (e.source === 'player') { r.addShake(0.08); state.hitstop = Math.max(state.hitstop, 0.035); }
+        break;
+      case 'swing':
+        // a sword that connects stops time for a moment; one that whiffs does not
+        if (e.hits > 0) {
+          state.hitstop = Math.max(state.hitstop, 0.05 + Math.min(0.05, e.hits * 0.02));
+          r.addShake(0.10 + Math.min(0.2, e.hits * 0.05));
+          r.spark(e.x + e.dx * 1.9, 1.0, e.z + e.dz * 1.9, 0xfff0c8, 8 + e.hits * 3, 7, 1.0, -3);
+        }
+        break;
+      case 'swap':
+        if (s) s.play('select', 0.7);
+        break;
+      case 'dodge':
+        r.ringBurst(e.x, 0.25, e.z, 0xbcd2f5, 1.5, 12);
+        if (s) s.play('foeSwing', 0.5, 1.5);
         break;
       case 'kill': {
         const big = e.foe === 'breaker';
         r.spark(e.x, (e.y || 0) + 0.8, e.z,
           e.foe === 'wisp' ? PAL.wisp : (big ? 0xff8060 : 0xc8b89a),
           big ? 26 : 9, big ? 9 : 4.5, big ? 2.2 : 1);
-        if (big) { r.addShake(0.5); r.ringBurst(e.x, 0.4, e.z, 0xff8060, 3, 16); }
+        if (big) {
+          r.addShake(0.65);
+          r.ringBurst(e.x, 0.4, e.z, 0xff8060, 3.4, 20);
+          state.hitstop = Math.max(state.hitstop, 0.13);   // a troll dying lands
+          flash(0.14);
+        } else if (e.by === 'player') {
+          r.addShake(0.05);
+        }
         break;
       }
       case 'build':
@@ -248,6 +275,13 @@ function drainEvents() {
           banner('Something heavy', 'at the ' + e.lane + ' door');
         }
         break;
+      case 'dmg':
+        popDamage(e.x, e.y, e.z, e.amount);
+        break;
+      case 'built':
+        r.ringBurst(e.x, 0.4, e.z, 0x9fe8a0, 1.9, 14);
+        if (s) s.play('build');
+        break;
       case 'mote':
         break;
       case 'wave':
@@ -262,6 +296,51 @@ function drainEvents() {
     }
   }
   w.events.length = 0;
+}
+
+// ---------------------------------------------------------------------------
+// Floating damage numbers. A pool of DOM nodes projected from world space —
+// far cheaper than text in the 3D scene and it stays crisp at any distance.
+// Off by default: they are informative for some players and visual noise for
+// others, which is exactly what a setting is for.
+const DN = [];
+const _dv = new THREE.Vector3();
+function initDamageNumbers() {
+  const host = $('dmg');
+  for (let i = 0; i < 26; i++) {
+    const el = document.createElement('div');
+    el.className = 'dnum';
+    host.appendChild(el);
+    DN.push({ el, life: 0, x: 0, y: 0, z: 0, vy: 0 });
+  }
+}
+function popDamage(x, y, z, amount) {
+  if (!state.dmgNums) return;
+  const d = DN.find(n => n.life <= 0);
+  if (!d) return;
+  d.life = d.max = 0.85;
+  d.x = x + (Math.random() - 0.5) * 0.7;
+  d.y = y; d.z = z + (Math.random() - 0.5) * 0.7;
+  d.vy = 2.4;
+  d.el.textContent = Math.round(amount);
+  d.el.className = 'dnum' + (amount >= 34 ? ' crit' : '');
+}
+function stepDamageNumbers(dt) {
+  const cam = state.rend.camera;
+  for (const d of DN) {
+    if (d.life <= 0) { if (d.el.style.opacity !== '0') d.el.style.opacity = '0'; continue; }
+    d.life -= dt;
+    d.y += d.vy * dt;
+    d.vy -= 3.2 * dt;
+    if (d.life <= 0) { d.el.style.opacity = '0'; continue; }
+    _dv.set(d.x, d.y, d.z).project(cam);
+    if (_dv.z > 1) { d.el.style.opacity = '0'; continue; }
+    const sx = (_dv.x * 0.5 + 0.5) * innerWidth;
+    const sy = (-_dv.y * 0.5 + 0.5) * innerHeight;
+    const k = d.life / d.max;
+    d.el.style.transform = `translate(${sx.toFixed(0)}px,${sy.toFixed(0)}px)`;
+    d.el.style.opacity = (k > 0.7 ? (1 - k) / 0.3 : k / 0.7).toFixed(2);
+  }
 }
 
 let flashT = 0;
@@ -502,6 +581,7 @@ function applyInput(dt) {
   const wantMend = state.mending || state.keys.has('e');
   if (wantMend) {
     const hp = w.repairStep(dt);
+    if (state.tut && hp > 0) state.tut.s.mended += hp;
     if (hp > 0 && Math.random() < dt * 14) {
       const t = w.repairTarget();
       if (t) r.spark(t.x, 1.1, t.z, 0x7fe08a, 1, 2.2, 0.7, -2);
@@ -529,10 +609,13 @@ function applyInput(dt) {
         if (d > 0.5) { ax = dx / d; az = dz / d; }
       }
     }
+    const before = w.weaponDef(p).kind;
     w.attack(ax, az, ay);
     p.yaw = Math.atan2(ax, az);
-    if (w.weaponDef(p).kind === 'ranged') {
-      r.spark(p.x + ax * 0.8, 1.25, p.z + az * 0.8, 0xffe0a8, 3, 3, 0.5, -1);
+    if (before === 'ranged') {
+      // muzzle flash, thrown forward off the stock
+      r.spark(p.x + ax * 1.0, 1.25, p.z + az * 1.0, 0xffe8b8, 6, 5.5, 0.8, -2);
+      r.addShake(0.045);
     }
   }
 
@@ -558,6 +641,7 @@ function frame(now) {
   state.last = now;
   state.lastFrame = performance.now();
 
+  stepDamageNumbers(dt);
   if (flashT > 0) {
     flashT = Math.max(0, flashT - dt * 2.2);
     $('flash').style.opacity = flashT;
@@ -566,13 +650,23 @@ function frame(now) {
   if (state.running) {
     applyInput(dt);
     // Fixed timestep so the sim is identical to the one the harness measured.
-    state.acc += dt;
+    // Hitstop: the sim slows to a crawl for a few frames on a meaty connect
+    // while the camera and particles keep running at full speed. It is the
+    // cheapest thing in the toolbox that makes a hit feel like it landed on
+    // something solid rather than passed through it.
+    let simDt = dt;
+    if (state.hitstop > 0) {
+      state.hitstop -= dt;
+      simDt = dt * 0.12;
+    }
+    state.acc += simDt;
     let n = 0;
     while (state.acc >= STEP && n++ < 5) {
       state.world.step(STEP);
       state.acc -= STEP;
     }
     drainEvents();
+    tickTutorial(dt);
     syncHud();
     if (state.snd) state.snd.setPhase(state.world.phase);
     const ph = state.world.phase;
@@ -606,7 +700,10 @@ function boot() {
   state.snd = new Sound();
   state.map = new Minimap($('map'));
   buildBar();
+  initDamageNumbers();
   bindInput();
+  bindSettings();
+  loadSettings();
   resize();
   addEventListener('resize', resize);
   addEventListener('orientationchange', () => setTimeout(resize, 250));
@@ -616,7 +713,6 @@ function boot() {
     : 'WASD to move · right-drag to turn · 1-4 pick a ward, click to place · E mends · R readies.';
 
   if (isTouch) $('touch').classList.add('on');   // shown once play begins
-  $('optLow').classList.toggle('on', state.low);
 
   window.__wsBooted = true;
   hideOverlay($('boot'));
@@ -640,20 +736,6 @@ function boot() {
   }, 1000);
 }
 
-$('optMusic').addEventListener('click', function () {
-  state.musicOn = !state.musicOn; this.classList.toggle('on', state.musicOn);
-});
-$('optSound').addEventListener('click', function () {
-  state.soundOn = !state.soundOn; this.classList.toggle('on', state.soundOn);
-});
-$('optLow').addEventListener('click', function () {
-  state.low = !state.low; this.classList.toggle('on', state.low);
-  state.rend.low = state.low;
-  state.rend.renderer.shadowMap.enabled = !state.low;
-  state.rend.scene.traverse(o => { if (o.material) o.material.needsUpdate = true; });
-  resize();
-});
-
 $('begin').addEventListener('click', async () => {
   hideOverlay($('intro'), 520);
   $('hud').classList.remove('hide');
@@ -666,8 +748,14 @@ $('begin').addEventListener('click', async () => {
     state.snd.setMusicEnabled(state.musicOn);
     state.snd.setPhase(state.world.phase);
   } catch (e) { /* muted is survivable; a crash is not */ }
-  banner('Muster', 'Build while the doors are shut');
-  showHint(0);
+  applySettings();
+  if (state.tutorial) {
+    state.tut = new Tutorial(state.world);
+    showTutStep();
+  } else {
+    banner('Muster', 'Build while the tracks are quiet');
+    showHint(0);
+  }
   syncHud();
 });
 
@@ -740,6 +828,130 @@ window.WARDSTONE_CAP = {
     return r.status;
   },
 };
+
+// ---------------------------------------------------------------------------
+// Settings. Persisted per browser, wrapped so a private window or blocked
+// site data cannot break boot.
+// ---------------------------------------------------------------------------
+const SET_KEYS = ['musicOn', 'soundOn', 'dmgNums', 'hpBars', 'shake', 'low', 'tutorial'];
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem('wardstone.settings');
+    if (!raw) return;
+    const o = JSON.parse(raw);
+    for (const k of SET_KEYS) if (typeof o[k] === 'boolean') state[k] = o[k];
+    if (typeof o.camDist === 'number') state.camDist = o.camDist;
+  } catch (e) { /* no stored settings is the normal case */ }
+}
+function saveSettings() {
+  try {
+    const o = { camDist: state.rend ? state.rend.camDist : 11 };
+    for (const k of SET_KEYS) o[k] = state[k];
+    localStorage.setItem('wardstone.settings', JSON.stringify(o));
+  } catch (e) { /* nothing to do about a browser that refuses */ }
+}
+
+function applySettings() {
+  if (state.snd) {
+    state.snd.setMuted(!state.soundOn);
+    state.snd.setMusicEnabled(state.musicOn);
+    if (state.musicOn && state.running) state.snd.setPhase(state.world.phase);
+  }
+  if (state.rend) {
+    state.rend.low = state.low;
+    state.rend.renderer.shadowMap.enabled = !state.low;
+    state.rend.showHpBars = state.hpBars;
+    state.rend.allowShake = state.shake;
+  }
+  resize();
+  saveSettings();
+}
+
+function syncSettingsPanel() {
+  for (const b of document.querySelectorAll('.tgl')) {
+    b.classList.toggle('on', !!state[b.dataset.set]);
+  }
+  const c = $('setCam');
+  if (c && state.rend) c.value = Math.round(state.rend.camDist);
+}
+
+function openSettings() {
+  syncSettingsPanel();
+  $('settings').classList.remove('hidden');
+}
+function closeSettings() { $('settings').classList.add('hidden'); }
+
+function bindSettings() {
+  for (const b of document.querySelectorAll('.tgl')) {
+    b.addEventListener('click', () => {
+      const k = b.dataset.set;
+      state[k] = !state[k];
+      b.classList.toggle('on', state[k]);
+      if (k === 'tutorial') $('optTut').classList.toggle('on', state[k]);
+      applySettings();
+    });
+  }
+  $('setCam').addEventListener('input', (e) => {
+    state.rend.camDist = +e.target.value;
+    state.rend.camHeight = 2.2 + state.rend.camDist * 0.48;
+    saveSettings();
+  });
+  $('openSet').addEventListener('click', openSettings);
+  $('closeSet').addEventListener('click', closeSettings);
+  $('gearBtn').addEventListener('click', openSettings);
+  $('optTut').addEventListener('click', function () {
+    state.tutorial = !state.tutorial;
+    this.classList.toggle('on', state.tutorial);
+    saveSettings();
+  });
+  addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      $('settings').classList.contains('hidden') ? openSettings() : closeSettings();
+    }
+  });
+  $('tutSkip').addEventListener('click', () => {
+    if (state.tut) state.tut.done = true;
+    $('tut').classList.add('hidden');
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Tutorial driving
+// ---------------------------------------------------------------------------
+function showTutStep() {
+  const t = state.tut;
+  const el = $('tut');
+  if (!t || t.done) { el.classList.add('hidden'); return; }
+  const st = t.step;
+  if (!st) { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  $('tutStep').textContent = `${t.i + 1} / ${STEPS.length}`;
+  $('tutTitle').textContent = st.title;
+  $('tutText').innerHTML = (isTouch && st.touch) ? st.touch : st.text;
+  el.classList.remove('pop');
+  void el.offsetWidth;
+  el.classList.add('pop');
+  if (state.snd) state.snd.play('select', 0.5);
+}
+
+function tickTutorial(dt) {
+  const t = state.tut;
+  if (!t || t.done) return;
+  // The muster phase does not run out while the tutorial is still teaching.
+  if (state.world.phase === 'build') state.world.phaseTimer = 99;
+  const pending = t.takeSpawns();
+  if (pending && pending.length) {
+    for (const [lane, foe] of pending) state.world._spawn(lane, foe);
+  }
+  if (t.tick(dt, state.world)) {
+    showTutStep();
+    if (t.done) {
+      $('tut').classList.add('hidden');
+      banner('Ready', 'the tutorial is done');
+      if (state.world.phase === 'build') state.world.phaseTimer = ECON.interPhase;
+    }
+  }
+}
 
 boot();
 

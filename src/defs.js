@@ -102,28 +102,33 @@ export const ECON = {
 export const WARDS = [
   {
     id: 'palisade', name: 'Palisade', key: '1', kind: 'blockade',
-    cost: 35, du: 1, hp: 2200, radius: 0.95, targets: 'none',
+    cost: 35, du: 1, hp: 2200, buildTime: 2.5, radius: 0.95, targets: 'none',
     blurb: 'Holds a lane. Deals nothing. Foes stop and hit it.',
   },
   {
     id: 'ballista', name: 'Ballista', key: '2', kind: 'projectile',
-    cost: 70, du: 4, hp: 300, radius: 0.8, targets: 'ground',
+    cost: 70, du: 4, hp: 300, buildTime: 4.0, radius: 0.8, targets: 'ground',
     range: 22, damage: 42, cooldown: 1.1, projSpeed: 46, projRadius: 0.7,
     blurb: 'Long reach, heavy bolt. Cannot elevate — ground only.',
   },
   {
     id: 'brazier', name: 'Brazier', key: '3', kind: 'aura',
-    cost: 60, du: 4, hp: 260, radius: 0.8, targets: 'all',
+    cost: 60, du: 4, hp: 260, buildTime: 3.5, radius: 0.8, targets: 'all',
     range: 8.5, dps: 26,
     blurb: 'The only ward that reaches a flier. Short leash.',
   },
   {
     id: 'snare', name: 'Snare', key: '4', kind: 'trap',
-    cost: 45, du: 3, hp: 200, radius: 0.9, targets: 'ground',
+    cost: 45, du: 3, hp: 200, buildTime: 3.0, radius: 0.9, targets: 'ground',
     range: 4.5, damage: 90, cooldown: 6.0,
     blurb: 'Buried. Detonates once, then rebuilds its charge.',
   },
 ];
+
+// Wards go up INSTANTLY while the doors are shut and take real seconds once a
+// wave is running. That is what stops "rebuild the wall mid-breaker" from
+// being free, and it makes the muster phase worth its length.
+export const BUILD_INSTANT_IN_MUSTER = true;
 
 export const WARD_BY_ID = Object.fromEntries(WARDS.map(w => [w.id, w]));
 

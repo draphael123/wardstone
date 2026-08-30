@@ -200,8 +200,61 @@
   #over .stats{font-size:12px;color:#7d8598;margin-bottom:22px;line-height:1.9}
   #over .stats b{color:#c8cedb;font-weight:400}
 
+  /* ================= settings ================= */
+  #settings{position:fixed;inset:0;z-index:95;display:grid;place-items:center;
+    background:rgba(6,9,15,.86);padding:20px;overflow-y:auto}
+  #settings.hidden{display:none}
+  .swrap{width:min(420px,94vw);background:rgba(18,23,33,.96);border-radius:8px;
+    border:1px solid rgba(255,255,255,.12);padding:22px 24px;text-align:center}
+  .swrap h3{font-size:14px;letter-spacing:.26em;text-transform:uppercase;
+    color:#ffb347;font-weight:400;margin-bottom:16px}
+  .srow{display:flex;justify-content:space-between;align-items:center;
+    padding:9px 0;border-bottom:1px solid rgba(255,255,255,.06);font-size:13px;color:#c8cedb}
+  .tgl{width:44px;height:24px;border-radius:12px;border:1px solid rgba(255,255,255,.18);
+    background:rgba(255,255,255,.07);position:relative;cursor:pointer;transition:.16s}
+  .tgl::after{content:'';position:absolute;top:2px;left:2px;width:18px;height:18px;
+    border-radius:50%;background:#6f788b;transition:.16s}
+  .tgl.on{background:rgba(255,179,71,.28);border-color:rgba(255,179,71,.6)}
+  .tgl.on::after{left:22px;background:#ffb347}
+  #setCam{width:130px;accent-color:#ffb347}
+  .skeys{font-size:11px;color:#8e97a8;line-height:1.9;margin:16px 0 18px;
+    padding-top:14px;border-top:1px solid rgba(255,255,255,.08)}
+  .skeys b{color:#e9e6dd;font-weight:400}
+  #gearBtn{position:absolute;top:max(14px,env(safe-area-inset-top));
+    left:50%;transform:translateX(-50%);margin-top:34px;
+    width:30px;height:30px;border-radius:50%;pointer-events:auto;cursor:pointer;
+    border:1px solid rgba(255,255,255,.16);background:rgba(16,21,31,.8);
+    color:#8e97a8;font-size:14px;display:grid;place-items:center}
+
+  /* ================= tutorial ================= */
+  #tut{position:fixed;left:50%;transform:translateX(-50%);z-index:34;
+    bottom:calc(max(14px,env(safe-area-inset-bottom)) + 108px);
+    width:min(520px,92vw);background:rgba(14,18,27,.93);border-radius:7px;
+    border:1px solid rgba(255,179,71,.34);padding:13px 17px 14px;
+    text-align:center;backdrop-filter:blur(8px);pointer-events:auto;
+    box-shadow:0 6px 28px rgba(0,0,0,.5)}
+  #tut.hidden{display:none}
+  .tstep{font-size:9px;letter-spacing:.26em;text-transform:uppercase;color:#6f788b}
+  .ttitle{font-size:16px;color:#ffb347;margin:3px 0 5px}
+  .ttext{font-size:13px;line-height:1.6;color:#c8cedb}
+  .ttext b{color:#fff;font-weight:400;background:rgba(255,179,71,.16);
+    padding:1px 5px;border-radius:3px}
+  #tutSkip{margin-top:9px;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
+    background:none;border:0;color:#6f788b;cursor:pointer;font-family:inherit;
+    text-decoration:underline}
+  #tut.pop{animation:tpop .4s ease}
+  @keyframes tpop{0%{transform:translateX(-50%) scale(.96)}60%{transform:translateX(-50%) scale(1.02)}100%{transform:translateX(-50%) scale(1)}}
+
   #flash{position:fixed;inset:0;z-index:40;pointer-events:none;background:#e0605a;
     opacity:0;transition:opacity .25s}
+
+  /* floating damage numbers */
+  #dmg{position:fixed;inset:0;z-index:32;pointer-events:none;overflow:hidden}
+  .dnum{position:absolute;font-family:ui-monospace,Menlo,Consolas,monospace;
+    font-size:15px;font-weight:700;color:#ffe9b0;opacity:0;
+    text-shadow:0 2px 4px rgba(0,0,0,.85),0 0 10px rgba(255,180,80,.5);
+    will-change:transform,opacity}
+  .dnum.crit{color:#ffd0d0;font-size:19px}
 
   #banner{position:fixed;top:24%;left:50%;transform:translateX(-50%);z-index:35;
     pointer-events:none;text-align:center;opacity:0}
@@ -340,24 +393,23 @@
 <div id="intro" class="gone">
   <div class="wrap">
     <h1>WARDSTONE</h1>
-    <div class="prem">Three doors. One light. <b>Your wards hold the lanes &mdash;
-      you hold what the lanes don't cover.</b></div>
+    <div class="prem">A clearing, a fire, and three tracks through the trees.
+      <b>Your wards hold the tracks &mdash; you hold what the tracks don't cover.</b></div>
     <div class="rules">
-      <div class="rule r1"><i>&#9776;</i><div><b>Wards hold ground.</b> Wall a lane
-        and the dead stop and hack at the wall instead of walking past it. They
+      <div class="rule r1"><i>&#9776;</i><div><b>Wards hold ground.</b> Wall a track
+        and goblins stop and hack at the wall instead of walking round it. They
         never find a way around &mdash; there isn't one.</div></div>
-      <div class="rule r2"><i>&#9679;</i><div><b>Wisps do not walk.</b> They fly
-        straight over every wall you own. One ward in four can even reach them,
-        and it is the weakest one. The rest is your bow.</div></div>
-      <div class="rule r3"><i>&#9632;</i><div><b>Breakers out-hit your hammer.</b>
-        You cannot mend a wall faster than a breaker ruins it. A wall buys you
+      <div class="rule r2"><i>&#9679;</i><div><b>Will-o-wisps do not walk.</b> They
+        fly straight over every wall you own. One ward in four can even reach
+        them, and it is the weakest one. The rest is your crossbow.</div></div>
+      <div class="rule r3"><i>&#9632;</i><div><b>Trolls out-hit your hammer.</b>
+        You cannot mend a wall faster than a troll ruins it. A wall buys you
         time to kill it, and nothing more.</div></div>
     </div>
-    <button id="begin">Light the stone</button>
+    <button id="begin">Light the fire</button>
     <div class="opts">
-      <button class="opt on" id="optMusic">Music</button>
-      <button class="opt on" id="optSound">Sound</button>
-      <button class="opt" id="optLow">Low detail</button>
+      <button class="opt on" id="optTut">Guided tutorial</button>
+      <button class="opt" id="openSet">Settings</button>
     </div>
     <div class="foot">Mana drops where things die and must be walked over.
       Six waves. <span id="ctrlHint"></span></div>
@@ -370,8 +422,9 @@
     <div id="waveName">&mdash;</div>
     <div id="phase">&mdash;</div>
   </div>
+  <div id="gearBtn">&#9881;</div>
   <div id="stoneBar">
-    <div class="lbl">Wardstone</div>
+    <div class="lbl">Hearthfire</div>
     <div id="stoneTrack"><div id="stoneFill"></div></div>
   </div>
   <div id="topR">
@@ -401,7 +454,36 @@
   <div class="tbtn" id="bSwap">Swap</div>
 </div>
 
+<div id="settings" class="hidden">
+  <div class="swrap">
+    <h3>Settings</h3>
+    <div class="srow"><span>Music</span><button class="tgl on" data-set="musicOn"></button></div>
+    <div class="srow"><span>Sound effects</span><button class="tgl on" data-set="soundOn"></button></div>
+    <div class="srow"><span>Damage numbers</span><button class="tgl" data-set="dmgNums"></button></div>
+    <div class="srow"><span>Enemy health bars</span><button class="tgl on" data-set="hpBars"></button></div>
+    <div class="srow"><span>Screen shake</span><button class="tgl on" data-set="shake"></button></div>
+    <div class="srow"><span>Low detail</span><button class="tgl" data-set="low"></button></div>
+    <div class="srow"><span>Guided tutorial</span><button class="tgl on" data-set="tutorial"></button></div>
+    <div class="srow"><span>Camera distance</span>
+      <input type="range" id="setCam" min="7" max="26" step="1" value="11"></div>
+    <div class="skeys">
+      <b>WASD</b> move &nbsp;·&nbsp; <b>right-drag</b> look &nbsp;·&nbsp; <b>click</b> attack<br>
+      <b>Q</b> swap weapon &nbsp;·&nbsp; <b>Space</b> roll &nbsp;·&nbsp; <b>E</b> mend<br>
+      <b>1-4</b> pick a ward &nbsp;·&nbsp; <b>X</b> sell &nbsp;·&nbsp; <b>R</b> ready
+    </div>
+    <button class="opt on" id="closeSet" style="padding:11px 26px;font-size:11px">Close</button>
+  </div>
+</div>
+
+<div id="tut" class="hidden">
+  <div class="tstep" id="tutStep">1 / 10</div>
+  <div class="ttitle" id="tutTitle"></div>
+  <div class="ttext" id="tutText"></div>
+  <button id="tutSkip">Skip tutorial</button>
+</div>
+
 <div id="banner"><div class="t" id="bannerT"></div><div class="s" id="bannerS"></div></div>
+<div id="dmg"></div>
 <div id="flash"></div>
 
 <div id="over">

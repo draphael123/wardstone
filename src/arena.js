@@ -29,9 +29,13 @@ export const ARENA = {
 export const MAPS = {
   // The arena everything was balanced in: three lanes of comparable length,
   // each bending twice.
-  crypt: {
-    name: 'The Crypt',
-    blurb: 'Three doors, three roughly equal roads.',
+  // Level one. The LANES are unchanged from the arena every balance number
+  // was swept in — only the theme differs — so the entire sweep, both arms and
+  // all 28 assertions carry over untouched. Art is a skin; geometry is not.
+  glade: {
+    name: 'The Glade',
+    theme: 'forest',
+    blurb: 'Three tracks into the clearing, and one fire.',
     lanes: [
       { id: 'north', name: 'The Stair',
         points: [[0, -34], [0, -24], [8, -18], [8, -9], [2, -3], [0, 0]], width: 6 },
@@ -48,6 +52,7 @@ export const MAPS = {
   // is a property of the crypt and has to scale off lane length.
   gauntlet: {
     name: 'The Gauntlet',
+    theme: 'forest',
     blurb: 'One long road and two short ones. You cannot hold all three the same way.',
     lanes: [
       { id: 'north', name: 'The Long Way',
@@ -77,9 +82,11 @@ function buildLane(raw) {
 
 // `let`, not `const`: ES module named exports are LIVE bindings, so importers
 // see the new lanes after setMap() without any of them holding a stale copy.
-export let MAP_ID = 'crypt';
-export let LANES = MAPS.crypt.lanes.map(buildLane);
+export let MAP_ID = 'glade';
+export let LANES = MAPS.glade.lanes.map(buildLane);
 export let LANE_BY_ID = Object.fromEntries(LANES.map(l => [l.id, l]));
+
+export function currentMap() { return MAPS[MAP_ID]; }
 
 export function setMap(id) {
   const m = MAPS[id];
