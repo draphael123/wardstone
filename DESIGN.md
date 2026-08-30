@@ -132,3 +132,83 @@ the harness extended to sweep build × gear so a dominant item can't hide.
 - A minimap. Three lanes 68 m apart and a chase camera means you cannot see the
   lane you are not on. This is the largest readability gap remaining.
 - Foe HP bars, or at least a damage-state tint on the breaker.
+
+---
+
+# Measured against Dungeon Defenders' first level (The Deeper Well)
+
+What DD1's opening map actually does, and where WARDSTONE stands against it.
+Ordered by how much the gap costs us, not by how hard it is to close.
+
+## What we already match or beat
+
+| | DD1 Deeper Well | WARDSTONE |
+|---|---|---|
+| One objective, several fixed spawns | yes | yes (3 tracks) |
+| Build phase / combat phase loop | yes | yes |
+| Defence Unit budget | yes | yes, and **swept** — we know the cliff is at 36 on two maps |
+| Blockades attacked, not routed around | yes | yes |
+| Fliers that ignore blockades | wyverns | will-o-wisps |
+| A heavy that out-damages repair | ogres | trolls |
+| Upgrade towers in place with mana | yes (5 levels) | yes (3 levels) |
+| Repair towers | yes | yes |
+| Guided tutorial | a text popup | 10 checked steps |
+| Weapon switching | no — one weapon + abilities | sword / crossbow |
+
+## The five gaps that matter, in order
+
+### 1. No overhead build camera — the biggest one
+DD's "overlord" view lifts you to a top-down camera to place and upgrade
+anywhere on the map without walking there. Ours is a 3rd-person camera plus a
+build grid, which means repositioning a far lane costs a walk across the
+clearing every time. This is the single largest quality-of-life gap and it is
+entirely additive: a toggle that lifts the camera, freezes the player and lets
+the pointer place at range.
+
+### 2. Nothing to do during the muster except spend
+DD scatters **breakable mana chests** around the map. That does three jobs at
+once: it gives the build phase an activity, it teaches you the layout before
+anything is chasing you, and it means starting mana is *earned* rather than
+granted. Our muster is "place things, press R". Cheap to add and it makes the
+map worth walking.
+
+### 3. No bomber
+Every foe we have walks up and hits something. DD's **kobolds** run at your
+defences and explode, which is the one archetype that punishes stacking
+everything into a single wall and forces you to kill things BEFORE contact.
+It is the only genuinely missing *threat shape* in our set — and it is exactly
+the kind of foe our own "design enemies to fill gaps" rule asks for, because
+the defensive verb it demands (intercept early) is one nothing currently needs.
+
+### 4. No difficulty selection
+DD scales wave count and enemy stats across Easy/Medium/Hard/Insane. We ship
+one curve. This is cheap — a multiplier on foe hp/count and a wave-count
+change — and it is the standard answer to "too hard or too easy", which is
+otherwise a coin flip per player.
+
+### 5. No loot, and no reason to replay a cleared map
+DD's hook is that gear buffs your TOWERS, so replaying a map you have beaten
+still advances you. We deliberately deferred this and it remains the right
+call until the core is proven fun by a human — but it is the reason DD1 has
+legs and we currently do not.
+
+## Smaller gaps worth noting
+
+- **In-world spawn markers.** We show per-door counts on the minimap; DD shows
+  the portal itself and you can see what is queued. A floating count over each
+  track's gate would cost nothing.
+- **Repair has no progress feedback** — no ring, no number, so holding E feels
+  like nothing is happening until the ward visibly grows.
+- **No between-wave summary.** What died, what it earned, what is coming.
+- **Range preview on EXISTING wards**, not only while placing.
+- **One objective.** Later DD maps have several crystals, which turns the DU
+  budget from "which lane" into "which crystal", a genuinely different problem.
+
+## What NOT to copy
+
+- DD1's hero stat sheet (Hero Damage / Tower Damage / Ability Power / …) is a
+  wall of numbers that mostly obscures the decision. If we do gear, it should
+  move a handful of legible things.
+- DD1's mana is both currency AND ammunition for abilities, which makes the
+  economy hard to reason about. Ours does two jobs (build, mend) and that is
+  already the ceiling.
