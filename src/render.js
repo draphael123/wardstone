@@ -1716,6 +1716,13 @@ export class Renderer {
         fire.scale.set(fl, fl, 1);
         v.userData.light.intensity = 30 + Math.sin(this.t * 9 + w.id) * 6;
       }
+      if (world.player.repairing === w && Math.random() < dt * 30) {
+        const p = world.player;
+        const k = Math.random();
+        this.spark(p.x + (w.x - p.x) * k, 1.1 + Math.sin(k * 3.1) * 0.5,
+          p.z + (w.z - p.z) * k, 0x8fe8a0, 1, 1.2, 0.6, -0.6);
+      }
+
       const patch = v.userData.patch;
       if (patch) {
         // brightens while something is actually crawling through it
@@ -2038,6 +2045,35 @@ export class Renderer {
       hcol[hb * 3] = cr * 0.95; hcol[hb * 3 + 1] = cg * 0.9; hcol[hb * 3 + 2] = 0.28;
       hb++;
     }
+    // Wards get bars too, whenever hurt or being mended. This answers two
+    // complaints at once: "which wall is hurt" and "holding E feels like
+    // nothing is happening" — mending is now a bar you can watch move.
+    for (const wd of world.wards) {
+      if (wd.dead || hb >= this.HPN) continue;
+      const mending = world.player.repairing === wd;
+      const frac = wd.hp / wd.maxHp;
+      if (frac >= 0.999 && !mending && wd.buildT <= 0) continue;
+      const building = wd.buildT > 0;
+      const shown = building ? 1 - wd.buildT / wd.buildTotal : frac;
+      const W = 1.7, Hh = 0.16;
+      const y = 2.6 + (wd.def.id === 'archers' ? 2.6 : 0);
+      _q.copy(this.camera.quaternion);
+      _m.compose(_v.set(wd.x - W / 2, y, wd.z), _q, _s.set(W, Hh, 1));
+      this.hpBack.setMatrixAt(hb, _m);
+      _m.compose(_v.set(wd.x - W / 2, y, wd.z), _q,
+        _s.set(W * Math.max(0, shown), Hh * 0.72, 1));
+      this.hpFill.setMatrixAt(hb, _m);
+      // amber while going up, green while being mended, else red-to-green
+      if (building) { hcol[hb * 3] = 0.95; hcol[hb * 3 + 1] = 0.72; hcol[hb * 3 + 2] = 0.25; }
+      else if (mending) { hcol[hb * 3] = 0.42; hcol[hb * 3 + 1] = 1.0; hcol[hb * 3 + 2] = 0.5; }
+      else {
+        hcol[hb * 3] = frac > 0.5 ? (1 - frac) * 2 : 1;
+        hcol[hb * 3 + 1] = frac > 0.5 ? 0.85 : frac * 1.7;
+        hcol[hb * 3 + 2] = 0.3;
+      }
+      hb++;
+    }
+
     this.hpBack.count = hb;
     this.hpFill.count = hb;
     this.hpBack.instanceMatrix.needsUpdate = true;

@@ -71,8 +71,8 @@ export const STEPS = [
   {
     id: 'wisp',
     title: 'This one does not walk',
-    text: 'A will-o-wisp. It flies <b>straight over every wall you own</b>. Only the Brazier can reach one, ' +
-          'and it is the weakest ward you have — so mostly this is your job. ' +
+    text: 'A will-o-wisp. It flies <b>straight over every wall you own</b>. Only the Watchtower can reach one, ' +
+          'and it is bad at it — so mostly this is your job. ' +
           'Press <b>Q</b> for your crossbow and shoot it down.',
     touch: 'A will-o-wisp — it flies <b>over</b> your walls. Tap <b>Swap</b> for the crossbow and shoot it.',
     spawn: [['north', 'wisp']],
