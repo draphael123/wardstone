@@ -25,6 +25,11 @@ const RUN_MAX = 12;
 // How long a foe's weapon takes to come down and recover after the windup.
 const STRIKE_TIME = 0.26;
 
+// How close the player has to be before an unoccupied foe takes an interest.
+const NOTICE_RADIUS = 4.5;
+// How far a foe will reach off its own path to hit something you built.
+const ADJACENT_REACH = 0.7;
+
 // How close anything gets to the stone before it stops and strikes. One
 // rule for ground and air so a wisp and a husk hit from the same ring.
 function stoneStandoff(def) {
@@ -918,11 +923,18 @@ export class World {
     // ---- wave end
     if (!this.sandbox && this.phase === 'combat' && !this.spawnQueue.length && !this.foes.length) {
       this.stats.wavesCleared++;
+      // Raised from 52+16i once the roster grew. The session that added the
+      // bomber, three goblin types, a chase, a notice radius and adjacent-ward
+      // attacks put MORE demand on the player and MORE pressure on the line
+      // without adding a penny of income, and the bot fell from ~80% to ~57%.
+      // The glade in particular is mana-limited, so income is the honest lever
+      // there — swept over 21 seeds on both maps: 52+16i gave 12/21 and 15/21,
+      // 72+24i gives 13/21 and 16/21 with roughly triple the fire left standing.
       // Tuned, not guessed. At 60+20i the clear bonus alone funded a full
       // rebuild after every wave regardless of how that wave had gone, which
       // flattened the consequence of a bad one. Swept against the wave curve
       // until the bot wins ~7/10 with roughly a fifth of the fire left.
-      const bonus = 52 + 16 * this.waveIndex;
+      const bonus = 72 + 24 * this.waveIndex;
       this.mana = Math.min(ECON.manaCap, this.mana + bonus);
       this.stats.manaEarned += bonus;
       this.emit({ type: 'waveClear', index: this.waveIndex, bonus });
@@ -949,6 +961,7 @@ export class World {
 
       const def = f.def;
       let blocked = null;
+      let sideTarget = null;
 
       // --- who am I hitting?
       // The player outranks a ward: standing in a lane has to cost something,
@@ -969,6 +982,13 @@ export class World {
         dPlayer = Math.hypot(p.x - f.x, p.z - f.z);
         const dy = Math.abs((p.y + 0.9) - f.y);
         if (dPlayer < def.radius + PLAYER.radius + 1.3 && dy < 3.2) hitPlayer = true;
+        // Standing NEAR a lane should be dangerous too, not only standing in
+        // one. Reported: "they don't always attack me, they should." A foe with
+        // nothing else to do notices the player well before contact and comes
+        // for them; one already busy with a wall keeps hitting the wall.
+        if (!hitPlayer && !def.flying && !def.blast && dPlayer < NOTICE_RADIUS) {
+          f.aggroT = Math.max(f.aggroT, 0.35);
+        }
       }
       // An aggroed ground foe leaves its lane to come at you — but only within
       // a short leash, so a whole wave can never be kited off the map.
@@ -1023,6 +1043,37 @@ export class World {
           if (along < -span * 0.5) continue;       // already behind me
           if (along > span + 0.55) continue;       // not reached yet
           if (along < bestAlong) { bestAlong = along; blocked = w; }
+        }
+
+        // Anything within arm's reach as it walks past, even if it is not in
+        // the way. Reported: "I'd like them to also hit other structures that
+        // aren't technically on the path — if they're right next to the path
+        // they should be able to." Before this, a ballista placed one metre
+        // off a lane was untouchable by the entire wave walking beside it.
+        //
+        // Bounded by REACH, not by a search radius, so it only ever picks up
+        // wards a foe could genuinely swing at — putting your tower a couple of
+        // metres back is still the right answer, it just has to be a couple of
+        // metres and not one.
+        // CRITICAL: this must not stop the foe. The first version assigned the
+        // adjacent ward to `blocked`, which is the variable that halts
+        // movement — so every tower beside a lane silently became a BLOCKADE,
+        // and the premise test broke immediately: an air-heavy ring around the
+        // fire won unattended, because the foes obligingly stopped to chew on
+        // the towers instead of walking to the objective. Wards must not gain a
+        // blocking function the unit budget does not price.
+        //
+        // So it swings as it walks PAST. Attack, no stop.
+        sideTarget = null;
+        if (!blocked) {
+          let bd = Infinity;
+          for (let n = 0; n < near.length; n++) {
+            const w = near[n];
+            if (w.dead || w.def.kind === 'field') continue;
+            const d = Math.hypot(w.x - f.x, w.z - f.z);
+            if (d > def.radius + w.def.radius + ADJACENT_REACH) continue;
+            if (d < bd) { bd = d; sideTarget = w; }
+          }
         }
 
         // A bomber ignores the fire and goes for what you BUILT. It leaves
@@ -1102,6 +1153,12 @@ export class World {
 
       // --- strike. A windup runs BEFORE the blow so there is something to
       // read and react to; the damage lands when the windup completes.
+      // A ward it is merely walking past is a target of opportunity: only if
+      // it has nothing better to do, and it never stops for it.
+      if (sideTarget && !hitPlayer && !f.targetKind) {
+        f.targetKind = 'ward';
+        f.target = sideTarget;
+      }
       if (f.atkCd <= 0 && f.windT <= 0 &&
           (hitPlayer || f.targetKind === 'ward' || f.targetKind === 'stone')) {
         f.windT = def.windup || AGGRO.windup;

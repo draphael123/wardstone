@@ -858,3 +858,42 @@ shifts where foes actually walk and the gauntlet is sensitive to it: a 2.2 m
 blend cost that map **14/21 → 8/21** over 21 seeds, since the bot's ward
 placements are sized for the old lane shape. At 0.4 m the audit is clean and the
 balance is the best of any value tried.
+
+## Foes notice you, and hit what you build beside the path
+
+Two reports: *"they don't always attack me, they should"* and *"I'd like them to
+also hit structures that aren't technically on the path — if they're right next
+to the path they should be able to."*
+
+- **Notice radius (4.5 m).** A foe with nothing better to do takes an interest
+  in the player well before contact. Standing *near* a lane is now dangerous,
+  not just standing in one.
+- **Adjacent reach (0.7 m).** A ward within arm's reach as a foe walks past gets
+  swung at. Before this, a ballista placed one metre off a lane was untouchable
+  by an entire wave walking beside it.
+
+### The adjacency broke the premise on its first attempt
+
+Assigning the adjacent ward to `blocked` — the variable that halts movement —
+silently turned **every tower beside a lane into a blockade**. `T24` failed
+immediately: an air-heavy ring around the fire won with nobody playing, because
+the foes obligingly stopped to chew on the towers instead of walking to the
+objective.
+
+That is the same failure mode as the previous four premise breaks: **a way of
+converting a resource into coverage that the unit cap cannot see.** Wards must
+not gain a blocking function the budget does not price. A foe now swings as it
+walks *past* — attack, no stop — and the movement code never sees it.
+
+### And the economy had to move with it
+
+Swept both dials against each other: at 6.5 m / 1.1 m they cost the gauntlet
+five wins in twenty-one; at **4.5 m / 0.7 m** they are nearly free (12→12 and
+16→15) while still doing the job.
+
+But the session as a whole — bomber, three goblin types, the chase, notice,
+adjacency — added demand on the player and pressure on the line without adding a
+penny of income, and the bot had drifted from ~80% down to ~57%. The glade is
+mana-limited, so **income is the honest lever there**. The wave-clear bonus goes
+from `52 + 16i` to `72 + 24i`: **glade 13/21, gauntlet 16/21**, with roughly
+triple the fire left standing.
