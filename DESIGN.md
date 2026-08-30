@@ -1073,3 +1073,25 @@ The audit's pileup check was rescoped to **free-moving** foes — which is a
 statement about what a defect is, not a way of passing. Six runners converging
 on one palisade genuinely arrive at one place; free-moving foes collapsing onto
 a point means their movement is broken.
+
+## Grounding the bodies
+
+Two changes, both aimed at the same complaint — that foes were hard to pick out
+and did not look like they were standing on anything.
+
+**Contact shadows.** A hard little pool directly under every body. Real shadow
+maps are on, but at this camera they are soft and easy to lose against dark
+grass; a blob reads instantly and the whole field costs one draw call. Fliers
+get one too, shrinking and fading with altitude, which is most of what tells you
+a wisp is *above* the ground rather than on it. The player's shrinks as they
+jump.
+
+They are placed from the same fanned-out positions the bodies use, or a shadow
+would sit where the foe is not.
+
+**Goblins moved off the grass, in hue.** Skin was `0x7d9c46` against grass at
+`0x4e6b38` and turf at `0x5f7d40` — the same yellow-green family, which is why
+they vanished into the ground at chase distance. The whole line is warmer and
+brighter now, so separation comes from colour as well as shadow.
+
+Cost: 69 draw calls for the full scene with a wave on the field.

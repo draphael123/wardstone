@@ -23,6 +23,7 @@ import { makeRng } from './rand.js';
 import { AGGRO } from './defs.js';
 const WINDUP = AGGRO.windup;
 // Display-only crowd fan-out: bucket size, and how far a packed bucket spreads.
+const BLOB_CAP = 220;
 const CROWD_CELL = 0.55;
 const CROWD_FAN = 0.44;
 
@@ -363,7 +364,7 @@ function playerGeo() {
 // read as a different species from the player at a glance, and every one of
 // them carries something and looks back at you.
 function goblinGeo() {
-  const skin = 0x7d9c46, limb = 0x6b883a, rag = 0x7a6440;
+  const skin = 0x9ab84e, limb = 0x82a03e, rag = 0x8a7048;
   return assemble([
     { g: box(0.62, 0.62, 0.44), y: 0.62, rx: 0.16, c: skin },
     { g: box(0.70, 0.18, 0.48), y: 0.92, c: limb },
@@ -475,7 +476,7 @@ function bomberGeo() {
 // A weapon placed anywhere else does not move when the goblin attacks — that
 // was the original bug and it is a placement rule now, not a coincidence.
 function maulGeo() {
-  const skin = 0x6f8f3e, limb = 0x5e7c33, rag = 0x6b5a38, iron = 0x767d8a;
+  const skin = 0x8fae4a, limb = 0x7a9840, rag = 0x7d6a44, iron = 0x8a91a0;
   return assemble([
     // hunched: the torso pitches forward and the shoulders are wide
     { g: box(0.86, 0.60, 0.54), y: 0.60, rx: 0.34, c: skin },
@@ -501,7 +502,7 @@ function maulGeo() {
 }
 
 function slingerGeo() {
-  const skin = 0x86a352, limb = 0x71904a, rag = 0x6a5f42;
+  const skin = 0xa2bd5c, limb = 0x8da851, rag = 0x7e7050;
   return assemble([
     // lean and upright — nothing about it says "melee"
     { g: box(0.46, 0.66, 0.34), y: 0.66, c: skin },
@@ -532,7 +533,7 @@ function slingerGeo() {
 }
 
 function bruiserGeo() {
-  const skin = 0x5f7f3c, limb = 0x506d31, iron = 0x6d7480, rag = 0x5a4a30;
+  const skin = 0x7d9c44, limb = 0x6d8a3a, iron = 0x848c99, rag = 0x6e5c3c;
   return assemble([
     // head and shoulders above everything else on the field
     { g: box(1.06, 0.86, 0.66), y: 1.10, c: skin },
@@ -659,6 +660,7 @@ export class Renderer {
     this._buildUnits();
     this._buildPools();
     this._buildShocks();
+    this._buildBlobs();
     this._buildTrail();
 
     this.wardViews = new Map();   // world ward id -> Object3D
@@ -2559,6 +2561,7 @@ export class Renderer {
     const counts = { husk: 0, runner: 0, wisp: 0, breaker: 0 };
     let wg = 0;
     const crowd = this._crowdOffsets(world);
+    this._stepBlobs(world, crowd);
     for (const f of world.foes) {
       if (f.dead) continue;
       const slot = this.foeMeshes[f.kind];
@@ -3028,6 +3031,72 @@ export class Renderer {
   }
 
   hideAbilityRing() { if (this.abilRing) this.abilRing.visible = false; }
+
+  // Contact shadows.
+  //
+  // The single biggest thing separating "a model placed on a surface" from "a
+  // creature standing on ground". Real shadow maps are on, but at this camera
+  // they are soft, cheap and easy to lose against dark grass — a hard little
+  // pool directly under each body reads instantly and costs one draw call for
+  // the entire field.
+  _buildBlobs() {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const g = c.getContext('2d');
+    const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grd.addColorStop(0, 'rgba(0,0,0,0.85)');
+    grd.addColorStop(0.55, 'rgba(0,0,0,0.42)');
+    grd.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = grd;
+    g.fillRect(0, 0, 64, 64);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;   // see [[threejs-canvas-textures-srgb]]
+    this.blobs = new THREE.InstancedMesh(
+      new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({
+        map: tex, transparent: true, depthWrite: false, opacity: 0.9,
+      }),
+      BLOB_CAP);
+    this.blobs.frustumCulled = false;
+    this.blobs.count = 0;
+    this.blobs.renderOrder = 2;
+    this.scene.add(this.blobs);
+  }
+
+  // Placed from the same fanned-out positions the bodies use, or a shadow would
+  // sit where the foe is NOT. Fliers get one too — smaller and fainter the
+  // higher they are, which is most of what tells you a wisp is above the ground
+  // rather than on it.
+  _stepBlobs(world, crowd) {
+    if (!this.blobs) return;
+    let n = 0;
+    const put = (x, z, r, a) => {
+      if (n >= BLOB_CAP) return;
+      _v.set(x, groundY(x, z) + 0.03, z);
+      _s.set(r, 1, r);
+      _m.compose(_v, _q.identity(), _s);
+      this.blobs.setMatrixAt(n, _m);
+      n++;
+    };
+    for (const f of world.foes) {
+      if (f.dead) continue;
+      const co = crowd && crowd.get(f.id);
+      const x = f.x + (co ? co.dx : 0), z = f.z + (co ? co.dz : 0);
+      if (f.def.flying) {
+        const k = Math.max(0.25, 1 - f.y / 7);
+        put(x, z, f.def.radius * 3.1 * k, k);
+      } else {
+        put(x, z, f.def.radius * 3.4, 1);
+      }
+    }
+    const p = world.player;
+    if (p.alive) {
+      const k = Math.max(0.3, 1 - p.y / 3.2);     // shrinks as you jump
+      put(p.x, p.z, 1.5 * k, k);
+    }
+    this.blobs.count = n;
+    this.blobs.instanceMatrix.needsUpdate = true;
+  }
 
   // Display-only crowd fan-out.
   //
