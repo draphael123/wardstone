@@ -1150,3 +1150,32 @@ It compared **median** fire remaining over **10** seeds. Warden loses most runs
 on both maps, so its median is 0 and the comparison degenerated. Re-based on
 **win rate over 21 seeds**, which does not saturate: glade 21 > 16 > 2, gauntlet
 20 > 14 > 7. Same claim, an instrument that can actually see it.
+
+---
+
+# Training as its own mode
+
+The tutorial was a toggle on starting a new game, which meant it was something
+you either caught on your first run or never saw again. It is now **its own menu
+entry** — a thing you choose to do, and can come back to, on the first map.
+
+It also **shows** rather than only telling. Each step names a control, and that
+control gets a pulsing ring: the Palisade button for "wall a track", the Ballista
+for "put something behind it", the weapon chip for the swap, the Roll and Rally
+chips for their steps. Telling someone to "press 1 for a Palisade" is not the
+same as showing them which thing on screen that is.
+
+Steps that name a control with no on-screen equivalent — movement — point at
+nothing rather than at something arbitrary.
+
+## Three bugs found wiring it up
+
+- **`CAP.tick` did not drive `tickTutorial`**, so the tutorial never advanced
+  under the test hook and appeared frozen at step 2. Third time this hook has
+  been missing something a real frame does; it now drives input, sim, events,
+  tutorial and HUD.
+- **`offsetParent` is null for `position: fixed` elements**, so the visibility
+  guard silently dropped the pointer on half the HUD. Uses `getClientRects()`.
+- **`syncHud` assigned `className` wholesale** on the weapon chip every frame,
+  which deleted the pointer ring the instant it was added. It now touches only
+  the classes it owns.

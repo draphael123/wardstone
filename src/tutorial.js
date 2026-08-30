@@ -15,6 +15,7 @@ import { LANE_BY_ID, distToLane, nearestLane } from './arena.js';
 export const STEPS = [
   {
     id: 'move',
+    point: null,          // movement has no button to point at
     title: 'Get your feet',
     text: 'Move with <b>W A S D</b>. Hold the <b>right mouse button</b> and drag to look around.',
     touch: 'Move with the <b>stick</b>. Drag anywhere to look around.',
@@ -22,6 +23,7 @@ export const STEPS = [
   },
   {
     id: 'wall',
+    point: '.ward[data-id="palisade"]',
     title: 'Block a track',
     text: 'Press <b>1</b> for a Palisade, then <b>click a green square</b> on one of the dirt tracks. ' +
           'Goblins do not walk around walls — they stop and hack at them.',
@@ -31,6 +33,7 @@ export const STEPS = [
   },
   {
     id: 'ballista',
+    point: '.ward[data-id="ballista"]',
     title: 'Something behind it',
     text: 'A wall deals no damage. Press <b>2</b> and place a <b>Ballista</b> just behind your wall, ' +
           'where it can shoot whatever stops there.',
@@ -40,6 +43,7 @@ export const STEPS = [
   },
   {
     id: 'shoot',
+    point: '#weap',       // touch has a Loose button; desktop clicks the field
     title: 'Your crossbow',
     text: 'Two of them are coming up the track. <b>Left click</b> to loose a bolt.',
     touch: 'Two are coming. Hold <b>Loose</b> to shoot.',
@@ -48,6 +52,7 @@ export const STEPS = [
   },
   {
     id: 'swap',
+    point: '#weap',
     title: 'Your sword',
     text: 'Press <b>Q</b> to draw your sword. It hits far harder and sweeps everything in front of you — ' +
           'but only within arm’s reach, and it cannot touch anything airborne. Kill one with it.',
@@ -57,6 +62,7 @@ export const STEPS = [
   },
   {
     id: 'roll',
+    point: '#roll',
     title: 'Get out of trouble',
     text: 'Press <b>Space</b> to roll. You are briefly untouchable while you do, and it is on a short timer.',
     touch: 'Tap <b>Roll</b>. You are briefly untouchable, on a short timer.',
@@ -64,6 +70,7 @@ export const STEPS = [
   },
   {
     id: 'rally',
+    point: '#abil',
     title: 'Your one ability',
     text: 'Press <b>V</b> to <b>Rally</b>. It staggers and shoves back everything within ten metres ' +
           'and makes your nearby wards fire faster for a few seconds. ' +
@@ -80,6 +87,7 @@ export const STEPS = [
   },
   {
     id: 'wisp',
+    point: '#weap',
     title: 'This one does not walk',
     text: 'A will-o-wisp. It flies <b>straight over every wall you own</b>. Only the Watchtower can reach one, ' +
           'and it is bad at it — so mostly this is your job. ' +
@@ -90,6 +98,7 @@ export const STEPS = [
   },
   {
     id: 'mend',
+    point: '#wpMend',
     title: 'Mending, and its limit',
     text: 'Hold <b>E</b> beside a damaged ward to mend it for mana. ' +
           'It will not save you from a Troll: one ruins a wall faster than you can mend it. ' +
@@ -109,6 +118,7 @@ export const STEPS = [
   },
   {
     id: 'ready',
+    point: '#ready',
     title: 'Hold the fire',
     text: 'That is everything. Spend what mana you have, then press <b>R</b> to call the first wave. ' +
           'Six of them. If the fire goes out, you are done.',

@@ -74,6 +74,19 @@
   .mi.gone{display:none}
   #resume{border-left:2px solid #7fd4c0}
   #resume em{color:#7fd4c0}
+  #beginTut{border-left:2px solid #7fd4c0}
+  #beginTut em{color:#7fd4c0}
+
+  /* Tutorial guidance: a pulsing ring on whatever the current step is asking
+     you to press. Telling someone to "press 1 for a Palisade" is not the same
+     as showing them which thing on screen that is. */
+  .tutPoint{position:relative}
+  .tutPoint::after{content:'';position:absolute;inset:-5px;border-radius:7px;
+    border:2px solid #ffb347;pointer-events:none;
+    animation:tutPulse 1.15s ease-in-out infinite}
+  @keyframes tutPulse{
+    0%,100%{opacity:.35;transform:scale(1)}
+    50%{opacity:1;transform:scale(1.045)}}
 
   #intro .dhead{font-size:10px;letter-spacing:.24em;text-transform:uppercase;
     color:#5b6374;margin-top:3px}
@@ -589,6 +602,7 @@
     <div class="menu">
       <button id="resume" class="mi gone"><em>Resume run</em><span id="resumeSub"></span></button>
       <button id="begin" class="mi primary"><em>Light the fire</em><span>Six waves against the dark</span></button>
+      <button id="beginTut" class="mi"><em>Training</em><span>Learn the controls in the glade, at your own pace</span></button>
       <button id="openHow" class="mi"><em>How to play</em><span>Three rules, and they are the whole game</span></button>
       <button id="openSet" class="mi"><em>Settings</em><span>Sound, detail, and what the HUD shows</span></button>
     </div>
@@ -600,7 +614,6 @@
       <button class="dif" data-diff="warden"><b>Warden</b><span>More of them, and each takes longer to put down.</span></button>
     </div>
 
-    <button class="opt on" id="optTut">Guided tutorial</button>
 
     <div class="foot">Mana drops where things die and must be walked over.
       <span id="ctrlHint"></span></div>

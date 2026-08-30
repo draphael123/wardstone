@@ -283,7 +283,11 @@ function syncHud() {
   const wp = $('weap');
   if (wp) {
     wp.textContent = PLAYER.weapons[p.weapon].name;
-    wp.className = 'wchip ' + p.weapon;
+    // Assigning className wholesale wiped any other class on this element
+    // every frame — which silently deleted the tutorial's pointer ring the
+    // instant it was added. Touch only the classes this actually owns.
+    wp.classList.toggle('sword', p.weapon === 'sword');
+    wp.classList.toggle('crossbow', p.weapon === 'crossbow');
   }
   // Chips carry their own key, so a rebind is visible where the control is
   // rather than only in a settings list nobody reopens.
@@ -1410,7 +1414,10 @@ async function startRun(snap) {
   syncHud();
 }
 
-$('begin').addEventListener('click', () => { clearSave(); startRun(null); });
+$('begin').addEventListener('click', () => { clearSave(); state.tutorial = false; startRun(null); });
+// Training is its OWN mode rather than a toggle on a new game: it is a thing
+// you choose to do, and you can come back to it without starting a real run.
+$('beginTut').addEventListener('click', () => { clearSave(); state.tutorial = true; startRun(null); });
 $('resume').addEventListener('click', () => startRun(readSave()));
 
 
@@ -1490,6 +1497,7 @@ window.WARDSTONE_CAP = {
         let g = 0;
         while (state.acc >= STEP && g++ < 5) { state.world.step(STEP); state.acc -= STEP; }
         drainEvents();
+        tickTutorial(dt);
         syncHud();      // or nothing on the HUD advances under this hook
       }
       state.rend.update(state.world, dt, { moving: false });
@@ -1708,7 +1716,8 @@ function bindSettings() {
       const k = b.dataset.set;
       state[k] = !state[k];
       b.classList.toggle('on', state[k]);
-      if (k === 'tutorial') $('optTut').classList.toggle('on', state[k]);
+      // the old inline toggle is gone; Training is its own menu entry now
+      if (k === 'tutorial' && $('optTut')) $('optTut').classList.toggle('on', state[k]);
       applySettings();
     });
   }
@@ -1793,11 +1802,7 @@ function bindSettings() {
   $('openSet').addEventListener('click', openSettings);
   $('closeSet').addEventListener('click', closeSettings);
   $('gearBtn').addEventListener('click', openSettings);
-  $('optTut').addEventListener('click', function () {
-    state.tutorial = !state.tutorial;
-    this.classList.toggle('on', state.tutorial);
-    saveSettings();
-  });
+
   addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     if (!$('how').classList.contains('hidden')) { $('how').classList.add('hidden'); return; }
@@ -1816,16 +1821,30 @@ function bindSettings() {
 // ---------------------------------------------------------------------------
 // Tutorial driving
 // ---------------------------------------------------------------------------
+// Pulse whatever the current step is asking you to press. Telling someone to
+// "press 1 for a Palisade" is not the same as showing them which thing that is.
+function paintTutPointer(step) {
+  for (const el of document.querySelectorAll('.tutPoint')) el.classList.remove('tutPoint');
+  if (!step || !step.point) return;
+  // Touch-only controls are absent on desktop, so a missing or hidden target is
+  // skipped rather than thrown on. Visibility is tested with getClientRects and
+  // NOT offsetParent: offsetParent is null for any `position: fixed` element,
+  // which silently dropped the pointer on half the HUD.
+  const el = document.querySelector(step.point);
+  if (el && el.getClientRects().length > 0) el.classList.add('tutPoint');
+}
+
 function showTutStep() {
   const t = state.tut;
   const el = $('tut');
-  if (!t || t.done) { el.classList.add('hidden'); return; }
+  if (!t || t.done) { el.classList.add('hidden'); paintTutPointer(null); return; }
   const st = t.step;
   if (!st) { el.classList.add('hidden'); return; }
   el.classList.remove('hidden');
   $('tutStep').textContent = `${t.i + 1} / ${STEPS.length}`;
   $('tutTitle').textContent = st.title;
   $('tutText').innerHTML = (isTouch && st.touch) ? st.touch : st.text;
+  paintTutPointer(st);
   el.classList.remove('pop');
   void el.offsetWidth;
   el.classList.add('pop');
