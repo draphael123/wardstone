@@ -744,6 +744,19 @@ export class World {
     return true;
   }
 
+  // Touch has no crosshair, so it gets the nearest flier handed to it — the
+  // air is the player's job and a thumbstick cannot elevate.
+  nearestFlier(range) {
+    const p = this.player;
+    let best = null, bd = range || 999;
+    for (const f of this.foes) {
+      if (f.dead || !f.def.flying) continue;
+      const d = Math.hypot(f.x - p.x, f.z - p.z);
+      if (d < bd) { bd = d; best = f; }
+    }
+    return best;
+  }
+
   fireBolt(dirx, dirz, diry) {
     const p = this.player;
     const wd = PLAYER.weapons.crossbow;
@@ -761,7 +774,11 @@ export class World {
       const d = Math.hypot(vx, vy, vz);
       if (d > wd.range || d < 0.001) continue;
       const dot = (vx * ux + vy * uy + vz * uz) / d;
-      if (dot > PLAYER.aimCone && d < bestD) { bestD = d; best = f; }
+      // Fliers get a much wider cone. The narrow one is right for picking one
+      // goblin out of a crowd; applied to the sky it created a blind spot that
+      // grew as a wisp got CLOSER, which is precisely backwards.
+      const cone = f.def.flying ? PLAYER.aimConeAir : PLAYER.aimCone;
+      if (dot > cone && d < bestD) { bestD = d; best = f; }
     }
 
     const b = {

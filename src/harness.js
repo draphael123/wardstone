@@ -884,6 +884,56 @@ export function runTests(log = console.log) {
   }
 
 
+  // ---------------------------------------------------------------- aiming
+  // Reported by a player: "I sometimes just can't hit the wisps even with a
+  // ranged weapon." It was not sometimes. The player aims by pointing at a
+  // GROUND cell, so the aim vector is always horizontal; the assist cone was
+  // cos(12deg); and a wisp flies at 4.2m. At 8m range it sits ~21 degrees above
+  // a flat aim, fails the cone, acquires nothing, and the bolt flies straight
+  // underneath it. The blind spot GREW as the wisp closed, which is exactly
+  // when it matters, because that is when it is at the fire.
+  //
+  // Swept across the range a wisp is actually engaged at, with the flat aim the
+  // game really produces.
+  {
+    log('\n[aiming at the sky]');
+    const dists = [4, 6, 8, 10, 12, 16];
+    const acquired = [];
+    for (const dist of dists) {
+      const w = new World({ seed: 5, sandbox: true });
+      const f = w._spawn('north', 'wisp');
+      const wisp = w.foes[w.foes.length - 1];
+      wisp.x = dist; wisp.z = 0; wisp.y = wisp.def.flyHeight;
+      w.player.x = 0; w.player.z = 0; w.player.y = 0;
+      w.player.weapon = 'crossbow'; w.player.atkCd = 0;
+      // the flat aim the pointer path actually produces
+      const b = w.fireBolt(1, 0, 0);
+      acquired.push(b && b.target === wisp);
+    }
+    const hit = acquired.filter(Boolean).length;
+    ok('T29 a wisp can be acquired at every range it is fought at',
+      hit === dists.length,
+      `${hit}/${dists.length} ranges acquire — ${dists.map((d, i) =>
+        `${d}m ${acquired[i] ? 'yes' : 'NO'}`).join(', ')}`);
+
+    // And the bolt must actually reach it, not merely be aimed at it.
+    const w2 = new World({ seed: 5, sandbox: true });
+    w2._spawn('north', 'wisp');
+    const wisp2 = w2.foes[w2.foes.length - 1];
+    wisp2.x = 6; wisp2.z = 0; wisp2.y = wisp2.def.flyHeight;
+    w2.player.x = 0; w2.player.z = 0; w2.player.weapon = 'crossbow';
+    let shots = 0;
+    for (let n = 0; n < 600 && !wisp2.dead; n++) {
+      if (w2.player.atkCd <= 0) { w2.fireBolt(1, 0, 0); shots++; }
+      w2.step(DT);
+    }
+    ok('T30 and the bolt reaches it — a flat shot still kills a flier',
+      wisp2.dead,
+      wisp2.dead ? `down in ${shots} bolts at 6m`
+                 : `still alive after ${shots} bolts — bolts are passing under it`);
+  }
+
+
   log(`\n--- ${pass}/${pass + fail} passed ---\n`);
   return { pass, fail, results };
 }

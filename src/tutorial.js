@@ -63,6 +63,16 @@ export const STEPS = [
     check: (w, s) => s.rolled >= 1,
   },
   {
+    id: 'rally',
+    title: 'Your one ability',
+    text: 'Press <b>V</b> to <b>Rally</b>. It staggers and shoves back everything within ten metres ' +
+          'and makes your nearby wards fire faster for a few seconds. ' +
+          'One ability, a long cooldown &mdash; it is what you spend when a lane is about to break.',
+    touch: 'Tap <b>Rally</b>. It staggers everything close and speeds up nearby wards for a few seconds.',
+    spawn: [['north', 'husk'], ['north', 'husk'], ['east', 'runner']],
+    check: (w, s) => s.rallied >= 1,
+  },
+  {
     id: 'mana',
     title: 'Mana does not come to you',
     text: 'Mana drops where things die and has to be <b>walked over</b>. That is the reason to leave your wall.',
@@ -116,7 +126,7 @@ export class Tutorial {
     // counters the checks read; the sim knows nothing about any of this
     this.s = {
       moved: 0, playerKills: 0, swordKills: 0, rolled: 0, motes: 0,
-      mended: 0, killsByKind: {},
+      mended: 0, rallied: 0, killsByKind: {},
     };
     this._px = world.player.x;
     this._pz = world.player.z;
@@ -137,6 +147,7 @@ export class Tutorial {
     }
     if (ev.type === 'mote') s.motes++;
     if (ev.type === 'dodge') s.rolled++;
+    if (ev.type === 'rally') s.rallied++;
   }
 
   tick(dt, world, playerDidKill, weapon) {

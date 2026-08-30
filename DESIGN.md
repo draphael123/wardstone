@@ -604,3 +604,60 @@ walls.
 - **`CAP.tick` did not drive `applyInput`**, so the build ghost and the wall-run
   preview — both of which live there — were never exercised by any test I could
   run in a throttled pane. Measured 0 preview markers; 12 after.
+
+---
+
+# "I can't hit the wisps" — it was not sometimes
+
+## The bug
+
+The player aims by pointing at a **ground cell**, so the aim vector fed to the
+crossbow was `ay = 0` — permanently horizontal. Aim assist tested a `cos(12°)`
+cone against that vector. A wisp flies at 4.2 m, so at 8 m it sits about 21°
+above a flat aim, fails the cone, acquires nothing, and the bolt flies straight
+underneath it at 1.2 m.
+
+The blind spot **grew as the wisp got closer** — precisely backwards, because
+close is when it is at your fire.
+
+Measured across the ranges a wisp is actually fought at, using the flat aim the
+game really produces:
+
+| | 4 m | 6 m | 8 m | 10 m | 12 m | 16 m |
+|---|---|---|---|---|---|---|
+| acquired, before | no | no | no | no | no | no |
+| acquired, after | yes | yes | yes | yes | yes | yes |
+
+And a wisp at 6 m survived **18 bolts** before the fix, with every one passing
+under it. After: down in one.
+
+This mattered more than a normal bug. The premise is that the air is the
+player's job — and the player could not do it.
+
+## The fix
+
+**Aim assist now runs in screen space**, because that is where a mouse aims.
+`foeUnderPointer()` projects every foe and takes the nearest to the crosshair;
+fliers get a 35% more generous radius, being small, moving in three axes, and
+being the one thing only the player can answer. Once acquired, the shot is aimed
+in three dimensions rather than flattened.
+
+The world-space cone survives as a fallback for when there is no pointer at all,
+with a separate `aimConeAir` of `cos(52°)`. Touch has no crosshair, so it is
+handed the nearest flier outright — a thumbstick cannot elevate.
+
+**T29/T30 lock it in**, and both were verified to FAIL against the old code
+(0/6 ranges, wisp alive after 18 bolts) before being kept
+— see [[verify-a-fix-against-the-old-code]].
+
+The ward rule is untouched: the ballista still cannot reach the sky, the
+Watchtower still barely can, and the unit budget is unchanged.
+
+## Rally
+
+It was a read-only cooldown chip, and the only way to use the knight's one
+ability was a key nothing mentioned. It is now a button, it says what it does,
+hovering it draws the ten metres it will reach — reusing the ward inspect ring,
+because a player who has learned that a ring means "this is what it reaches"
+should not have to learn a second visual language — and the tutorial has a step
+that spawns three foes and asks you to use it.

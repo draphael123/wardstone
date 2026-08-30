@@ -46,7 +46,7 @@ const state = {
   move: { x: 0, y: 0 },        // -1..1 from stick or WASD
   firing: false, mending: false, wantDodge: false, blocking: false,
   pointer: { x: 0, y: 0, has: false },
-  ghostCell: null, ghostRot: null, overhead: false,
+  ghostCell: null, ghostRot: null, overhead: false, showAbil: false,
   inspect: null, runFrom: null,
   acc: 0, last: 0, lastFrame: 0, hitstop: 0,
   vel: { x: 0, z: 0 },
@@ -759,6 +759,19 @@ function bindInput() {
   tap($('bSwap'), () => state.world.swapWeapon());
   tap($('bView'), () => toggleOverhead());
   tap($('bRally'), () => state.world.rally());
+  // The chip was a read-only cooldown display. It is the knight's ONE ability
+  // and the only way to use it was a key nothing mentioned, so it is now a
+  // button, and hovering it draws what it will reach.
+  const abil = $('abil');
+  abil.style.pointerEvents = 'auto';
+  abil.style.cursor = 'pointer';
+  abil.title = `Rally (V) — stagger and shove back every foe within ${ABILITY.radius}m, ` +
+    `and make nearby wards fire ${ABILITY.wardBuff}x faster for ${ABILITY.buffTime}s.`;
+  abil.addEventListener('click', () => {
+    if (!state.world.rally() && state.snd) state.snd.play('hover', 0.6, 0.7);
+  });
+  abil.addEventListener('pointerenter', () => { state.showAbil = true; });
+  abil.addEventListener('pointerleave', () => { state.showAbil = false; });
 
   // a dedicated turn pad, for when a thumb is busy on the stick
   const cam = $('bCam');
@@ -997,7 +1010,20 @@ function applyInput(dt) {
   // attacking — the weapon decides whether that is a sweep or a bolt
   if (state.firing && p.atkCd <= 0 && !state.selected) {
     let ax = fx, az = fz, ay = 0;
-    if (!isTouch && state.pointer.has) {
+    // A foe under the crosshair wins outright, and we aim at it in THREE
+    // dimensions. Picking a ground cell — which is what this used to do — can
+    // only ever produce a horizontal shot, and a horizontal shot cannot hit
+    // something flying at four metres.
+    const aimed = (!isTouch && state.pointer.has)
+      ? r.foeUnderPointer(w, state.pointer.x, state.pointer.y)
+      : (w.weaponDef(p).kind === 'ranged' ? w.nearestFlier(PLAYER.weapons.crossbow.range) : null);
+    if (aimed) {
+      const dx = aimed.x - p.x;
+      const dy = (aimed.y + aimed.def.height * 0.5) - (p.y + 1.2);
+      const dz = aimed.z - p.z;
+      const d = Math.hypot(dx, dy, dz) || 1;
+      ax = dx / d; ay = dy / d; az = dz / d;
+    } else if (!isTouch && state.pointer.has) {
       const c = pickCell(state.pointer.x, state.pointer.y);
       if (c) {
         const cc = cellCenter(c.i, c.j);
@@ -1008,7 +1034,7 @@ function applyInput(dt) {
     }
     const before = w.weaponDef(p).kind;
     w.attack(ax, az, ay);
-    p.yaw = Math.atan2(ax, az);
+    p.yaw = Math.atan2(ax, az);   // facing is horizontal; the bolt is not
     if (before === 'ranged') {
       // muzzle flash, thrown forward off the stock
       r.spark(p.x + ax * 1.0, 1.25, p.z + az * 1.0, 0xffe8b8, 6, 5.5, 0.8, -2);
@@ -1019,6 +1045,10 @@ function applyInput(dt) {
   // whatever ward you are next to (or pointing at) shows its reach
   r._inspect = state.selected ? null
     : (state.inspect || (state.overhead ? wardUnderPointer() : w.wardNear(4.6)));
+
+  // Rally's reach, while the player is thinking about it
+  if (state.showAbil) r.showAbilityRing(p.x, p.z, ABILITY.radius, w.canRally());
+  else r.hideAbilityRing();
 
   // A wall run in progress replaces the single-cell ghost with the whole line.
   if (state.runFrom && state.pointer.has) {

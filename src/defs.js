@@ -57,6 +57,7 @@ export const PLAYER = {
 
   swapTime: 0.22,      // brief lockout so swapping mid-brawl is a real choice
   aimCone: 0.978,      // cos(12deg) — assist snaps to a foe inside this cone
+  aimConeAir: 0.62,    // cos(52deg) — fliers, which sit well above a flat aim
 
   // A dodge on a plain cooldown. No stamina: the cost is the cooldown and the
   // fact that it commits you to a direction for a fifth of a second.

@@ -2808,6 +2808,57 @@ export class Renderer {
     for (const m of this.runMarks) m.visible = false;
   }
 
+  // The rally radius, shown while the player is considering it. Reuses the
+  // ward inspect ring — a player who has learned that a ring means "this is
+  // what it reaches" should not have to learn a second visual language for it.
+  showAbilityRing(x, z, radius, ready) {
+    this.abilRing = this.abilRing || (() => {
+      const m = new THREE.Mesh(
+        new THREE.RingGeometry(0.95, 1, 64).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial({
+          color: 0xffd89a, transparent: true, opacity: 0.4, depthWrite: false,
+        }));
+      m.visible = false;
+      this.scene.add(m);
+      return m;
+    })();
+    this.abilRing.visible = true;
+    this.abilRing.position.set(x, 0.13, z);
+    this.abilRing.scale.set(radius, 1, radius);
+    this.abilRing.material.color.setHex(ready ? 0xffd89a : 0x6f788b);
+    this.abilRing.material.opacity = 0.2 + Math.sin(this.t * 3.4) * 0.08 + (ready ? 0.16 : 0);
+  }
+
+  hideAbilityRing() { if (this.abilRing) this.abilRing.visible = false; }
+
+  // Which foe is under the pointer, in SCREEN space.
+  //
+  // This exists because the player aims with a mouse on a 2D screen, so the
+  // assist has to work there too. The old assist tested a cone in WORLD space
+  // against an aim vector taken from the ground cell under the pointer — which
+  // is always horizontal — so a wisp at 4.2m altitude sat ~21 degrees above the
+  // aim at 8m range and failed a 12-degree cone. Wisps were unacquirable inside
+  // ~14m and the bolt flew flat underneath them, which got WORSE the closer
+  // they came. Screen space has no such blind spot: what looks under the
+  // crosshair is under the crosshair.
+  foeUnderPointer(world, sx, sy, radiusPx) {
+    const el = this.renderer.domElement;
+    const w = el.clientWidth, h = el.clientHeight;
+    let best = null, bestD = radiusPx == null ? 90 : radiusPx;
+    for (const f of world.foes) {
+      if (f.dead) continue;
+      _v.set(f.x, f.y + f.def.height * 0.5, f.z).project(this.camera);
+      if (_v.z > 1) continue;                       // behind the camera
+      const px = (_v.x * 0.5 + 0.5) * w, py = (-_v.y * 0.5 + 0.5) * h;
+      const d = Math.hypot(px - sx, py - sy);
+      // fliers get a slightly more generous radius: they are small, they move
+      // in three axes, and they are the one thing only the player can answer
+      const r = f.def.flying ? bestD * 1.35 : bestD;
+      if (d < r && d < bestD) { bestD = d; best = f; }
+    }
+    return best;
+  }
+
   resize(w, h, dpr) {
     this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(w, h, false);
