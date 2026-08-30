@@ -20,6 +20,8 @@ import {
   currentMap,
 } from './arena.js';
 import { makeRng } from './rand.js';
+import { AGGRO } from './defs.js';
+const WINDUP = AGGRO.windup;
 
 export const PAL = {
   night:    0x1a1622,   // warm dark, not blue-black
@@ -36,7 +38,7 @@ export const PAL = {
   timber:   0x8a5f38,
   iron:     0x646b7d,
   ember:    0xff8b3d,
-  snare:    0xa579ff,
+  deadfall:    0xa579ff,
   player:   0x9aa8bd,
   cloak:    0x9a2f3a,
   husk:     0xa8ae9c,
@@ -93,6 +95,38 @@ function glowTexture() {
 // by a per-instance phase, arms counter-swing, the body bobs. One attribute,
 // no extra draw calls, and it is the whole difference between a crowd that
 // walks and a crowd that slides.
+// The gait displacement, as a string, because two materials need to apply it
+// identically: the body, and the back-faced hull drawn behind it. An outline
+// that does not walk with the legs peels off them.
+const WALK_CHUNK = [
+  'float legMask = 1.0 - smoothstep(0.10, 0.85, position.y);',
+  'float sideSign = position.x < 0.0 ? 3.14159265 : 0.0;',
+  'float sw = sin(aPhase + sideSign);',
+  'transformed.z += sw * 0.36 * legMask;',
+  'float armMask = smoothstep(0.55, 1.05, position.y) * step(0.32, abs(position.x));',
+  'transformed.z -= sw * 0.30 * armMask;',
+  'transformed.y += abs(sin(aPhase)) * 0.055 * step(0.2, position.y);',
+].join('\n');
+
+// A back-faced hull pushed out along the normals. This is the single biggest
+// thing separating "stylised 3D character" from "box": without a dark edge, a
+// dark figure on dark ground has no boundary at all and the eye reads mass
+// rather than shape.
+function outlineMat(width) {
+  const m = new THREE.MeshBasicMaterial({
+    color: 0x0b0e14, side: THREE.BackSide, fog: true,
+  });
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = 'attribute float aPhase;\n' + sh.vertexShader
+      .replace('#include <begin_vertex>', [
+        '#include <begin_vertex>',
+        WALK_CHUNK,
+        'transformed += normalize(normal) * ' + width.toFixed(3) + ';',
+      ].join('\n'));
+  };
+  return m;
+}
+
 function withInstanceFlash(mat) {
   mat.onBeforeCompile = (sh) => {
     sh.vertexShader =
@@ -100,15 +134,9 @@ function withInstanceFlash(mat) {
       'varying float vFlash;\nvarying float vEmis;\n' +
       sh.vertexShader
         .replace('void main() {', 'void main() {\n\tvFlash = aFlash;\n\tvEmis = emis;')
+        // the SAME chunk the outline hull uses, so the two never drift apart
         .replace('#include <begin_vertex>',
-          '#include <begin_vertex>\n' +
-          '\tfloat legMask = 1.0 - smoothstep(0.10, 0.85, position.y);\n' +
-          '\tfloat sideSign = position.x < 0.0 ? 3.14159265 : 0.0;\n' +
-          '\tfloat sw = sin(aPhase + sideSign);\n' +
-          '\ttransformed.z += sw * 0.36 * legMask;\n' +
-          '\tfloat armMask = smoothstep(0.55, 1.05, position.y) * step(0.32, abs(position.x));\n' +
-          '\ttransformed.z -= sw * 0.30 * armMask;\n' +
-          '\ttransformed.y += abs(sin(aPhase)) * 0.055 * step(0.2, position.y);\n');
+          '#include <begin_vertex>\n' + WALK_CHUNK);
     sh.fragmentShader = 'varying float vFlash;\nvarying float vEmis;\n' +
       sh.fragmentShader.replace('#include <emissivemap_fragment>',
         '#include <emissivemap_fragment>\n' +
@@ -1117,11 +1145,27 @@ export class Renderer {
       mesh.frustumCulled = false;
       mesh.castShadow = !this.low && !isWisp;
       mesh.count = 0;
+
+      // Outline hull: the same geometry, back faces, pushed along the normals.
+      // It SHARES the body's instanceMatrix object, so it can never drift out
+      // of sync and costs no extra bookkeeping — only one more draw call.
+      let outline = null;
+      if (!isWisp) {
+        outline = new THREE.InstancedMesh(geo, outlineMat(def.id === 'breaker' ? 0.09 : 0.055), n);
+        outline.instanceMatrix = mesh.instanceMatrix;
+        outline.frustumCulled = false;
+        outline.count = 0;
+        outline.renderOrder = -1;
+        this.scene.add(outline);
+      }
       const flash = flashAttr(geo, n);
       const phase = new THREE.InstancedBufferAttribute(new Float32Array(n), 1);
       phase.setUsage(THREE.DynamicDrawUsage);
       geo.setAttribute('aPhase', phase);
-      this.foeMeshes[def.id] = { mesh, flash, phase, cap: n };
+      const tele = new THREE.InstancedBufferAttribute(new Float32Array(n), 1);
+      tele.setUsage(THREE.DynamicDrawUsage);
+      geo.setAttribute('aTele', tele);
+      this.foeMeshes[def.id] = { mesh, outline, flash, phase, tele, cap: n };
       this.scene.add(mesh);
     }
 
@@ -1160,11 +1204,16 @@ export class Renderer {
   // held weapon actually change when you swap.
   _buildPlayerRig() {
     const steel = new THREE.MeshStandardMaterial({
-      color: PAL.player, roughness: 0.62, metalness: 0.35,
-      emissive: 0x1e2740, emissiveIntensity: 0.25, flatShading: true,
+      color: 0xffffff, vertexColors: true, roughness: 0.6, metalness: 0.32,
+      emissive: 0x1e2740, emissiveIntensity: 0.22, flatShading: true,
     });
     const cloth = new THREE.MeshStandardMaterial({
       color: PAL.cloak, roughness: 0.9, flatShading: true,
+    });
+    // limbs are a full value step darker than the torso, so the body has
+    // internal shape instead of reading as one silhouette
+    const dark = new THREE.MeshStandardMaterial({
+      color: 0x5d6982, roughness: 0.62, metalness: 0.3, flatShading: true,
     });
     const wood = new THREE.MeshStandardMaterial({
       color: 0x6b4a2f, roughness: 0.85, flatShading: true,
@@ -1172,38 +1221,50 @@ export class Renderer {
 
     const g = new THREE.Group();
 
+    // Deliberately UNREALISTIC proportions. A head the same width as the torso
+    // reads as "a smaller box on a bigger box" at sixty screen pixels; every
+    // legible blocky character exaggerates the head and shortens the legs.
+    // Value contrast per part matters as much: one steel colour merges torso,
+    // arms and legs into a single mass with no internal shape.
+    const DARK = 0x59657e, LIGHT = 0xb2c0d6, RED = 0xa8323c, GOLD = 0xd7a24e;
     const body = new THREE.Mesh(assemble([
-      { g: box(0.66, 0.84, 0.44), y: 1.06 },              // cuirass
-      { g: box(0.84, 0.20, 0.52), y: 1.42 },              // shoulders
-      { g: box(0.42, 0.38, 0.40), y: 1.68 },              // helm
-      { g: box(0.46, 0.13, 0.46), y: 1.86 },              // helm ridge
-      { g: box(0.30, 0.10, 0.12), y: 1.66, z: 0.24 },     // visor slit
-      { g: box(0.34, 0.20, 0.34), y: 0.62 },              // belt
+      { g: box(0.76, 0.70, 0.48), y: 0.90, c: 0x8b9ab2 },          // cuirass
+      { g: box(0.52, 0.44, 0.10), y: 0.88, z: 0.25, c: RED },      // tabard
+      { g: box(1.02, 0.24, 0.56), y: 1.20, c: DARK },              // shoulder bar
+      { g: box(0.34, 0.30, 0.38), x: 0.50, y: 1.26, c: LIGHT },    // pauldrons
+      { g: box(0.34, 0.30, 0.38), x: -0.50, y: 1.26, c: LIGHT },
+      { g: box(0.62, 0.56, 0.56), y: 1.60, c: LIGHT },             // BIG helm
+      { g: box(0.66, 0.12, 0.60), y: 1.42, c: DARK },              // helm rim
+      { g: box(0.44, 0.11, 0.10), y: 1.60, z: 0.30, c: 0x161c26 }, // visor slit
+      { g: box(0.14, 0.30, 0.60), y: 1.94, c: RED },               // crest
+      { g: box(0.10, 0.16, 0.30), y: 2.14, z: -0.12, c: RED },
+      { g: box(0.44, 0.16, 0.42), y: 0.52, c: GOLD },              // belt
     ]), steel);
     body.castShadow = !this.low;
     g.add(body);
 
     const cape = new THREE.Mesh(assemble([
-      { g: box(0.56, 0.72, 0.09), y: 1.12, z: -0.28 },
-      { g: box(0.48, 0.34, 0.09), y: 0.62, z: -0.32, rx: 0.16 },
+      { g: box(0.66, 0.66, 0.09), y: 1.00, z: -0.30 },
+      { g: box(0.56, 0.32, 0.09), y: 0.54, z: -0.34, rx: 0.18 },
     ]), cloth);
     g.add(cape);
 
     const limb = (w, h, d, mat) => {
-      const m = new THREE.Mesh(box(w, h, d), mat || steel);
+      const m = new THREE.Mesh(box(w, h, d || w), mat || dark);
       m.geometry.translate(0, -h / 2, 0);      // pivot at the TOP, i.e. the joint
       m.castShadow = !this.low;
       return m;
     };
 
-    const legL = limb(0.24, 0.64), legR = limb(0.24, 0.64);
-    legL.position.set(0.18, 0.66, 0);
-    legR.position.set(-0.18, 0.66, 0);
+    // short, thick legs and a low hip — the other half of the chibi read
+    const legL = limb(0.28, 0.50, 0.30), legR = limb(0.28, 0.50, 0.30);
+    legL.position.set(0.19, 0.54, 0);
+    legR.position.set(-0.19, 0.54, 0);
     g.add(legL, legR);
 
-    const armL = limb(0.19, 0.66), armR = limb(0.19, 0.66);
-    armL.position.set(0.44, 1.38, 0);
-    armR.position.set(-0.44, 1.38, 0);
+    const armL = limb(0.22, 0.54, 0.24), armR = limb(0.22, 0.54, 0.24);
+    armL.position.set(0.52, 1.18, 0);
+    armR.position.set(-0.52, 1.18, 0);
     g.add(armL, armR);
 
     // --- the two weapons, each parented to a hand so they follow the swing
@@ -1224,6 +1285,19 @@ export class Renderer {
     ]), wood);
     armR.add(bow);
 
+    // Outline every rig part. The player is the one thing always in frame, so
+    // this is where the dark edge matters most.
+    const ow = 0.045;
+    for (const part of [body, cape, legL, legR, armL, armR]) {
+      const o = new THREE.Mesh(part.geometry, new THREE.MeshBasicMaterial({
+        color: 0x0b0e14, side: THREE.BackSide, fog: true,
+      }));
+      o.scale.setScalar(1 + ow / 0.5);
+      o.renderOrder = -1;
+      part.add(o);
+    }
+
+    g.scale.setScalar(1.12);   // presence at an 11m camera
     this.scene.add(g);
     this.playerRig = {
       group: g, body, cape, legL, legR, armL, armR, sword, bow,
@@ -1272,7 +1346,7 @@ export class Renderer {
     this._pn = 0;
 
     // build ghost
-    this.ghost = new THREE.Mesh(box(CELL * 0.92, 0.32, CELL * 0.92),
+    this.ghost = new THREE.Mesh(box(CELL * 0.92, 0.32, CELL * 0.55),
       new THREE.MeshBasicMaterial({
         color: 0x7fe08a, transparent: true, opacity: 0.62, depthWrite: false,
       }));
@@ -1431,36 +1505,59 @@ export class Renderer {
       head.castShadow = !this.low;
       g.add(head);
       g.userData.head = head;
-    } else if (def.id === 'brazier') {
-      const bowl = new THREE.Mesh(assemble([
-        { g: new THREE.CylinderGeometry(0.16, 0.28, 1.3, 6), y: 0.65 },
-        { g: new THREE.CylinderGeometry(0.72, 0.36, 0.55, 8), y: 1.55 },
-      ]), iron);
-      bowl.castShadow = !this.low;
-      g.add(bowl);
-      const fire = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: this.glowTex, color: PAL.ember, transparent: true,
-        blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.95,
-      }));
-      fire.position.y = 1.95;
-      fire.scale.set(3.4, 3.4, 1);
-      g.add(fire);
-      const li = new THREE.PointLight(PAL.ember, 34, 15, 2);
-      li.position.y = 2.0;
-      g.add(li);
-      g.userData.fire = fire;
-      g.userData.light = li;
-    } else if (def.id === 'snare') {
-      const plate = new THREE.Mesh(assemble([
-        { g: new THREE.CylinderGeometry(0.9, 0.9, 0.16, 8), y: 0.08 },
-        { g: new THREE.TorusGeometry(0.78, 0.09, 6, 12).rotateX(Math.PI / 2), y: 0.2 },
+    } else if (def.id === 'archers') {
+      // a hurdle platform with a bowman on it — the soldier's answer to
+      // something in the air, and it can plausibly shoot at anything
+      const legs = new THREE.Mesh(assemble([
+        { g: box(0.20, 2.0, 0.20), x: 0.55, y: 1.0, z: 0.55 },
+        { g: box(0.20, 2.0, 0.20), x: -0.55, y: 1.0, z: 0.55 },
+        { g: box(0.20, 2.0, 0.20), x: 0.55, y: 1.0, z: -0.55 },
+        { g: box(0.20, 2.0, 0.20), x: -0.55, y: 1.0, z: -0.55 },
+        { g: box(0.30, 0.12, 1.5), y: 1.1, rz: 0.2 },
+      ]), timber);
+      legs.castShadow = !this.low;
+      g.add(legs);
+      const deck = new THREE.Mesh(assemble([
+        { g: box(1.7, 0.22, 1.7), y: 2.1 },
+        { g: box(1.8, 0.4, 0.18), y: 2.42, z: 0.8 },
+        { g: box(1.8, 0.4, 0.18), y: 2.42, z: -0.8 },
+        { g: box(0.18, 0.4, 1.8), y: 2.42, x: 0.8 },
+      ]), timber);
+      deck.castShadow = !this.low;
+      g.add(deck);
+      const archer = new THREE.Mesh(assemble([
+        { g: box(0.34, 0.46, 0.26), y: 2.55, c: 0x4a5a6e },
+        { g: box(0.26, 0.24, 0.26), y: 2.90, c: 0xb8a58a },
+        { g: box(0.30, 0.10, 0.28), y: 3.00, c: 0x3f4a5c },
+        { g: box(0.08, 0.80, 0.08), x: 0.26, y: 2.66, rz: 0.25, c: 0x6b4a2f },
       ]), new THREE.MeshStandardMaterial({
-        color: 0x3b3550, roughness: 0.7, metalness: 0.4,
-        emissive: PAL.snare, emissiveIntensity: 0.9,
+        color: 0xffffff, vertexColors: true, roughness: 0.8, flatShading: true,
       }));
-      g.add(plate);
-      g.userData.plate = plate;
-    }
+      archer.castShadow = !this.low;
+      g.add(archer);
+      g.userData.head = archer;         // turns toward its target like the ballista
+    } else if (def.id === 'deadfall') {
+      // a rigged log held up over the track; it drops, then has to be hauled
+      // back up, which is exactly the trap's recharge
+      const frame = new THREE.Mesh(assemble([
+        { g: box(0.22, 2.6, 0.22), x: 0.95, y: 1.3 },
+        { g: box(0.22, 2.6, 0.22), x: -0.95, y: 1.3 },
+        { g: box(2.3, 0.2, 0.2), y: 2.55 },
+      ]), timber);
+      frame.castShadow = !this.low;
+      g.add(frame);
+      const log = new THREE.Mesh(assemble([
+        { g: box(0.5, 0.5, 2.0), rz: 0.04 },
+        { g: box(0.24, 0.24, 0.4), x: 0.3, z: 0.9 },
+        { g: box(0.24, 0.24, 0.36), x: -0.28, z: -0.7 },
+      ]), new THREE.MeshStandardMaterial({
+        color: 0x5b4530, roughness: 1, flatShading: true,
+      }));
+      log.position.y = 2.0;
+      log.castShadow = !this.low;
+      g.add(log);
+      g.userData.log = log;
+        }
     return g;
   }
 
@@ -1472,7 +1569,24 @@ export class Renderer {
       let v = this.wardViews.get(w.id);
       if (!v) {
         v = this._wardMesh(w.def);
+        const tint = [];
+        v.traverse(o => { if (o.material && o.material.color && !o.material.map) tint.push(o.material.clone()); });
+        // clone materials per ward, or tinting one wears down all of them
+        let ti = 0;
+        v.traverse(o => { if (o.material && o.material.color && !o.material.map) o.material = tint[ti++]; });
+        v.userData.tintable = tint;
+        const pen = new THREE.Mesh(assemble([
+          { g: box(0.09, 1.5, 0.09), y: 0.75, c: 0x4a3a2c },
+          { g: box(0.05, 0.42, 0.72), x: 0.02, y: 1.28, z: 0.36, c: 0xb03a3a },
+        ]), new THREE.MeshStandardMaterial({
+          color: 0xffffff, vertexColors: true, roughness: 0.9, flatShading: true,
+        }));
+        pen.position.set(0.55, 0.9, -0.35);
+        pen.visible = false;
+        v.add(pen);
+        v.userData.pennant = pen;
         v.position.set(w.x, 0, w.z);
+        v.rotation.y = w.rot || 0;
         this.scene.add(v);
         this.wardViews.set(w.id, v);
         this.spark(w.x, 0.6, w.z, 0x7fe08a, 14, 5, 1.1);
@@ -1490,12 +1604,34 @@ export class Renderer {
         }
         continue;
       }
-      v.scale.x = v.scale.z = 1;
+      // Level shows as MASS: an upgraded ward is visibly bigger and squarer.
+      const lv = (w.level || 1) - 1;
+      const grow = 1 + lv * 0.13;
+      v.scale.x = v.scale.z = grow;
 
-      // damage reads as a lean and a sink, not a floating bar
+      // Condition shows as a lean and a sink, and — the part that was missing —
+      // as COLOUR. A ward at a tenth of its hit points looked identical to a
+      // fresh one apart from being slightly shorter.
       const f = w.hp / w.maxHp;
-      v.scale.y = 0.55 + 0.45 * f;
-      v.rotation.z = (1 - f) * 0.14;
+      v.scale.y = (0.62 + 0.38 * f) * grow;
+      v.rotation.z = (w.rot ? 0 : 1) * (1 - f) * 0.1 + Math.sin(this.t * 1.2 + w.id) * (1 - f) * 0.03;
+      if (v.userData.tintable) {
+        for (const m of v.userData.tintable) {
+          if (!m.userData.baseCol) m.userData.baseCol = m.color.getHex();
+          _c.setHex(m.userData.baseCol);
+          // scorch and grey as it is worn down; brighten a little per level
+          _c.multiplyScalar(0.45 + 0.55 * f).lerp(new THREE.Color(0xffe0a0), lv * 0.12);
+          m.color.copy(_c);
+        }
+      }
+      // smoke and embers off a ward that is nearly gone
+      if (f < 0.35 && Math.random() < dt * (1 - f) * 14) {
+        this.spark(w.x + (Math.random() - 0.5) * 1.2, 0.8 + Math.random(),
+          w.z + (Math.random() - 0.5) * 1.2, f < 0.18 ? 0xff7a3a : 0x6b6055,
+          1, 1.4, 0.8, -1.2);
+      }
+      // a pennant once it is fully upgraded, so a maxed ward is unmistakable
+      if (v.userData.pennant) v.userData.pennant.visible = w.level >= 3;
       const head = v.userData.head;
       if (head && w.target && !w.target.dead) {
         head.rotation.y = Math.atan2(w.target.x - w.x, w.target.z - w.z);
@@ -1507,6 +1643,14 @@ export class Renderer {
         const fl = 3.1 + Math.sin(this.t * 11 + w.id) * 0.35 + Math.random() * 0.16;
         fire.scale.set(fl, fl, 1);
         v.userData.light.intensity = 30 + Math.sin(this.t * 9 + w.id) * 6;
+      }
+      const log = v.userData.log;
+      if (log) {
+        const ready = w.cd <= 0;
+        // hauled up and waiting, or lying on the track being re-rigged
+        const want = ready ? 2.0 : 0.28;
+        log.position.y += (want - log.position.y) * Math.min(1, dt * (ready ? 3 : 16));
+        log.rotation.z = ready ? Math.sin(this.t * 1.6) * 0.03 : 0.12;
       }
       const plate = v.userData.plate;
       if (plate) {
@@ -1676,7 +1820,7 @@ export class Renderer {
       f.px = f.x; f.pz = f.z;
 
       let y = f.y;
-      let lean = 0, sc = 1;
+      let lean = 0, sc = 1, lunge = 0;
       // The gait phase advances with GROUND COVERED, not with the clock, so a
       // foe held at a wall stops stepping instead of jogging on the spot.
       const gdx = f.x - (f.gx == null ? f.x : f.gx);
@@ -1691,10 +1835,21 @@ export class Renderer {
         if (walking) {
           lean = Math.sin(ph) * 0.05;
         } else {
-          // a strike is a lunge, so an attack is visible from across the room
-          const sw = Math.max(0, Math.sin((f.def.attackCd - f.atkCd) * 9));
-          lean = -sw * 0.5;
-          sc = 1 + sw * 0.06;
+          // Three readable beats instead of a bob: rear BACK through the
+          // windup, snap forward on the blow, then settle. The windup is the
+          // part the player is meant to react to, so it is the slow one.
+          if (f.windT > 0) {
+            const k = 1 - f.windT / WINDUP;          // 0 -> 1 across the windup
+            lean = 0.62 * k;                          // leaning away, weapon up
+            lunge = -0.34 * k;
+            sc = 1 + k * 0.08;
+          } else {
+            const since = f.def.attackCd - f.atkCd;
+            const k = Math.max(0, 1 - since / 0.22);  // 1 -> 0 just after the blow
+            lean = -0.85 * k;                         // thrown forward
+            lunge = 0.75 * k;
+            sc = 1 + k * 0.05;
+          }
         }
         // recoil: a squash-and-stretch punch on the frame a hit lands
         if (f.hitT > 0) {
@@ -1705,11 +1860,13 @@ export class Renderer {
       }
       _q.setFromEuler(new THREE.Euler(lean, ang, 0));
       _s.set(sc, sc, sc);
-      _m.compose(_v.set(f.x, y, f.z), _q, _s);
+      // lunge is along the foe's own facing, so a strike visibly travels
+      _m.compose(_v.set(f.x + Math.sin(ang) * lunge, y, f.z + Math.cos(ang) * lunge), _q, _s);
       slot.mesh.setMatrixAt(i, _m);
       // capped well below 1: a full-white flash erases the silhouette colour
       slot.flash.array[i] = f.hitT > 0 ? Math.min(0.55, f.hitT * 5.5) : 0;
       slot.phase.array[i] = f.def.flying ? 0 : (f.gait || 0);
+      slot.tele.array[i] = f.windT > 0 ? (1 - f.windT / WINDUP) * 0.9 : 0;
 
       if (f.def.flying && wg < FOE_CAP.wisp) {
         _q.copy(this.camera.quaternion);
@@ -1720,9 +1877,11 @@ export class Renderer {
     for (const id in this.foeMeshes) {
       const slot = this.foeMeshes[id];
       slot.mesh.count = counts[id];
+      if (slot.outline) slot.outline.count = counts[id];
       slot.mesh.instanceMatrix.needsUpdate = true;
       slot.flash.needsUpdate = true;
       slot.phase.needsUpdate = true;
+      slot.tele.needsUpdate = true;
     }
     this.wispGlow.count = wg;
     this.wispGlow.instanceMatrix.needsUpdate = true;
@@ -1880,7 +2039,7 @@ export class Renderer {
   hideBuildGrid() { this.gridMesh.count = 0; }
 
   // --------------------------------------------------------------- ghost
-  showGhost(wardId, i, j, ok) {
+  showGhost(wardId, i, j, ok, rot) {
     const c = cellCenter(i, j);
     const def = WARD_BY_ID[wardId];
     const col = ok ? 0x7fe08a : 0xe0605a;
@@ -1889,6 +2048,8 @@ export class Renderer {
     this.ghost.material.color.setHex(col);
     this.ghostPost.visible = true;
     this.ghostPost.position.set(c.x, 1.1, c.z);
+    this.ghostPost.rotation.y = rot || 0;
+    this.ghost.rotation.y = rot || 0;
     this.ghostPost.material.color.setHex(col);
     if (def.range) {
       this.ring.visible = true;

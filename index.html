@@ -141,6 +141,9 @@
   .ward:hover{border-color:rgba(255,255,255,.3);transform:translateY(-2px)}
   .ward.sel{border-color:#ffb347;background:rgba(255,179,71,.15);transform:translateY(-3px)}
   .ward.poor{opacity:.4}
+  .ward.locked{opacity:.32;cursor:not-allowed;filter:grayscale(1)}
+  .ward.locked .cost{display:none}
+  .lock{font-size:8.5px;letter-spacing:.1em;color:#8e97a8;text-transform:uppercase}
   .ward .k{position:absolute;top:3px;left:5px;font-size:9px;color:#6f788b}
   .ward .ic{font-size:19px;line-height:1;margin:3px 0 4px}
   .ward .nm{font-size:10px;letter-spacing:.06em;color:#c8cedb}
@@ -469,7 +472,7 @@
     <div class="skeys">
       <b>WASD</b> move &nbsp;·&nbsp; <b>right-drag</b> look &nbsp;·&nbsp; <b>click</b> attack<br>
       <b>Q</b> swap weapon &nbsp;·&nbsp; <b>Space</b> roll &nbsp;·&nbsp; <b>E</b> mend<br>
-      <b>1-4</b> pick a ward &nbsp;·&nbsp; <b>X</b> sell &nbsp;·&nbsp; <b>R</b> ready
+      <b>1-4</b> pick a ward &nbsp;·&nbsp; <b>R</b> rotate while placing<br><b>F</b> upgrade &nbsp;·&nbsp; <b>X</b> sell &nbsp;·&nbsp; <b>R</b> ready
     </div>
     <button class="opt on" id="closeSet" style="padding:11px 26px;font-size:11px">Close</button>
   </div>

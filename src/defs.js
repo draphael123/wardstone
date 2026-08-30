@@ -71,6 +71,26 @@ export const WARDSTONE = {
   guardRadius: 0.6,    // clearance BEYOND the plinth before striking
 };
 
+// How a foe reacts to being hit by the player. Aggro is deliberately SHORT
+// and its leash is deliberately SMALL: a foe that abandons its lane to chase
+// you across the clearing would dissolve the lane premise the whole game rests
+// on. It steps aside to swing at you, then goes back to the wall.
+export const AGGRO = {
+  time: 3.2,        // s of interest after you hurt it
+  leash: 7.5,       // m from its lane position it will stray
+  windup: 0.42,     // s of visible telegraph before a strike lands
+};
+
+// Upgrading in place, rather than a fifth ward. Units stay FIXED and power
+// goes up, which makes the unit budget bite harder as the game goes on: late
+// mana has somewhere to go that does not widen your coverage.
+export const UPGRADE = {
+  maxLevel: 3,
+  costMul: 1.15,     // x the ward's base cost, per level bought
+  power: 1.45,       // damage and hit points per level
+  time: 2.2,         // build time for an upgrade, in combat
+};
+
 export const ECON = {
   // THE most load-bearing number in the game. Mana is a flow; DU is a HARD CAP
   // on how much board you may cover at once, and it is the reason the body has
@@ -102,26 +122,32 @@ export const ECON = {
 export const WARDS = [
   {
     id: 'palisade', name: 'Palisade', key: '1', kind: 'blockade',
-    cost: 35, du: 1, hp: 2200, buildTime: 2.5, radius: 0.95, targets: 'none',
+    cost: 35, du: 1, hp: 2200, buildTime: 2.5, unlockWave: 0, radius: 0.95, targets: 'none',
     blurb: 'Holds a lane. Deals nothing. Foes stop and hit it.',
   },
   {
     id: 'ballista', name: 'Ballista', key: '2', kind: 'projectile',
-    cost: 70, du: 4, hp: 300, buildTime: 4.0, radius: 0.8, targets: 'ground',
+    cost: 70, du: 4, hp: 300, buildTime: 4.0, unlockWave: 1, radius: 0.8, targets: 'ground',
     range: 22, damage: 42, cooldown: 1.1, projSpeed: 46, projRadius: 0.7,
     blurb: 'Long reach, heavy bolt. Cannot elevate — ground only.',
   },
   {
-    id: 'brazier', name: 'Brazier', key: '3', kind: 'aura',
+    // Was a magic brazier, which is not something an old soldier builds. An
+    // archer on a platform does exactly the same MECHANICAL job — steady low
+    // damage to everything in a short radius, the only ward that can elevate
+    // — and is the obvious thing a man who has held a line would put up.
+    id: 'archers', name: 'Archer Post', key: '3', kind: 'aura',
     cost: 60, du: 4, hp: 260, buildTime: 3.5, radius: 0.8, targets: 'all',
-    range: 8.5, dps: 26,
-    blurb: 'The only ward that reaches a flier. Short leash.',
+    range: 8.5, dps: 26, unlockWave: 2,
+    blurb: 'Loose and steady, at anything in reach. The only ward that can shoot upward.',
   },
   {
-    id: 'snare', name: 'Snare', key: '4', kind: 'trap',
+    // Was a magic snare. A rigged log is the same thing: one heavy blow to
+    // everything on the ground beneath it, then you have to haul it back up.
+    id: 'deadfall', name: 'Deadfall', key: '4', kind: 'trap',
     cost: 45, du: 3, hp: 200, buildTime: 3.0, radius: 0.9, targets: 'ground',
-    range: 4.5, damage: 90, cooldown: 6.0,
-    blurb: 'Buried. Detonates once, then rebuilds its charge.',
+    range: 4.5, damage: 90, cooldown: 6.0, unlockWave: 3,
+    blurb: 'A rigged log. Drops once on whatever is under it, then must be re-set.',
   },
 ];
 
@@ -130,6 +156,10 @@ export const WARDS = [
 // being free, and it makes the muster phase worth its length.
 export const BUILD_INSTANT_IN_MUSTER = true;
 
+// Wards arrive WITH the problem they answer, not all at once: the Archer Post
+// unlocks for wave 3, which is the wave will-o-wisps first appear, and the
+// Deadfall for wave 4, which is the first Troll. A player handed four tools on
+// turn one learns none of them.
 export const WARD_BY_ID = Object.fromEntries(WARDS.map(w => [w.id, w]));
 
 // ---------------------------------------------------------------------------
@@ -236,6 +266,20 @@ export const WAVES = [
     ],
   },
 ];
+
+// What is coming, per track, for a given wave — the thing a player needs
+// before deciding where to spend units, and which was previously only
+// discoverable by being wrong once.
+export function waveByLane(w) {
+  const out = {};
+  if (!w) return out;
+  for (const g of w.groups) {
+    const L = out[g.lane] || (out[g.lane] = { total: 0, kinds: {} });
+    L.total += g.count;
+    L.kinds[g.foe] = (L.kinds[g.foe] || 0) + g.count;
+  }
+  return out;
+}
 
 export function waveFoeCount(w) {
   return w.groups.reduce((n, g) => n + g.count, 0);

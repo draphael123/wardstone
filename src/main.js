@@ -10,7 +10,7 @@ import { Renderer, PAL } from './render.js';
 import { Sound, playEvent } from './audio.js';
 import { Minimap } from './minimap.js';
 import { Tutorial, STEPS } from './tutorial.js';
-import { WARDS, WARD_BY_ID, ECON, WAVES, PLAYER } from './defs.js';
+import { WARDS, WARD_BY_ID, ECON, WAVES, PLAYER, waveByLane } from './defs.js';
 import { cellOf, cellCenter, isBuildableCell, ARENA } from './arena.js';
 
 const $ = (id) => document.getElementById(id);
@@ -42,7 +42,7 @@ const state = {
   move: { x: 0, y: 0 },        // -1..1 from stick or WASD
   firing: false, mending: false, wantDodge: false,
   pointer: { x: 0, y: 0, has: false },
-  ghostCell: null,
+  ghostCell: null, ghostRot: null,
   acc: 0, last: 0, lastFrame: 0, hitstop: 0,
   vel: { x: 0, z: 0 },
   hintShown: new Set(),
@@ -88,7 +88,7 @@ function cellAhead() {
 function buildBar() {
   const bar = $('bar');
   bar.innerHTML = '';
-  const icons = { palisade: '&#9776;', ballista: '&#10142;', brazier: '&#9670;', snare: '&#9678;' };
+  const icons = { palisade: '&#9776;', ballista: '&#10142;', archers: '&#9670;', deadfall: '&#9678;' };
   for (const w of WARDS) {
     const el = document.createElement('div');
     el.className = 'ward';
@@ -97,9 +97,14 @@ function buildBar() {
       `<div class="k">${w.key}</div>` +
       `<div class="ic">${icons[w.id]}</div>` +
       `<div class="nm">${w.name}</div>` +
-      `<div class="cost mono">${w.cost}<s>${w.du}u</s></div>`;
+      `<div class="cost mono">${w.cost}<s>${w.du}u</s></div>` +
+      `<div class="lock"></div>`;
     el.title = w.blurb;
-    el.addEventListener('click', (e) => { e.stopPropagation(); select(w.id); });
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (state.world.isUnlocked(w.id)) select(w.id);
+      else state.snd.play('hover', 0.6, 0.7);
+    });
     el.addEventListener('pointerenter', () => state.snd && state.snd.play('hover'));
     bar.appendChild(el);
   }
@@ -107,6 +112,7 @@ function buildBar() {
 
 function select(id) {
   state.selected = state.selected === id ? null : id;
+  state.ghostRot = null;      // each pick starts square-on to the track again
   for (const el of document.querySelectorAll('.ward')) {
     el.classList.toggle('sel', el.dataset.id === state.selected);
   }
@@ -153,7 +159,12 @@ function syncHud() {
 
   for (const el of document.querySelectorAll('.ward')) {
     const d = WARD_BY_ID[el.dataset.id];
-    el.classList.toggle('poor', w.mana < d.cost || w.du + d.du > ECON.duBudget);
+    const locked = !w.isUnlocked(d.id);
+    el.classList.toggle('locked', locked);
+    el.classList.toggle('poor', !locked &&
+      (w.mana < d.cost || w.du + d.du > ECON.duBudget));
+    const lk = el.querySelector('.lock');
+    if (lk) lk.textContent = locked ? `wave ${(d.unlockWave || 0) + 1}` : '';
   }
 
   const p = w.player;
@@ -168,6 +179,15 @@ function syncHud() {
     rl.classList.toggle('ready', ready);
     rl.style.setProperty('--k', ready ? 1 : (1 - p.dodgeCd / PLAYER.dodge.cooldown));
   }
+}
+
+// short-lived line in the hint slot, for one-off confirmations
+function toast(msg) {
+  const h = $('hint');
+  h.innerHTML = msg;
+  h.classList.remove('gone');
+  clearTimeout(showHint._t);
+  showHint._t = setTimeout(() => h.classList.add('gone'), 1800);
 }
 
 function banner(t, s) {
@@ -249,7 +269,7 @@ function drainEvents() {
         r.spark(e.x, 1, e.z, 0x8a7a5a, 20, 6, 1.5);
         r.addShake(0.25);
         break;
-      case 'snare':
+      case 'deadfall':
         r.ringBurst(e.x, 0.3, e.z, PAL.snare, e.r, 22);
         r.addShake(0.16);
         break;
@@ -277,6 +297,11 @@ function drainEvents() {
         break;
       case 'dmg':
         popDamage(e.x, e.y, e.z, e.amount);
+        break;
+      case 'upgrade':
+        r.ringBurst(e.x, 0.5, e.z, 0xffd89a, 2.2, 18);
+        if (s) s.play('build', 1, 0.8);
+        toast(`${WARD_BY_ID[e.ward].name} — level ${e.level}`);
         break;
       case 'built':
         r.ringBurst(e.x, 0.4, e.z, 0x9fe8a0, 1.9, 14);
@@ -379,14 +404,30 @@ function bindInput() {
     const k = e.key.toLowerCase();
     state.keys.add(k);
     if (k >= '1' && k <= '4') {
-      const w = WARDS[+k - 1];
-      if (w) select(w.id);
+      const wd = WARDS[+k - 1];
+      if (wd && state.world.isUnlocked(wd.id)) select(wd.id);
+      else if (wd) state.snd.play('hover', 0.6, 0.7);
     }
     if (k === 'escape' || k === '0') { state.selected = null; select(null); }
-    if (k === 'r') { if (state.world.ready()) state.snd.play('click'); }
+    if (k === 'r') {
+      // contextual: R rotates the thing you are holding, or readies the wave
+      if (state.selected) {
+        state.ghostRot = (state.ghostRot == null ? 0 : state.ghostRot) + Math.PI / 4;
+        state.snd.play('hover', 0.7);
+      } else if (state.world.ready()) {
+        state.snd.play('click');
+      }
+    }
     if (k === 'q' || k === 'tab') { e.preventDefault(); state.world.swapWeapon(); }
     if (k === ' ' || k === 'shift') { e.preventDefault(); state.wantDodge = true; }
     if (k === 'x' && state.selected === null) sellUnderPointer();
+    if (k === 'f' && state.selected === null) {
+      const w = state.world;
+      const near = w.wardNear(4.2);
+      const r = w.canUpgrade(near);
+      if (r.ok) { w.upgrade(near); }
+      else if (near) { toast(r.why); state.snd.play('hover', 0.6, 0.7); }
+    }
   });
   addEventListener('keyup', (e) => state.keys.delete(e.key.toLowerCase()));
   addEventListener('blur', () => { state.keys.clear(); state.firing = false; });
@@ -507,7 +548,7 @@ function tryBuild(px, py) {
   if (!c) return;
   const r = w.canBuild(state.selected, c.i, c.j);
   if (r.ok) {
-    w.build(state.selected, c.i, c.j);
+    w.build(state.selected, c.i, c.j, state.ghostRot);
     // keep the ward selected so a wall can be laid in one gesture per cell
     if (w.mana < WARD_BY_ID[state.selected].cost) select(null);
   } else {
@@ -625,7 +666,9 @@ function applyInput(dt) {
     r.showBuildGrid(w, state.selected, p.x, p.z, 17);
     if (c) {
       state.ghostCell = c;
-      r.showGhost(state.selected, c.i, c.j, w.canBuild(state.selected, c.i, c.j).ok);
+      const cc = cellCenter(c.i, c.j);
+      const rot = state.ghostRot == null ? w.defaultRotAt(cc.x, cc.z) : state.ghostRot;
+      r.showGhost(state.selected, c.i, c.j, w.canBuild(state.selected, c.i, c.j).ok, rot);
     }
   } else {
     r.hideGhost();
@@ -675,7 +718,12 @@ function frame(now) {
     }
   }
   state.rend.update(state.world, dt, { moving: state._moving });
-  if (state.map) state.map.draw(state.world, state.rend.camYaw);
+  if (state.map) {
+    // during the muster, show what each door is about to send
+    const w = state.world;
+    const inc = w.phase === 'build' ? waveByLane(WAVES[w.waveIndex]) : null;
+    state.map.draw(w, state.rend.camYaw, inc);
+  }
 }
 
 function resize() {
@@ -939,7 +987,7 @@ function tickTutorial(dt) {
   if (!t || t.done) return;
   // The muster phase does not run out while the tutorial is still teaching.
   if (state.world.phase === 'build') state.world.phaseTimer = 99;
-  const pending = t.takeSpawns();
+  const pending = t.takeSpawns(state.world);
   if (pending && pending.length) {
     for (const [lane, foe] of pending) state.world._spawn(lane, foe);
   }

@@ -100,13 +100,13 @@ function shoppingList(plan = 'balanced') {
   for (const id of laneOrder) {
     const lane = LANE_BY_ID[id];
     const c = supportCell(lane, at(lane, 0.34, 12), -1);
-    if (c) list.push({ ward: 'brazier', ...c });
+    if (c) list.push({ ward: 'archers', ...c });
   }
   // pass 3 — snares just behind each wall, where the queue bunches up
   for (const id of laneOrder) {
     const lane = LANE_BY_ID[id];
     const c = cellsAcross(lane, at(lane, 0.24, 9), [0, -2, 2])[0];
-    if (c) list.push({ ward: 'snare', ...c });
+    if (c) list.push({ ward: 'deadfall', ...c });
   }
   // pass 4 — a second ballista per lane, deeper in
   for (const id of laneOrder) {
@@ -117,7 +117,7 @@ function shoppingList(plan = 'balanced') {
   // pass 5 — braziers around the stone itself, the last word against wisps
   for (const [x, z] of [[6, 6], [-6, 6], [6, -6], [-6, -6]]) {
     const c = cellOf(x, z);
-    if (isBuildableCell(c.i, c.j)) list.push({ ward: 'brazier', ...c });
+    if (isBuildableCell(c.i, c.j)) list.push({ ward: 'archers', ...c });
   }
   return list;
 }
@@ -130,7 +130,7 @@ function airHeavyList() {
     for (let a = 0; a < 8; a++) {
       const x = Math.cos(a * Math.PI / 4) * r, z = Math.sin(a * Math.PI / 4) * r;
       const c = cellOf(x, z);
-      if (isBuildableCell(c.i, c.j)) list.push({ ward: 'brazier', ...c });
+      if (isBuildableCell(c.i, c.j)) list.push({ ward: 'archers', ...c });
     }
   }
   for (const id of ['north', 'east', 'west']) {
@@ -158,7 +158,7 @@ function groundHeavyList() {
     const c = supportCell(lane, Math.max(18, lane.total * 0.5), 1);
     if (c) list.push({ ward: 'ballista', ...c });
     const t = cellsAcross(lane, Math.max(9, lane.total * 0.24), [0, -2, 2])[0];
-    if (t) list.push({ ward: 'snare', ...t });
+    if (t) list.push({ ward: 'deadfall', ...t });
   }
   return list;
 }
@@ -197,6 +197,7 @@ export class Bot {
       if (c.ok) { w.build(item.ward, item.i, item.j); continue; }
       if (c.why === 'not enough mana') break;          // keep priority order
       if (c.why === 'no defence units') continue;      // a smaller ward may fit
+      if (c.why === 'not unlocked yet') continue;      // comes later, keep it queued
       this.blocked.add(n);                             // bad cell, never retry
     }
   }
@@ -331,6 +332,7 @@ export class Bot {
 // player lose?" but "does a COMPLETE ward set still need a body?".
 export function playRun(opts = {}) {
   const w = new World({ seed: opts.seed == null ? 7 : opts.seed });
+  if (opts.rich) w.grantAll();
   const bot = new Bot(w, opts);
   const maxT = opts.maxT || 1200;
   let guard = 0;
@@ -345,7 +347,11 @@ export function playRun(opts = {}) {
 // ---------------------------------------------------------------------------
 // Directed micro-tests. Each builds exactly the situation it is asserting on.
 // ---------------------------------------------------------------------------
-function sandbox() { return new World({ seed: 3, sandbox: true }); }
+function sandbox() {
+  const w = new World({ seed: 3, sandbox: true });
+  w.grantAll();          // these tests are about behaviour, not unlock pacing
+  return w;
+}
 
 function runFor(w, seconds, each) {
   const n = Math.round(seconds / DT);
@@ -381,8 +387,8 @@ export function runTests(log = console.log) {
 
   ok('T3  the flier-capable ward is the weakest',
     Math.min(...WARDS.filter(w => w.kind === 'projectile').map(w => w.damage / w.cooldown)) >
-      WARD_BY_ID.brazier.dps,
-    `brazier ${WARD_BY_ID.brazier.dps} dps vs ballista ${(WARD_BY_ID.ballista.damage / WARD_BY_ID.ballista.cooldown).toFixed(0)}`);
+      WARD_BY_ID.archers.dps,
+    `brazier ${WARD_BY_ID.archers.dps} dps vs ballista ${(WARD_BY_ID.ballista.damage / WARD_BY_ID.ballista.cooldown).toFixed(0)}`);
 
   ok('T4  six waves, escalating foe count',
     WAVES.length === 6 && WAVES.every((w, i) => i === 0 || waveFoeCount(w) >= waveFoeCount(WAVES[i - 1])),
@@ -483,14 +489,14 @@ export function runTests(log = console.log) {
 
     const b = sandbox(); b.mana = 9999;
     const cc = cellOf(4, -10);
-    b.build('brazier', cc.i, cc.j);
+    b.build('archers', cc.i, cc.j);
     b._spawn('north', 'wisp'); b.phase = 'combat';
     runFor(b, 12);
     const wispDmgFromBrazier = (b.stats.dmgToFoeBy.ward.wisp || 0);
 
-    ok('T9  ballista cannot touch a wisp, brazier can',
+    ok('T9  ballista cannot touch a wisp, the archer post can',
       wispDmgFromBallista === 0 && wispDmgFromBrazier > 0,
-      `ballista ${wispDmgFromBallista.toFixed(0)}, brazier ${wispDmgFromBrazier.toFixed(0)}`);
+      `ballista ${wispDmgFromBallista.toFixed(0)}, archers ${wispDmgFromBrazier.toFixed(0)}`);
   }
 
   // --- T10: mana is not telepathic. A kill far from the player banks nothing.

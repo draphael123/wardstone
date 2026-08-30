@@ -75,7 +75,7 @@ export class Minimap {
     });
   }
 
-  draw(world, camYaw, laneFlash) {
+  draw(world, camYaw, incoming) {
     // Re-measure now and then: the element's size changes with orientation,
     // and the first measurement can land before the HUD is laid out at all.
     if ((this._tick = (this._tick || 0) + 1) % 20 === 1) this.resize();
@@ -154,6 +154,38 @@ export class Minimap {
       ctx.moveTo(px, py - 4); ctx.lineTo(px + 4, py);
       ctx.lineTo(px, py + 4); ctx.lineTo(px - 4, py);
       ctx.closePath(); ctx.fill();
+    }
+
+    // Incoming, per door: the count for the NEXT wave, drawn at each lane's
+    // mouth during the muster so you can see where to spend before you spend.
+    if (incoming) {
+      for (const lp of this._lanePaths) {
+        const info = incoming[lp.id];
+        if (!info || !info.total) continue;
+        const [px, py] = lp.pts[0];
+        const cx = Math.max(11, Math.min(s - 11, px));
+        const cy = Math.max(9, Math.min(s - 9, py));
+        ctx.fillStyle = 'rgba(10,13,20,0.9)';
+        ctx.strokeStyle = 'rgba(255,179,71,0.85)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect ? ctx.roundRect(cx - 10, cy - 7, 20, 14, 3)
+                      : ctx.rect(cx - 10, cy - 7, 20, 14);
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#ffd89a';
+        ctx.font = '700 10px ui-monospace,Menlo,Consolas,monospace';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(String(info.total), cx, cy + 0.5);
+        // a pip per foe type that door is sending
+        let ox = cx - 8;
+        for (const k of ['husk', 'runner', 'wisp', 'breaker']) {
+          if (!info.kinds[k]) continue;
+          ctx.fillStyle = COL[k];
+          ctx.fillRect(ox, cy + 8, 4, 2.5);
+          ox += 5.5;
+        }
+        ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+      }
     }
 
     // the player, as an arrow so facing is readable, plus the camera wedge

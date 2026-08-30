@@ -9,11 +9,11 @@
 // repair, ready) is a command the caller issues between steps.
 
 import {
-  PLAYER, WARDSTONE, ECON, WARDS, WARD_BY_ID, FOE_BY_ID, WAVES,
+  PLAYER, WARDSTONE, ECON, WARDS, WARD_BY_ID, FOE_BY_ID, WAVES, AGGRO, UPGRADE,
 } from './defs.js';
 import {
   LANES, LANE_BY_ID, laneAt, cellOf, cellCenter, cellKey,
-  isBuildableCell, clampToArena,
+  isBuildableCell, clampToArena, nearestLane, distToLane,
 } from './arena.js';
 import { makeRng } from './rand.js';
 
@@ -52,6 +52,24 @@ class Hash {
   }
 }
 
+// Default facing for a newly placed ward: square-on to the nearest track. A
+// fence panel turned the wrong way looks broken even though it blocks exactly
+// the same, so "facing the road" is the useful default and manual rotation is
+// the override rather than the norm.
+function defaultRot(x, z) {
+  const n = nearestLane(x, z);
+  if (!n.lane) return 0;
+  let best = 0, bd = Infinity;
+  for (const sg of n.lane.segs) {
+    const px = x - sg.ax, pz = z - sg.az;
+    let t = px * sg.dx + pz * sg.dz;
+    t = t < 0 ? 0 : (t > sg.len ? sg.len : t);
+    const d = Math.hypot(px - sg.dx * t, pz - sg.dz * t);
+    if (d < bd) { bd = d; best = Math.atan2(sg.dx, sg.dz); }
+  }
+  return best;
+}
+
 let NEXT_ID = 1;
 
 export class World {
@@ -83,6 +101,7 @@ export class World {
     this.projectiles = [];
     this.motes = [];
     this.occupancy = new Map();  // cellKey -> ward
+    this.granted = new Set();    // wards unlocked ahead of their wave
     this.spawnQueue = [];
     this.events = [];
 
@@ -107,9 +126,24 @@ export class World {
 
   wardAtCell(i, j) { return this.occupancy.get(cellKey(i, j)) || null; }
 
+  // A ward is available once its wave has been reached. The tutorial can also
+  // grant one early, which is how the ballista arrives during the lesson that
+  // teaches it rather than a wave later.
+  isUnlocked(id) {
+    const def = WARD_BY_ID[id];
+    if (!def) return false;
+    if (this.granted.has(id)) return true;
+    return this.waveIndex >= (def.unlockWave || 0);
+  }
+  grant(id) { this.granted.add(id); }
+  defaultRotAt(x, z) { return defaultRot(x, z); }
+
+  grantAll() { for (const w of WARDS) this.granted.add(w.id); }
+
   canBuild(wardId, i, j) {
     const def = WARD_BY_ID[wardId];
     if (!def) return { ok: false, why: 'no such ward' };
+    if (!this.isUnlocked(wardId)) return { ok: false, why: 'not unlocked yet' };
     if (!isBuildableCell(i, j)) return { ok: false, why: 'not buildable ground' };
     if (this.occupancy.has(cellKey(i, j))) return { ok: false, why: 'occupied' };
     if (this.du + def.du > ECON.duBudget) return { ok: false, why: 'no defence units' };
@@ -117,15 +151,15 @@ export class World {
     return { ok: true, def };
   }
 
-  build(wardId, i, j) {
+  build(wardId, i, j, rot) {
     const c = this.canBuild(wardId, i, j);
     if (!c.ok) return null;
     const def = c.def;
     const p = cellCenter(i, j);
     const w = {
       id: NEXT_ID++, def, kind: def.kind, i, j,
-      x: p.x, z: p.z,
-      hp: def.hp, maxHp: def.hp,
+      x: p.x, z: p.z, rot: rot == null ? defaultRot(p.x, p.z) : rot,
+      hp: def.hp, maxHp: def.hp, level: 1, power: 1,
       cd: 0, target: null, retarget: 0, dead: false,
       // Under construction: solid and attackable from the moment it is placed,
       // but it does not FIRE, and its hit points ramp up as it goes together.
@@ -147,6 +181,51 @@ export class World {
   // NOTE: sell() and hurtWard() MARK a ward dead; `this.wards` is compacted at
   // the end of step(). Callers must not loop on wards.length expecting it to
   // shrink — it will not until the next step, and that loop will hang.
+  upgradeCost(w) {
+    return Math.round(w.def.cost * UPGRADE.costMul * w.level);
+  }
+
+  canUpgrade(w) {
+    if (!w || w.dead) return { ok: false, why: 'nothing there' };
+    if (w.buildT > 0) return { ok: false, why: 'still building' };
+    if (w.level >= UPGRADE.maxLevel) return { ok: false, why: 'already at full strength' };
+    if (this.mana < this.upgradeCost(w)) return { ok: false, why: 'not enough mana' };
+    return { ok: true };
+  }
+
+  // Costs mana, NOT units. That is the whole point: it is somewhere for late
+  // mana to go that does not widen how much board you cover.
+  upgrade(w) {
+    const c = this.canUpgrade(w);
+    if (!c.ok) return false;
+    const cost = this.upgradeCost(w);
+    this.mana -= cost;
+    this.stats.manaSpent += cost;
+    w.level++;
+    w.power = Math.pow(UPGRADE.power, w.level - 1);
+    const frac = w.hp / w.maxHp;
+    w.maxHp = Math.round(w.def.hp * w.power);
+    w.hp = Math.round(w.maxHp * Math.max(frac, 0.5));   // a top-up comes with it
+    if (this.phase === 'combat') {
+      w.buildT = UPGRADE.time;
+      w.buildTotal = UPGRADE.time;
+    }
+    this.emit({ type: 'upgrade', x: w.x, z: w.z, ward: w.def.id, level: w.level });
+    return true;
+  }
+
+  // The ward the player is standing next to, for upgrading or selling.
+  wardNear(range) {
+    const p = this.player;
+    let best = null, bd = range || PLAYER.repairRange;
+    for (const w of this.wards) {
+      if (w.dead) continue;
+      const d = Math.hypot(w.x - p.x, w.z - p.z);
+      if (d < bd) { bd = d; best = w; }
+    }
+    return best;
+  }
+
   sell(w) {
     if (!w || w.dead) return 0;
     const back = Math.floor(w.def.cost * 0.6);
@@ -203,6 +282,7 @@ export class World {
       hp: def.hp, maxHp: def.hp,
       atkCd: this.rng.range(0, 0.4),
       target: null, targetKind: null, dead: false, hitT: 0,
+      aggroT: 0, windT: 0,
       // fliers cut the corner: they take the straight line to the stone
       fx: 0, fz: 0,
     };
@@ -224,6 +304,7 @@ export class World {
     // and unidentifiable. A bolt is 26, an aura tick is 0.4.
     if (dealt > 4) f.hitT = 0.1;
     if (source === 'player' && dealt > 0) {
+      f.aggroT = AGGRO.time;      // it noticed
       this.emit({ type: 'dmg', x: f.x, y: f.y + f.def.height * 0.8, z: f.z, amount: dealt });
     }
     const bucket = this.stats.dmgToFoeBy[source];
@@ -524,12 +605,18 @@ export class World {
       // --- who am I hitting?
       // The player outranks a ward: standing in a lane has to cost something,
       // or the safe play is to park on top of the palisade and hold repair.
+      if (f.aggroT > 0) f.aggroT -= dt;
       let hitPlayer = false;
+      let dPlayer = Infinity;
       if (p.alive) {
-        const d = Math.hypot(p.x - f.x, p.z - f.z);
+        dPlayer = Math.hypot(p.x - f.x, p.z - f.z);
         const dy = Math.abs((p.y + 0.9) - f.y);
-        if (d < def.radius + PLAYER.radius + 1.3 && dy < 3.2) hitPlayer = true;
+        if (dPlayer < def.radius + PLAYER.radius + 1.3 && dy < 3.2) hitPlayer = true;
       }
+      // An aggroed ground foe leaves its lane to come at you — but only within
+      // a short leash, so a whole wave can never be kited off the map.
+      const chasing = !def.flying && f.aggroT > 0 && p.alive && !hitPlayer &&
+        dPlayer < AGGRO.leash;
 
       if (def.flying) {
         // Fliers ignore lanes and blockades entirely. This is the gap the
@@ -572,7 +659,14 @@ export class World {
         }
 
         const atStone = f.dist >= f.lane.total - stoneStandoff(def);
-        if (!blocked && !atStone) {
+        if (chasing && !blocked) {
+          // walk at the player directly, in world space, off the lane
+          const cx = p.x - f.x, cz = p.z - f.z;
+          const cl = Math.hypot(cx, cz) || 1;
+          f.x += (cx / cl) * def.speed * dt;
+          f.z += (cz / cl) * def.speed * dt;
+          f.targetKind = null;
+        } else if (!blocked && !atStone) {
           f.dist += def.speed * dt;
           const q = laneAt(f.lane, f.dist, f.off);
           f.x = q.x; f.z = q.z;
@@ -583,7 +677,19 @@ export class World {
         }
       }
 
-      // --- strike
+      // --- strike. A windup runs BEFORE the blow so there is something to
+      // read and react to; the damage lands when the windup completes.
+      if (f.atkCd <= 0 && f.windT <= 0 &&
+          (hitPlayer || f.targetKind === 'ward' || f.targetKind === 'stone')) {
+        f.windT = AGGRO.windup;
+        f.windAt = hitPlayer ? 'player' : f.targetKind;
+        this.emit({ type: 'windup', x: f.x, y: f.y, z: f.z, foe: f.kind, at: f.windAt });
+      }
+      if (f.windT > 0) {
+        f.windT -= dt;
+        if (f.windT > 0) continue;         // still winding up
+        f.atkCd = 0;                       // the blow lands now
+      }
       if (f.atkCd <= 0) {
         if (hitPlayer) {
           this.hurtPlayer(def.playerDamage);
@@ -646,7 +752,7 @@ export class World {
           const f = near[n];
           if (f.dead) continue;
           if (Math.hypot(f.x - w.x, f.z - w.z) > def.range) continue;
-          this.hurtFoe(f, def.dps * dt, 'ward');
+          this.hurtFoe(f, def.dps * w.power * dt, 'ward');
         }
         continue;
       }
@@ -667,7 +773,7 @@ export class World {
           const f = near[n];
           if (f.dead || f.def.flying) continue;
           if (Math.hypot(f.x - w.x, f.z - w.z) <= def.range) {
-            this.hurtFoe(f, def.damage, 'ward');
+            this.hurtFoe(f, def.damage * w.power, 'ward');
           }
         }
         w.cd = def.cooldown;
@@ -693,7 +799,7 @@ export class World {
             id: NEXT_ID++, source: 'ward',
             x: w.x, y: 1.4, z: w.z,
             dx: dx / d, dy: dy / d, dz: dz / d,
-            speed: def.projSpeed, damage: def.damage, radius: def.projRadius,
+            speed: def.projSpeed, damage: def.damage * w.power, radius: def.projRadius,
             target: t, life: 3, dead: false,
           });
           w.cd = def.cooldown;

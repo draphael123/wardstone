@@ -35,6 +35,7 @@ export const STEPS = [
     text: 'A wall deals no damage. Press <b>2</b> and place a <b>Ballista</b> just behind your wall, ' +
           'where it can shoot whatever stops there.',
     touch: 'Tap <b>Ballista</b> and place it just behind your wall.',
+    setup: (w) => w.grant('ballista'),
     check: (w) => w.wards.some(x => !x.dead && x.def.id === 'ballista'),
   },
   {
@@ -84,7 +85,17 @@ export const STEPS = [
           'It will not save you from a Troll: one ruins a wall faster than you can mend it. ' +
           'A wall buys you time to kill it, and nothing else.',
     touch: 'Hold <b>Mend</b> beside a damaged ward. It will not out-heal a Troll.',
-    check: (w, s) => s.mended > 40 || w.wards.every(x => x.dead || x.hp >= x.maxHp * 0.999),
+    // Scuff a ward so there is something to mend. Without this the step's
+    // "everything is already at full health" escape fired the instant it
+    // became current, and the one lesson that states the premise outright
+    // flashed past unread. Measured: the step was skipped every single run.
+    setup: (w) => {
+      const live = w.wards.filter(x => !x.dead);
+      if (!live.length) return;
+      const worst = live.reduce((a, b) => (a.hp / a.maxHp <= b.hp / b.maxHp ? a : b));
+      worst.hp = Math.min(worst.hp, worst.maxHp * 0.45);
+    },
+    check: (w, s) => s.mended > 60 || !w.wards.some(x => !x.dead),
   },
   {
     id: 'ready',
@@ -144,11 +155,14 @@ export class Tutorial {
     return false;
   }
 
-  // Foes a step needs, spawned once when the step becomes current.
-  takeSpawns() {
+  // Whatever a step needs staged, done once when it becomes current: foes to
+  // practise on, and any world change the lesson depends on.
+  takeSpawns(world) {
     if (this.done || this.shown === this.i) return null;
     this.shown = this.i;
     const st = STEPS[this.i];
-    return st && st.spawn ? st.spawn : [];
+    if (!st) return [];
+    if (st.setup && world) st.setup(world);
+    return st.spawn ? st.spawn : [];
   }
 }
