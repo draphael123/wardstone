@@ -474,7 +474,10 @@ export class Renderer {
     const forest = (currentMap() && currentMap().theme) === 'forest';
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(forest ? PAL.duskSky : PAL.night);
-    this.scene.fog = new THREE.Fog(forest ? 0x27324a : PAL.fog, 40, 118);
+    // Far plane pushed out for the forest so the hill bands read as distance
+    // rather than as flat fog: at 118 they were geometry the fog had already
+    // finished with. The near plane is unchanged, so the treeline hazes as before.
+    this.scene.fog = new THREE.Fog(forest ? 0x27324a : PAL.fog, 40, forest ? 168 : 118);
 
     this.camera = new THREE.PerspectiveCamera(56, 1, 0.5, 260);
     this.camYaw = Math.PI;
@@ -510,7 +513,11 @@ export class Renderer {
 
     this.theme = (currentMap() && currentMap().theme) || 'crypt';
     this._buildLights();
-    if (this.theme === 'forest') { this._buildForest(); this._buildHearth(); }
+    if (this.theme === 'forest') {
+      this._buildForest();
+      this._buildScenery();
+      this._buildHearth();
+    }
     else { this._buildArena(); this._buildStone(); }
     this._buildUnits();
     this._buildPools();
@@ -883,6 +890,243 @@ export class Renderer {
   // boundary is a treeline rather than a wall, and the light in the middle is
   // a fire — which keeps the "the world dims as the objective dies" mechanic
   // literal rather than metaphorical.
+  // --------------------------------------------------------------- scenery
+  // Everything here is decoration and NOTHING here sits on a lane or in a
+  // buildable cell — a prop the player cannot build behind would be a bug
+  // dressed as a tree. Each group merges into a single mesh, so the whole pass
+  // costs a handful of draw calls.
+  //
+  // The brief was "the clearing looks empty". The cure is the same one that
+  // fixed flat facades: break the symmetry, and give the eye something at
+  // THREE distances — silhouettes on the horizon, mass in the middle, and
+  // small detail down where the chase camera actually lives.
+  // See [[procedural-facades-beat-flat-boxes]].
+  _buildScenery() {
+    const H = ARENA.half;
+    const rng = makeRng(1337);
+    const clear = (x, z, laneGap, homeGap) =>
+      nearestLane(x, z).dist > laneGap && Math.hypot(x, z) > (homeGap || 9);
+
+    const addMesh = (parts, opts = {}) => {
+      if (!parts.length) return null;
+      const m = new THREE.Mesh(assemble(parts), new THREE.MeshStandardMaterial({
+        color: 0xffffff, vertexColors: true, flatShading: true,
+        roughness: opts.rough == null ? 1 : opts.rough,
+        emissive: opts.emissive || 0x000000,
+        emissiveIntensity: opts.emissiveIntensity || 0,
+      }));
+      m.castShadow = !this.low && opts.shadow !== false;
+      m.receiveShadow = !this.low && opts.shadow !== false;
+      this.scene.add(m);
+      return m;
+    };
+
+    // --- 1. distant hills. Three receding bands beyond the treeline, each
+    // flatter and hazier than the last. This is the cheapest depth in the
+    // scene: it turns "a wall of trees" into "a wood with somewhere behind it".
+    for (let band = 0; band < 3; band++) {
+      const parts = [];
+      const dist = 100 + band * 24;
+      const tint = [0x2b3a42, 0x27333d, 0x232c38][band];
+      for (let a = 0; a < 46; a++) {
+        const ang = (a / 46) * Math.PI * 2 + rng() * 0.06;
+        const hgt = (22 - band * 4) * (0.6 + rng() * 0.7);
+        const wid = 34 + rng() * 40;
+        parts.push({
+          g: box(wid, hgt, 10),
+          x: Math.cos(ang) * dist, y: hgt / 2 - 5, z: Math.sin(ang) * dist,
+          ry: ang, rz: (rng() - 0.5) * 0.06, c: tint,
+        });
+      }
+      const m = new THREE.Mesh(assemble(parts), new THREE.MeshBasicMaterial({
+        color: 0xffffff, vertexColors: true, fog: true,
+      }));
+      m.renderOrder = -3;
+      this.scene.add(m);
+    }
+
+    // --- 2. birches in the treeline. The wood was one species and read as
+    // wallpaper; a pale trunk every dozen trees is what makes it a wood.
+    const birch = [], birchLeaf = [];
+    for (let i = 0; i < 34; i++) {
+      const ang = rng() * Math.PI * 2;
+      const r = H - 2 + rng() * 13;
+      const x = Math.cos(ang) * r, z = Math.sin(ang) * r;
+      const th = 5.5 + rng() * 4;
+      birch.push({ g: box(0.42, th, 0.42), x, y: th / 2, z, c: 0xcfc9b4 });
+      // the dark bands that make a birch a birch
+      for (let b = 0; b < 4; b++) {
+        birch.push({
+          g: box(0.46, 0.16, 0.46), x, z,
+          y: th * (0.22 + b * 0.18), c: 0x3a3830,
+        });
+      }
+      let ry = th * 0.9, rr = 2.2;
+      for (let k = 0; k < 3; k++) {
+        birchLeaf.push({ g: box(rr, 1.3, rr), x, y: ry, z, ry: rng() * 0.8, c: 0x6a7f3a });
+        ry += 1.0; rr *= 0.74;
+      }
+    }
+    addMesh(birch, { rough: 0.9 });
+    addMesh(birchLeaf);
+
+    // --- 3. ferns. Angled fronds off a common root, which reads as a plant
+    // from above where a crossed quad reads as a cone.
+    // See [[voxel-look-pass]].
+    const ferns = [];
+    for (let i = 0; i < 90; i++) {
+      const ang = rng() * Math.PI * 2, r = 11 + rng() * 26;
+      const x = Math.cos(ang) * r, z = Math.sin(ang) * r;
+      if (!clear(x, z, 4.6)) continue;
+      const n = 5 + ((rng() * 3) | 0);
+      const sc = 0.7 + rng() * 0.5;
+      for (let f = 0; f < n; f++) {
+        const fa = (f / n) * Math.PI * 2 + rng() * 0.4;
+        const len = (0.9 + rng() * 0.5) * sc;
+        ferns.push({
+          g: box(0.16 * sc, 0.07, len),
+          x: x + Math.cos(fa) * len * 0.42,
+          y: 0.34 + rng() * 0.2,
+          z: z + Math.sin(fa) * len * 0.42,
+          ry: -fa, rx: -0.5 - rng() * 0.3,
+          c: rng() < 0.3 ? 0x4c6b32 : 0x3f5c2c,
+        });
+      }
+    }
+    addMesh(ferns);
+
+    // --- 4. wildflowers. Tiny, and the only saturated colour on the floor — a
+    // green field with nothing warm in it reads as flat however much relief it
+    // has.
+    const flowers = [];
+    const FCOL = [0xd8d2b0, 0xc9a2d8, 0xe0b25c, 0xd86a72];
+    for (let i = 0; i < 260; i++) {
+      const x = (rng() * 2 - 1) * (H - 4), z = (rng() * 2 - 1) * (H - 4);
+      if (!clear(x, z, 3.9, 7)) continue;
+      const c = FCOL[(rng() * FCOL.length) | 0];
+      const h = 0.24 + rng() * 0.2;
+      flowers.push({ g: box(0.05, h, 0.05), x, y: 0.16 + h / 2, z, c: 0x53703a });
+      flowers.push({ g: box(0.17, 0.1, 0.17), x, y: 0.16 + h, z, ry: rng() * 3, c });
+    }
+    addMesh(flowers, { shadow: false });
+
+    // --- 5. mushroom rings, faintly lit. At night these are the only thing in
+    // the undergrowth that draws the eye, and they sell "this wood is odd"
+    // without a line of text.
+    const caps = [], stems = [];
+    for (let i = 0; i < 9; i++) {
+      const ang = rng() * Math.PI * 2, r = 13 + rng() * 22;
+      const cx = Math.cos(ang) * r, cz = Math.sin(ang) * r;
+      if (!clear(cx, cz, 5.4)) continue;
+      const ring = 0.9 + rng() * 1.5;
+      const n = 5 + ((rng() * 5) | 0);
+      for (let k = 0; k < n; k++) {
+        const a2 = (k / n) * Math.PI * 2 + rng() * 0.3;
+        const x = cx + Math.cos(a2) * ring, z = cz + Math.sin(a2) * ring;
+        const s = 0.09 + rng() * 0.09;
+        stems.push({ g: box(s * 0.4, s * 1.5, s * 0.4), x, y: 0.16 + s * 0.75, z, c: 0xdad3bd });
+        caps.push({ g: box(s * 1.6, s * 0.6, s * 1.6), x, y: 0.16 + s * 1.6, z, ry: rng() * 3, c: 0x7fd4c0 });
+      }
+    }
+    addMesh(stems, { shadow: false });
+    addMesh(caps, { emissive: 0x2f6f60, emissiveIntensity: 0.45, shadow: false });
+
+    // --- 6. cairns. Vertical accents that are neither tree nor ward, so the
+    // middle distance has something to read against without ever being
+    // mistaken for something you built.
+    const cairn = [];
+    for (let i = 0; i < 9; i++) {
+      const ang = rng() * Math.PI * 2, r = 14 + rng() * 20;
+      const x = Math.cos(ang) * r, z = Math.sin(ang) * r;
+      if (!clear(x, z, 6.2)) continue;
+      let y = 0.16, w = 1.15;
+      const n = 3 + ((rng() * 3) | 0);
+      for (let k = 0; k < n; k++) {
+        const h = 0.34 + rng() * 0.3;
+        cairn.push({
+          g: box(w, h, w * (0.8 + rng() * 0.3)),
+          x: x + (rng() - 0.5) * 0.16, y: y + h / 2, z: z + (rng() - 0.5) * 0.16,
+          ry: rng() * 3, c: rng() < 0.4 ? 0x6e6a5c : 0x5d5a4e,
+        });
+        y += h; w *= 0.78;
+      }
+    }
+    addMesh(cairn, { rough: 0.95 });
+
+    // --- 7. roots and mossy logs. Detail at ankle height, where the chase
+    // camera actually spends its time.
+    const roots = [], moss = [];
+    for (let i = 0; i < 46; i++) {
+      const ang = rng() * Math.PI * 2, r = 12 + rng() * 24;
+      const x = Math.cos(ang) * r, z = Math.sin(ang) * r;
+      if (!clear(x, z, 5.0)) continue;
+      if (rng() < 0.55) {
+        const n = 2 + ((rng() * 3) | 0);
+        for (let k = 0; k < n; k++) {
+          const a2 = rng() * Math.PI * 2;
+          const L = 1.1 + rng() * 1.3;
+          roots.push({
+            g: box(0.3, 0.24, L),
+            x: x + Math.cos(a2) * L * 0.4, y: 0.24, z: z + Math.sin(a2) * L * 0.4,
+            ry: -a2, rx: 0.1, c: 0x392f24,
+          });
+        }
+      } else {
+        const L = 2.0 + rng() * 2.2, ry = rng() * 3;
+        roots.push({ g: box(0.62, 0.62, L), x, y: 0.44, z, ry, c: 0x453729 });
+        // moss on the upper face only — a log mossed all round reads as a tube
+        moss.push({ g: box(0.5, 0.14, L * 0.9), x, y: 0.76, z, ry, c: 0x5c7a3c });
+      }
+    }
+    addMesh(roots);
+    addMesh(moss, { shadow: false });
+
+    // --- 8. fireflies. The one moving thing in the scenery, and the reason the
+    // clearing feels alive rather than modelled. Instanced and driven off a
+    // sine per index, so 90 of them cost one draw call and no allocation.
+    const fg = new THREE.SphereGeometry(0.07, 5, 4);
+    const fm = new THREE.MeshBasicMaterial({
+      color: 0xffe9a0, transparent: true, opacity: 0.85,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    this.fireflies = new THREE.InstancedMesh(fg, fm, 90);
+    this.fireflies.frustumCulled = false;
+    this._flySeeds = [];
+    for (let i = 0; i < 90; i++) {
+      const ang = rng() * Math.PI * 2, r = 8 + rng() * 26;
+      this._flySeeds.push({
+        x: Math.cos(ang) * r, z: Math.sin(ang) * r,
+        y: 0.7 + rng() * 2.1, ph: rng() * 6.28, sp: 0.35 + rng() * 0.55,
+        rad: 0.7 + rng() * 1.5,
+      });
+    }
+    this.scene.add(this.fireflies);
+  }
+
+  // Fireflies drift and blink. Kept out of update()'s body so a frame reads as
+  // camera / world / wards rather than camera / world / bugs / wards.
+  _stepFireflies() {
+    if (!this.fireflies) return;
+    const t = this.t;
+    for (let i = 0; i < this._flySeeds.length; i++) {
+      const s = this._flySeeds[i];
+      const a = t * s.sp + s.ph;
+      _v.set(
+        s.x + Math.cos(a) * s.rad,
+        s.y + Math.sin(a * 1.7 + s.ph) * 0.35,
+        s.z + Math.sin(a * 0.8) * s.rad,
+      );
+      // blink by SCALE rather than opacity: one shared material means fading
+      // one would fade all ninety, and a wink reads better than a dim anyway
+      const blink = Math.max(0, Math.sin(a * 2.1 + s.ph * 3));
+      const sc = 0.35 + blink * 0.9;
+      _m.compose(_v, _q.identity(), _s.set(sc, sc, sc));
+      this.fireflies.setMatrixAt(i, _m);
+    }
+    this.fireflies.instanceMatrix.needsUpdate = true;
+  }
+
+
   _buildForest() {
     const H = ARENA.half;
     const rng = makeRng(4242);
@@ -1819,6 +2063,40 @@ export class Renderer {
     }
   }
 
+  // The title-screen camera. A slow orbit of the hearth, well back and high
+  // enough to take in the treeline — the menu's job is to show the place you
+  // are about to defend, so the clearing IS the art. Handed the same fireflies
+  // and ward sync as a live frame, because a still background looks like a
+  // screenshot and a moving one looks like a world.
+  menuFrame(world, dt) {
+    this.t += dt;
+    this._menuA = (this._menuA || 0) + dt * 0.055;
+    const a = this._menuA;
+    // Close in. A wide shot of the clearing reads as empty grass; the fire has
+    // to be the biggest warm thing in the frame for the menu to feel like a
+    // place rather than a backdrop.
+    const r = 17 + Math.sin(a * 0.7) * 2.4;
+    this.camera.position.set(Math.cos(a) * r, 7.6 + Math.sin(a * 0.9) * 1.1, Math.sin(a) * r);
+    this.camera.lookAt(0, 2.2, 0);
+    // The menu column owns the left of the frame, so yaw the camera left to
+    // push the fire and the knight into the half that is actually visible.
+    this.camera.rotateY(0.26);
+
+    // The knight stands at the fire while the menu is up. He is placed here
+    // rather than by update(), which does not run before the fire is lit — so
+    // without this the one character in the game is absent from its own title
+    // screen.
+    if (this.player) {
+      this.player.visible = true;
+      this.player.position.set(3.4, 0, 4.4);
+      this.player.rotation.y = Math.PI + Math.sin(a * 0.9) * 0.25;
+    }
+
+    this._stepFireflies();
+    this.syncWards(world, dt);
+    this.renderer.render(this.scene, this.camera);
+  }
+
   // ------------------------------------------------------------------ frame
   update(world, dt, input) {
     this.t += dt;
@@ -2284,6 +2562,7 @@ export class Renderer {
       this.inspectRing.visible = false;
     }
 
+    this._stepFireflies();
     this.syncWards(world, dt);
     this.renderer.render(this.scene, this.camera);
   }

@@ -931,7 +931,10 @@ function frame(now) {
       endGame(ph === 'won');
     }
   }
-  state.rend.update(state.world, dt, { moving: state._moving });
+  // Before the fire is lit the camera belongs to the title screen, which orbits
+  // the clearing rather than sitting behind a player who is not there yet.
+  if (state.running) state.rend.update(state.world, dt, { moving: state._moving });
+  else state.rend.menuFrame(state.world, dt);
   if (state.map) {
     // during the muster, show what each door is about to send
     const w = state.world;
@@ -1286,6 +1289,11 @@ function bindSettings() {
       if (state.snd) state.snd.play('select', 0.6);
     });
   }
+  $('openHow').addEventListener('click', () => {
+    $('how').classList.remove('hidden');
+    if (state.snd) state.snd.play('select', 0.6);
+  });
+  $('closeHow').addEventListener('click', () => $('how').classList.add('hidden'));
   $('openSet').addEventListener('click', openSettings);
   $('closeSet').addEventListener('click', closeSettings);
   $('gearBtn').addEventListener('click', openSettings);
@@ -1296,6 +1304,7 @@ function bindSettings() {
   });
   addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
+    if (!$('how').classList.contains('hidden')) { $('how').classList.add('hidden'); return; }
     if (!$('settings').classList.contains('hidden')) { closeSettings(); return; }
     // Esc used to open settings with the wave still running underneath. Now it
     // pauses first; a second Esc resumes, and the gear opens settings.

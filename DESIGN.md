@@ -441,3 +441,54 @@ Warden · before wave 3 of 6 · 4 wards standing"), the run comes back with the
 right wave, wards, units, mana and difficulty, the tutorial is correctly skipped
 on a resume, and a finished run clears its save so you cannot resume into a game
 that is already over.
+
+---
+
+# The clearing, and the front page
+
+## Scenery
+
+The brief was that level one looked empty. The fix is the same one that cured
+flat facades: break the symmetry, and give the eye something at **three
+distances** — silhouettes on the horizon, mass in the middle, detail at ankle
+height where the chase camera actually lives.
+
+Eight groups, each merged into one mesh, none of them ever on a lane or in a
+buildable cell (a prop you cannot build behind is a bug dressed as a tree):
+
+- **Distant hill bands** — three receding ridges beyond the treeline, which turn
+  "a wall of trees" into "a wood with somewhere behind it"
+- **Birches** — the wood was one species and read as wallpaper
+- **Ferns, wildflowers, glowing mushroom rings, cairns, roots and mossy logs**
+- **Fireflies** — 90 instanced, drifting on a sine and blinking by *scale*
+  rather than opacity, because one shared material means fading one would fade
+  all ninety
+
+Two things measured rather than guessed. The hills were invisible on the first
+attempt: they sat at 96–188 units with the fog far plane at 118, so they were
+geometry the fog had already finished with — they now sit at 100–148 with the
+forest fog reaching 168, which is what makes them read as *distance* instead of
+as a flat grey band. And the mushrooms were three times too big on the first
+pass and read as teal boxes floating in the grass.
+
+Cost: **55 draw calls** for the whole scene.
+
+## The front page
+
+Modelled on what Dungeon Defenders' opening actually does, which is not a menu
+over a background — it is a **camera in the world with a menu beside it**.
+
+- The clearing is **live** behind the title: a slow orbit of the hearth, close
+  in at ~17 units, because a wide shot of the clearing reads as empty grass and
+  the fire has to be the biggest warm thing in frame.
+- The camera is yawed off its look target so the fire and the knight sit in the
+  half of the screen the menu column does not occupy.
+- The **knight stands at the fire** while the menu is up. He is placed by the
+  menu frame rather than by `update()`, which does not run before the fire is
+  lit — without it the one character in the game was absent from its own title
+  screen.
+- The menu itself is a vertical stack of wide plates with subtitles, left
+  aligned, over a left-weighted gradient scrim that clears to nothing on the
+  right.
+- The three rules moved out of the front page into a **How to play** panel, so
+  the opening is a menu rather than an essay.
