@@ -193,7 +193,12 @@ export function playEvent(snd, ev, fx) {
     case 'playerHurt':snd.play('hurt'); break;
     case 'foeSwing':  snd.play('foeSwing', ev.at === 'stone' ? 0.9 : 0.5); break;
     case 'mote':      snd.play('mote', 0.8, 1 + Math.random() * 0.25); break;
-    case 'spawn':     snd.play('spawn', 0.5); break;
+    case 'spawn':
+      // A breaker gets its own arrival: the wardstone bell, pitched right down
+      // into a toll. Reuses an existing cue rather than shipping another file.
+      if (ev.foe === 'breaker') snd.play('stoneHit', 1.0, 0.42);
+      else snd.play('spawn', 0.5);
+      break;
     case 'wave':      snd.play('waveStart'); break;
     case 'waveClear': snd.play('waveClear'); break;
     case 'won':       snd.play('win'); break;

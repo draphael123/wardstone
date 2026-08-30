@@ -284,6 +284,16 @@ export class Renderer {
     floor.receiveShadow = !this.low;
     this.scene.add(floor);
 
+    // An apron of dark ground past the walls. The camera can sit outside the
+    // arena when the player hugs an edge, and without this the bottom of the
+    // frame is a hard black void instead of fogged floor.
+    const apron = new THREE.Mesh(
+      new THREE.PlaneGeometry(H * 4, H * 4),
+      new THREE.MeshBasicMaterial({ color: 0x0c1018 }));
+    apron.rotation.x = -Math.PI / 2;
+    apron.position.y = -0.06;
+    this.scene.add(apron);
+
     // Flagstone seams. One merged grid of thin dark strips — far cheaper than
     // a texture and it reads at this camera distance.
     const seams = [];
@@ -341,7 +351,7 @@ export class Renderer {
       color: PAL.wall, roughness: 0.9, metalness: 0.05,
     });
     const wp = [];
-    const t = 2.2, hh = 7;
+    const t = 2.2, hh = 12;
     wp.push({ g: box(H * 2 + t * 2, hh, t), y: hh / 2, z: -H - t / 2 });
     wp.push({ g: box(H * 2 + t * 2, hh, t), y: hh / 2, z: H + t / 2 });
     wp.push({ g: box(t, hh, H * 2 + t * 2), y: hh / 2, x: -H - t / 2 });
@@ -356,6 +366,20 @@ export class Renderer {
     const wall = new THREE.Mesh(assemble(wp), wallMat);
     wall.receiveShadow = !this.low;
     this.scene.add(wall);
+
+    // A cornice band near the top of the wall. Without it a 16m wall is a flat
+    // slab filling the upper frame; with it there is a horizontal line that
+    // catches the stone's light and gives the room a ceiling height.
+    const corn = [];
+    const cy = 8.2;
+    corn.push({ g: box(H * 2 + t * 2, 0.55, 0.5), y: cy, z: -H + 0.35 });
+    corn.push({ g: box(H * 2 + t * 2, 0.55, 0.5), y: cy, z: H - 0.35 });
+    corn.push({ g: box(0.5, 0.55, H * 2 + t * 2), y: cy, x: -H + 0.35 });
+    corn.push({ g: box(0.5, 0.55, H * 2 + t * 2), y: cy, x: H - 0.35 });
+    const cornice = new THREE.Mesh(assemble(corn), new THREE.MeshStandardMaterial({
+      color: 0x39415a, roughness: 0.85, metalness: 0.1,
+    }));
+    this.scene.add(cornice);
 
     // --- the three doors, each a lit arch so you can see where they come from
     this.doorGlows = [];
@@ -430,8 +454,8 @@ export class Renderer {
         color: PAL[def.id],
         roughness: isWisp ? 0.3 : 0.85,
         metalness: isWisp ? 0.0 : 0.12,
-        emissive: isWisp ? PAL.wisp : 0x000000,
-        emissiveIntensity: isWisp ? 1.5 : 0,
+        emissive: isWisp ? 0x1aa8d8 : 0x000000,
+        emissiveIntensity: isWisp ? 0.8 : 0,
       }));
       const mesh = new THREE.InstancedMesh(geo, mat, n);
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -444,10 +468,14 @@ export class Renderer {
     }
 
     // wisp glows, drawn as one additive instanced quad set
+    // Smaller and dimmer than it wants to be: additive quads STACK, so a flock
+    // of six wisps at 3.4m/full brightness summed to a solid white blob with no
+    // readable shapes in it. Size and opacity are both pulled back so a cluster
+    // reads as several lights rather than one cloud.
     this.wispGlow = new THREE.InstancedMesh(
-      new THREE.PlaneGeometry(3.4, 3.4),
+      new THREE.PlaneGeometry(2.1, 2.1),
       new THREE.MeshBasicMaterial({
-        map: this.glowTex, color: PAL.wisp, transparent: true,
+        map: this.glowTex, color: 0x2fc8ff, transparent: true, opacity: 0.38,
         blending: THREE.AdditiveBlending, depthWrite: false,
       }), FOE_CAP.wisp);
     this.wispGlow.frustumCulled = false;
@@ -523,6 +551,23 @@ export class Renderer {
       new THREE.MeshBasicMaterial({ color: 0x7fe08a, transparent: true, opacity: 0.3, depthWrite: false }));
     this.ghostPost.visible = false;
     this.scene.add(this.ghostPost);
+
+    // Threat rings — one per breaker, pulsing on the floor. A breaker is the
+    // only foe worth abandoning a lane for, and at this camera distance a dark
+    // red mass in a dark room is not enough notice.
+    this.threatRings = [];
+    for (let i = 0; i < 6; i++) {
+      const m = new THREE.Mesh(
+        new THREE.RingGeometry(0.72, 1, 32).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial({
+          color: 0xff5a48, transparent: true, opacity: 0.6,
+          side: THREE.DoubleSide, depthWrite: false,
+        }));
+      m.visible = false;
+      m.renderOrder = 2;
+      this.scene.add(m);
+      this.threatRings.push(m);
+    }
 
     // ward range ring, shown while placing
     this.ring = new THREE.Mesh(
@@ -683,8 +728,11 @@ export class Renderer {
     const p = world.player;
 
     // --- camera: chase, high, smoothed. Yaw is the player's to steer.
-    const tx = p.x - Math.sin(this.camYaw) * this.camDist;
-    const tz = p.z - Math.cos(this.camYaw) * this.camDist;
+    let tx = p.x - Math.sin(this.camYaw) * this.camDist;
+    let tz = p.z - Math.cos(this.camYaw) * this.camDist;
+    const lim = ARENA.half - 2.5;
+    tx = Math.max(-lim, Math.min(lim, tx));
+    tz = Math.max(-lim, Math.min(lim, tz));
     const k = 1 - Math.pow(0.0016, dt);
     this._camPos.x += (tx - this._camPos.x) * k;
     this._camPos.z += (tz - this._camPos.z) * k;
@@ -780,7 +828,8 @@ export class Renderer {
       _s.set(sc, sc, sc);
       _m.compose(_v.set(f.x, y, f.z), _q, _s);
       slot.mesh.setMatrixAt(i, _m);
-      slot.flash.array[i] = f.hitT > 0 ? Math.min(1, f.hitT * 7) : 0;
+      // capped well below 1: a full-white flash erases the silhouette colour
+      slot.flash.array[i] = f.hitT > 0 ? Math.min(0.55, f.hitT * 5.5) : 0;
 
       if (f.def.flying && wg < FOE_CAP.wisp) {
         _q.copy(this.camera.quaternion);
@@ -796,6 +845,22 @@ export class Renderer {
     }
     this.wispGlow.count = wg;
     this.wispGlow.instanceMatrix.needsUpdate = true;
+
+    // threat rings follow live breakers; the pulse rate rises as one closes on
+    // the stone, so urgency is readable without reading a number
+    let tr = 0;
+    for (const f of world.foes) {
+      if (f.dead || f.kind !== 'breaker' || tr >= this.threatRings.length) continue;
+      const m = this.threatRings[tr++];
+      const near = 1 - Math.min(1, Math.hypot(f.x, f.z) / 40);
+      const rate = 3 + near * 7;
+      const sc = 2.6 + Math.sin(this.t * rate) * 0.45;
+      m.visible = true;
+      m.position.set(f.x, 0.06, f.z);
+      m.scale.set(sc, 1, sc);
+      m.material.opacity = 0.32 + 0.34 * (0.5 + 0.5 * Math.sin(this.t * rate));
+    }
+    for (let i = tr; i < this.threatRings.length; i++) this.threatRings[i].visible = false;
 
     // --- projectiles
     let pi = 0;

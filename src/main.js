@@ -8,6 +8,7 @@ import * as THREE from '../vendor/three.module.js';
 import { World } from './sim.js';
 import { Renderer, PAL } from './render.js';
 import { Sound, playEvent } from './audio.js';
+import { Minimap } from './minimap.js';
 import { WARDS, WARD_BY_ID, ECON, WAVES, PLAYER } from './defs.js';
 import { cellOf, cellCenter, isBuildableCell, ARENA } from './arena.js';
 
@@ -226,6 +227,12 @@ function drainEvents() {
         break;
       case 'spawn':
         r.laneFlash.set(e.lane, 0.5);
+        if (e.foe === 'breaker') {          // announce it loudly
+          r.laneFlash.set(e.lane, 2.2);
+          r.ringBurst(e.x, 0.4, e.z, 0xff5a48, 4, 20);
+          r.addShake(0.34);
+          banner('Something heavy', 'at the ' + e.lane + ' door');
+        }
         break;
       case 'mote':
         break;
@@ -525,6 +532,7 @@ function frame(now) {
     }
   }
   state.rend.update(state.world, dt, { moving: state._moving });
+  if (state.map) state.map.draw(state.world, state.rend.camYaw);
 }
 
 function resize() {
@@ -537,6 +545,7 @@ function resize() {
   state.rend.camera.fov = aspect < 0.72 ? 76 : (aspect < 1.05 ? 66 : 56);
   state.rend.lookAhead = aspect < 0.72 ? 7.5 : (aspect < 1.05 ? 6 : 4);
   state.rend.resize(w, h, dpr);
+  if (state.map) state.map.resize();
 }
 
 // ---------------------------------------------------------------------------
@@ -546,6 +555,7 @@ function boot() {
   state.world = new World({ seed: (Math.random() * 1e9) | 0 });
   state.rend = new Renderer($('stage'), { low: state.low });
   state.snd = new Sound();
+  state.map = new Minimap($('map'));
   buildBar();
   bindInput();
   resize();
@@ -575,6 +585,7 @@ function boot() {
       // no result screen for as long as rAF stays throttled.
       if (state.running) { drainEvents(); syncHud(); }
       state.rend.update(state.world, 0.016, { moving: false });
+      if (state.map) state.map.draw(state.world, state.rend.camYaw);
       state.lastFrame = performance.now();
     }
   }, 1000);
@@ -598,6 +609,7 @@ $('begin').addEventListener('click', async () => {
   hideOverlay($('intro'), 520);
   $('hud').classList.remove('hide');
   if (isTouch) $('touch').classList.remove('hidden');
+  if (state.map) state.map.resize();   // HUD is visible now, so it can measure
   state.running = true;
   try {
     await state.snd.unlock();
@@ -609,6 +621,76 @@ $('begin').addEventListener('click', async () => {
   showHint(0);
   syncHud();
 });
+
+
+// ---------------------------------------------------------------------------
+// Capture hooks. The tab this runs in is frequently hidden (an embedded pane,
+// or an unfocused Chrome window), which throttles rAF to nothing — so single
+// screenshots show a frozen game and I end up reviewing a still life.
+//
+// These drive the sim and the renderer EXPLICITLY, so they work no matter what
+// the tab's visibility is, and `filmstrip` composites N frames into one grid
+// image so motion is visible in a single picture.
+// See [[screenshot-pipeline]] and [[preview-panel-raf-blackscreen]].
+// ---------------------------------------------------------------------------
+function captureFrames(opts = {}) {
+  const cols = opts.cols || 3;
+  const rows = opts.rows || 2;
+  const n = cols * rows;
+  const stepsPer = opts.stepsPer == null ? 30 : opts.stepsPer;   // 0.5s of sim
+  const scale = opts.scale || 0.42;
+  const cv = state.rend.canvas;
+  const fw = Math.round(cv.width * scale), fh = Math.round(cv.height * scale);
+
+  const sheet = document.createElement('canvas');
+  sheet.width = fw * cols;
+  sheet.height = fh * rows;
+  const g = sheet.getContext('2d');
+  g.fillStyle = '#05070c';
+  g.fillRect(0, 0, sheet.width, sheet.height);
+
+  for (let i = 0; i < n; i++) {
+    for (let k = 0; k < stepsPer; k++) {
+      state.world.step(STEP);
+      if (opts.bot) opts.bot(state.world, STEP);
+    }
+    drainEvents();
+    syncHud();
+    // render and copy in the SAME tick — without preserveDrawingBuffer the
+    // backbuffer is cleared as soon as control returns to the browser.
+    state.rend.update(state.world, stepsPer * STEP, { moving: true });
+    if (state.map) state.map.draw(state.world, state.rend.camYaw);
+    g.drawImage(cv, (i % cols) * fw, Math.floor(i / cols) * fh, fw, fh);
+    // label each frame with the clock and what is on the board
+    g.font = '600 13px ui-monospace,Menlo,Consolas,monospace';
+    g.fillStyle = 'rgba(0,0,0,0.55)';
+    g.fillRect((i % cols) * fw + 4, Math.floor(i / cols) * fh + 4, 150, 18);
+    g.fillStyle = '#ffd89a';
+    g.fillText(`t=${state.world.t.toFixed(1)}s  foes ${state.world.foes.length}`,
+      (i % cols) * fw + 9, Math.floor(i / cols) * fh + 17);
+  }
+  return sheet;
+}
+
+window.WARDSTONE_CAP = {
+  // one frame, full size
+  shot(q = 0.8) {
+    state.rend.update(state.world, 0.016, { moving: false });
+    if (state.map) state.map.draw(state.world, state.rend.camYaw);
+    return state.rend.canvas.toDataURL('image/jpeg', q);
+  },
+  // a grid of frames with the sim advancing between them
+  filmstrip(opts = {}) {
+    return captureFrames(opts).toDataURL('image/jpeg', opts.q || 0.72);
+  },
+  // POST a data URL to the local collector; text/plain avoids a CORS preflight
+  async post(url, dataUrl, name) {
+    const r = await fetch(`${url}?name=${encodeURIComponent(name)}`, {
+      method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: dataUrl,
+    });
+    return r.status;
+  },
+};
 
 boot();
 

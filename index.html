@@ -103,6 +103,12 @@
     box-shadow:0 0 14px rgba(255,179,71,.75);transition:width .3s ease}
   #stoneFill.low{background:linear-gradient(90deg,#e0605a,#ff9b6a);box-shadow:0 0 16px rgba(224,96,90,.8)}
 
+  /* minimap — bottom-left on desktop, above vigour */
+  #map{position:absolute;left:max(14px,env(safe-area-inset-left));
+    bottom:calc(max(14px,env(safe-area-inset-bottom)) + 138px);
+    width:150px;height:150px;border-radius:7px;pointer-events:none;
+    box-shadow:0 3px 18px rgba(0,0,0,.45)}
+
   /* health */
   #hpWrap{position:absolute;left:max(14px,env(safe-area-inset-left));bottom:calc(max(14px,env(safe-area-inset-bottom)) + 108px);width:150px}
   #hpTrack{height:5px;background:rgba(255,255,255,.09);border-radius:3px;overflow:hidden;margin-top:4px}
@@ -193,7 +199,7 @@
      other. Portrait gets a vertical stack at the top and every control at the
      bottom, with nothing in the middle where the thumbs and the hint were
      colliding. */
-  @media (max-width:620px), (orientation:portrait){
+  @media (max-width:620px) and (orientation:portrait), (max-width:480px){
     #stoneBar{top:max(8px,env(safe-area-inset-top));width:min(94vw,420px)}
     #stoneBar .lbl{font-size:8px}
     #topL{top:calc(max(8px,env(safe-area-inset-top)) + 30px);left:max(11px,env(safe-area-inset-left))}
@@ -204,6 +210,10 @@
     #topR .stat{min-width:auto}
     #topR .lbl{font-size:8px}
     .num{font-size:16px}
+
+    #map{width:92px;height:92px;left:auto;bottom:auto;
+      right:max(11px,env(safe-area-inset-right));
+      top:calc(max(8px,env(safe-area-inset-top)) + 78px)}
 
     /* vigour moves up out of the thumb zone entirely */
     #hpWrap{left:max(11px,env(safe-area-inset-left));
@@ -234,16 +244,49 @@
     #ready{bottom:calc(max(9px,env(safe-area-inset-bottom)) + 92px);
       right:auto;left:50%;transform:translateX(-50%);padding:10px 20px;font-size:11px}
   }
-  /* landscape phone: keep the desktop arrangement but tighten it */
-  @media (max-height:480px) and (orientation:landscape){
-    #hpWrap{bottom:calc(max(10px,env(safe-area-inset-bottom)) + 82px);width:120px}
-    #hint{bottom:calc(max(10px,env(safe-area-inset-bottom)) + 78px);font-size:11px}
-    .ward{width:64px;padding:5px 3px 4px}
-    .ward .ic{font-size:14px;margin:1px 0 2px}
-    #stick{width:100px;height:100px}
-    #bFire{width:76px;height:76px}
-    #bMend{width:54px;height:54px}
-    #bCam{width:48px;height:48px}
+  /* ===== landscape phone =====
+     Only ~390px of height, and the desktop arrangement stacked the minimap
+     directly under the thumbstick — two round things in the same corner. So
+     everything informational goes up the LEFT edge and everything you touch
+     stays in the bottom corners, with the middle band left clear. */
+  @media (max-height:520px) and (orientation:landscape){
+    #topL .lbl{font-size:8px}
+    #waveName{font-size:13px;margin-top:1px}
+    #phase{font-size:10px;margin-top:1px}
+    #topR{gap:14px}
+    #topR .stat{min-width:auto}
+    .num{font-size:15px}
+    #stoneBar{width:min(46vw,300px)}
+
+    /* left edge stack: vigour, then the map, well above the stick */
+    #hpWrap{top:calc(max(8px,env(safe-area-inset-top)) + 56px);bottom:auto;
+      left:max(10px,env(safe-area-inset-left));width:96px}
+    #hpWrap .lbl{font-size:8px}
+    #map{width:84px;height:84px;bottom:auto;
+      left:max(10px,env(safe-area-inset-left));
+      top:calc(max(8px,env(safe-area-inset-top)) + 84px)}
+
+    /* hint sits under the wardstone bar, never over the ward bar */
+    #hint{top:calc(max(8px,env(safe-area-inset-top)) + 42px);bottom:auto;
+      font-size:10.5px;padding:5px 10px;max-width:52vw;line-height:1.4}
+
+    #bar{gap:4px;bottom:max(7px,env(safe-area-inset-bottom))}
+    .ward{width:62px;padding:4px 3px 4px}
+    .ward .ic{font-size:13px;margin:1px 0 2px}
+    .ward .nm{font-size:8.5px}
+    .ward .cost{font-size:8.5px}
+
+    #stick{width:88px;height:88px;bottom:max(8px,env(safe-area-inset-bottom));
+      left:max(10px,env(safe-area-inset-left))}
+    #knob{width:38px;height:38px;margin:-19px 0 0 -19px}
+    #bFire{width:70px;height:70px;bottom:max(8px,env(safe-area-inset-bottom));
+      right:max(10px,env(safe-area-inset-right))}
+    #bMend{width:50px;height:50px;bottom:calc(max(8px,env(safe-area-inset-bottom)) + 76px);
+      right:max(12px,env(safe-area-inset-right))}
+    #bCam{width:46px;height:46px;bottom:calc(max(8px,env(safe-area-inset-bottom)) + 132px);
+      right:max(14px,env(safe-area-inset-right))}
+    #ready{bottom:calc(max(8px,env(safe-area-inset-bottom)) + 74px);
+      right:auto;left:50%;transform:translateX(-50%);padding:8px 16px;font-size:10px}
   }
 </style>
 </head>
@@ -297,6 +340,7 @@
     <div class="stat"><div class="lbl">Mana</div><div class="num mono" id="manaN">0</div></div>
     <div class="stat"><div class="lbl">Units</div><div class="num mono" id="duN">0</div></div>
   </div>
+  <canvas id="map" width="150" height="150"></canvas>
   <div id="hpWrap">
     <div class="lbl">Vigour</div>
     <div id="hpTrack"><div id="hpFill"></div></div>

@@ -137,6 +137,9 @@ export class World {
     return w;
   }
 
+  // NOTE: sell() and hurtWard() MARK a ward dead; `this.wards` is compacted at
+  // the end of step(). Callers must not loop on wards.length expecting it to
+  // shrink — it will not until the next step, and that loop will hang.
   sell(w) {
     if (!w || w.dead) return 0;
     const back = Math.floor(w.def.cost * 0.6);
@@ -208,7 +211,11 @@ export class World {
     if (f.dead) return 0;
     const dealt = Math.min(f.hp, amount);
     f.hp -= dealt;
-    f.hitT = 0.12;
+    // Only DISCRETE hits flash. An aura deals dps*dt every step, so refreshing
+    // the flash unconditionally left anything standing in a brazier — reliably
+    // the breaker, the one foe whose colour matters most — permanently white
+    // and unidentifiable. A bolt is 26, an aura tick is 0.4.
+    if (dealt > 4) f.hitT = 0.1;
     const bucket = this.stats.dmgToFoeBy[source];
     if (bucket) bucket[f.kind] = (bucket[f.kind] || 0) + dealt;
     if (f.hp <= 0) this._killFoe(f);

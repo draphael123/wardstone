@@ -155,6 +155,7 @@ export class Bot {
     this.fight = opts.fight !== false;   // does the body do anything?
     this.list = shoppingList(opts.plan);
     this.blocked = new Set();            // list slots that can never be built
+    this.shopCd = 0;                     // see _shop
     this.parked = { x: -24, z: 26 };     // clear of all three lanes
   }
 
@@ -162,7 +163,13 @@ export class Bot {
   // ward that gets smashed is REBUILT. With a one-way pointer the bot ended
   // wave 6 sitting on 1100 mana and free units with ten holes in its line,
   // which measured the bot's bookkeeping and not the game.
-  _shop() {
+  _shop(dt) {
+    // Throttled to ~4Hz. Re-walking the list every tick cost ~90M canBuild
+    // calls per full game and made the fuzz suite unusable, while modelling a
+    // player who re-surveys the entire map sixty times a second.
+    this.shopCd -= (dt || 0);
+    if (this.shopCd > 0) return;
+    this.shopCd = 0.25;
     const w = this.w;
     for (let n = 0; n < this.list.length; n++) {
       if (this.blocked.has(n)) continue;
@@ -199,7 +206,7 @@ export class Bot {
     const w = this.w, p = w.player;
 
     if (w.phase === 'build') {
-      if (this.build) this._shop();
+      if (this.build) this._shop(dt);
       // Sweep the field before readying up. Motes do not rot between waves, so
       // this is where most of the bounty is actually banked.
       let m = null, md = Infinity;
@@ -218,7 +225,7 @@ export class Bot {
       }
       return;
     }
-    if (this.build) this._shop();
+    if (this.build) this._shop(dt);
     if (!this.fight || !p.alive) return;
 
     const foe = this._threat();
