@@ -183,13 +183,35 @@
   #blockChip,#abil,#roll{pointer-events:auto;cursor:pointer;user-select:none}
 
   /* health */
-  #hpWrap{position:absolute;left:max(14px,env(safe-area-inset-left));bottom:calc(max(14px,env(safe-area-inset-bottom)) + 108px);width:150px}
-  #hpTrack{height:5px;background:rgba(255,255,255,.09);border-radius:3px;overflow:hidden;margin-top:4px}
-  #hpFill{height:100%;width:100%;background:#c8d4e6;transition:width .18s}
-  #hpFill.low{background:#e0605a}
-  #hpWrap.warming .lbl{color:#ffb347}
-  #hpWrap.warming .lbl::after{content:" — warming"}
-  #hpWrap.warming #hpFill{background:#ffc074;box-shadow:0 0 12px rgba(255,180,80,.7)}
+  /* Player bars, in the Dark Souls arrangement: stacked horizontal slabs at the
+     top-left, health above mana, each with a hard border and a bevelled inner
+     edge so they read as carved rather than as web progress bars.
+     The GHOST is the important part — a pale bar that lags behind the red one
+     after a hit, so you see how much you just lost rather than only what you
+     have left. It is the single thing that makes damage legible at a glance. */
+  /* Below the wave block rather than on top of it — at 58px the health bar
+     sat across the phase timer. */
+  #hpWrap{position:absolute;left:max(16px,env(safe-area-inset-left));
+    top:calc(max(14px,env(safe-area-inset-top)) + 78px);width:266px;pointer-events:none}
+  #hpTrack,#mpTrack{position:relative;overflow:hidden;
+    border:1px solid rgba(0,0,0,.75);
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.09), 0 2px 6px rgba(0,0,0,.5);
+    background:linear-gradient(180deg,#1a1712,#0d0b09)}
+  #hpTrack{height:17px}
+  #mpTrack{height:12px;width:74%;margin-top:5px}
+  #hpTrack i,#mpTrack i{position:absolute;inset:0;transform-origin:left;display:block}
+  #hpGhost{background:#d8c9a0;transform:scaleX(1);transition:transform .55s ease .25s}
+  #hpFill{background:linear-gradient(180deg,#b4302c,#7d1c1a);transform:scaleX(1);
+    transition:transform .1s linear;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.22),inset 0 -2px 3px rgba(0,0,0,.4)}
+  #hpFill.low{background:linear-gradient(180deg,#e0605a,#a02a26)}
+  #mpFill{background:linear-gradient(180deg,#3f7fbf,#22496f);transform:scaleX(1);
+    transition:transform .18s ease;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.2),inset 0 -2px 3px rgba(0,0,0,.4)}
+  #hpNum,#mpNum{position:absolute;right:6px;top:50%;transform:translateY(-50%);
+    font-size:9.5px;letter-spacing:.1em;color:rgba(255,255,255,.72);font-weight:400;
+    text-shadow:0 1px 2px rgba(0,0,0,.9);font-variant-numeric:tabular-nums}
+  #hpWrap.warming #hpFill{background:linear-gradient(180deg,#ffc074,#c8802e)}
 
   /* ward bar */
   #bar{position:absolute;left:50%;transform:translateX(-50%);
@@ -637,8 +659,8 @@
     <div class="rchip" id="abil">Rally</div>
   </div>
   <div id="hpWrap">
-    <div class="lbl">Vigour</div>
-    <div id="hpTrack"><div id="hpFill"></div></div>
+    <div id="hpTrack"><i id="hpGhost"></i><i id="hpFill"></i><b id="hpNum"></b></div>
+    <div id="mpTrack"><i id="mpFill"></i><b id="mpNum"></b></div>
   </div>
   <div id="hint" class="gone"></div>
   <button id="ready" class="gone">Ready</button>

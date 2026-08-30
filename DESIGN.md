@@ -976,3 +976,46 @@ The jump was invisible. Two places *assigned* `player.position.y` — the walk b
 and the roll — so whichever ran last overwrote the height set from `p.y`.
 Measured: sim apex 2.03 m, mesh apex **0.00 m**. Everything vertical is additive
 over one base now: mesh apex 2.19 m (2.03 of jump over 0.16 of sward).
+
+---
+
+# Reading the fight
+
+## Health and mana, in the Dark Souls arrangement
+
+Stacked horizontal slabs at the top-left, health above mana, each with a hard
+border and a bevelled inner edge so they read as carved rather than as web
+progress bars.
+
+The **ghost bar** is the part that matters: a pale bar that hangs at your
+previous health for about 400 ms after a hit and then drains to meet the red
+one. You see *how much you just lost*, not only what you have left. It snaps
+upward instantly on a heal, so it can never read as a second health bar.
+
+The mana bar is below it, narrower, and mana is now a visible resource rather
+than a number in the corner — it buys building today and has somewhere to grow.
+
+### A bug in my own first version
+
+The ghost was driven by a `setTimeout` re-armed inside `syncHud`. `syncHud` runs
+every frame, and the condition that armed it — health below the ghost — is true
+on *every* frame after a hit. So it cleared and re-armed itself forever and
+**could never fire**: the ghost would have hung at full health permanently.
+Replaced with a timestamp, which has no such failure mode. Verified: hp 0.55 /
+ghost 1.00 immediately after a hit, still held at 200 ms, both 0.55 by 900 ms.
+
+`CAP.tick` also had to start calling `syncHud`, or nothing on the HUD advanced
+under the test hook at all.
+
+## Knowing what you will hit
+
+Aim assist snapped to a target silently and the player could not tell which.
+There is now a **bracket marker on the foe itself**, drawn in world space and
+billboarded to the camera, shown whenever the crossbow is out — not only while
+firing, so aiming is deliberate rather than discovered after the shot.
+
+## Being hit
+
+Taking damage was a red tint and nothing else. It now also stops time for a
+beat, kicks the camera, and throws a ring off the player. The most important hit
+in the game to notice is the one you take.

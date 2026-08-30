@@ -106,6 +106,8 @@ function keyLabel(k) {
 }
 
 const STEP = 1 / 60;
+// How long the pale 'you just lost this' bar hangs before draining.
+const GHOST_HOLD = 420;
 
 const isTouch = window.matchMedia('(pointer: coarse)').matches ||
   ('ontouchstart' in window && Math.min(screen.width, screen.height) < 900);
@@ -234,10 +236,38 @@ function syncHud() {
 
   const hw = $('hpWrap');
   if (hw) hw.classList.toggle('warming', !!w.player.warming);
+  // Health, with a ghost bar that lags behind it. Scale rather than width so
+  // the browser animates a transform instead of relaying out the bar.
   const hf = Math.max(0, w.player.hp / w.player.maxHp);
   const hp = $('hpFill');
-  hp.style.width = (hf * 100) + '%';
+  hp.style.transform = `scaleX(${hf})`;
   hp.classList.toggle('low', hf < 0.35);
+  $('hpNum').textContent = `${Math.max(0, Math.ceil(w.player.hp))} / ${w.player.maxHp}`;
+  // The ghost only ever CATCHES UP. It drops to the current value on a delay
+  // after damage, and snaps up instantly on a heal, so it always reads as
+  // "this is what you just lost" and never as a second health bar.
+  //
+  // Driven by a TIMESTAMP, not a timeout. The first version re-armed a
+  // setTimeout on every frame that health was below the ghost — which is every
+  // frame after a hit — so it cleared itself before it could ever fire and the
+  // ghost would have hung at full health permanently.
+  const ghost = $('hpGhost');
+  const now = performance.now();
+  if (state._ghost == null || hf >= state._ghost) {
+    state._ghost = hf;              // healed, or first frame: snap up
+    state._ghostHold = null;
+  } else {
+    if (state._ghostHold == null) state._ghostHold = now;
+    if (now - state._ghostHold > GHOST_HOLD) {
+      state._ghost = hf;            // held long enough; let it drain
+      state._ghostHold = null;
+    }
+  }
+  ghost.style.transform = `scaleX(${state._ghost})`;
+
+  const mf = Math.max(0, Math.min(1, w.mana / ECON.manaCap));
+  $('mpFill').style.transform = `scaleX(${mf})`;
+  $('mpNum').textContent = Math.floor(w.mana);
 
   for (const el of document.querySelectorAll('.ward')) {
     const d = WARD_BY_ID[el.dataset.id];
@@ -452,7 +482,14 @@ function drainEvents() {
         flash(Math.min(0.4, e.amount / 500));
         break;
       case 'playerHurt':
-        flash(0.28);
+        // Getting hit was a red tint and nothing else. It now stops time for a
+        // beat, kicks the camera and throws a ring off the player, because the
+        // most important hit in the game to notice is the one you take.
+        flash(0.34);
+        state.hitstop = Math.max(state.hitstop, 0.07);
+        r.addShake(0.34);
+        r.shock(w.player.x, 0.9, w.player.z, 0xe0605a, 0.5, 3.0, 0.38, Math.PI / 2);
+        r.spark(w.player.x, 1.2, w.player.z, 0xe0605a, 9, 5, 0.9, -3);
         r.addShake(0.2);
         break;
       case 'playerDown':
@@ -1152,6 +1189,14 @@ function applyInput(dt) {
   r._inspect = state.selected ? null
     : (state.inspect || (state.overhead ? wardUnderPointer() : w.wardNear(4.6)));
 
+  // What the next bolt will hit, marked on the foe itself. Shown whenever the
+  // ranged weapon is out, not only while firing, so aiming is something you can
+  // do deliberately instead of discovering after the shot.
+  const aimAt = (w.weaponDef(p).kind === 'ranged' && !state.selected && !state.overhead)
+    ? (state.pointer.has ? r.foeUnderPointer(w, state.pointer.x, state.pointer.y) : null)
+    : null;
+  if (aimAt) r.showAimMark(aimAt); else r.hideAimMark();
+
   // Rally's reach, while the player is thinking about it
   if (state.showAbil) r.showAbilityRing(p.x, p.z, ABILITY.radius, w.canRally());
   else r.hideAbilityRing();
@@ -1445,6 +1490,7 @@ window.WARDSTONE_CAP = {
         let g = 0;
         while (state.acc >= STEP && g++ < 5) { state.world.step(STEP); state.acc -= STEP; }
         drainEvents();
+        syncHud();      // or nothing on the HUD advances under this hook
       }
       state.rend.update(state.world, dt, { moving: false });
     }

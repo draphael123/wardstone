@@ -2963,6 +2963,42 @@ export class Renderer {
     for (const m of this.runMarks) m.visible = false;
   }
 
+  // The aim marker: brackets around whatever the next shot will actually go to.
+  //
+  // Aim assist silently snapped to a target and the player had no way to know
+  // WHICH — reported as wanting it "clearer, more clear what I will hit". The
+  // marker is drawn in world space at the foe rather than as a screen reticle,
+  // so it reads as "that one" rather than "somewhere near the middle".
+  showAimMark(f) {
+    if (!this.aimMark) {
+      const g = new THREE.Group();
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xffd89a, transparent: true, opacity: 0.9,
+        depthTest: false, depthWrite: false,
+      });
+      // four corner brackets, which read at any size and never occlude the foe
+      for (let i = 0; i < 4; i++) {
+        const sx = i & 1 ? 1 : -1, sy = i & 2 ? 1 : -1;
+        const a = new THREE.Mesh(new THREE.PlaneGeometry(0.30, 0.05), mat);
+        a.position.set(sx * 0.34, sy * 0.5, 0);
+        const b = new THREE.Mesh(new THREE.PlaneGeometry(0.05, 0.30), mat);
+        b.position.set(sx * 0.47, sy * 0.37, 0);
+        g.add(a); g.add(b);
+      }
+      g.renderOrder = 20;
+      this.aimMark = g;
+      this.scene.add(g);
+    }
+    this.aimMark.visible = true;
+    const h = f.def.height;
+    this.aimMark.position.set(f.x, f.y + h * 0.55, f.z);
+    const s = Math.max(0.9, h * 0.95);
+    this.aimMark.scale.set(s, s, s);
+    this.aimMark.quaternion.copy(this.camera.quaternion);   // always face the player
+  }
+
+  hideAimMark() { if (this.aimMark) this.aimMark.visible = false; }
+
   // The rally radius, shown while the player is considering it. Reuses the
   // ward inspect ring — a player who has learned that a ring means "this is
   // what it reaches" should not have to learn a second visual language for it.
