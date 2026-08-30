@@ -73,7 +73,9 @@ export class World {
       x: 0, z: 9, y: 0, yaw: Math.PI,
       hp: PLAYER.hp, maxHp: PLAYER.hp,
       alive: true, respawnT: 0,
-      boltCd: 0, repairing: null, hurtT: 0,
+      atkCd: 0, repairing: null, hurtT: 0,
+      weapon: 'crossbow', swapT: 0, swingT: 0,
+      dodgeT: 0, dodgeCd: 0, dodgeX: 0, dodgeZ: 0, invuln: 0,
     };
 
     this.foes = [];
@@ -250,6 +252,7 @@ export class World {
   hurtPlayer(amount) {
     const p = this.player;
     if (!p.alive) return;
+    if (p.invuln > 0) return;         // rolling through it
     p.hp -= amount;
     p.hurtT = 0.25;
     this.emit({ type: 'playerHurt', amount });
@@ -274,10 +277,80 @@ export class World {
   }
 
   // ------------------------------------------------------------- player acts
+  // ---- weapons -----------------------------------------------------------
+  weaponDef(p) { return PLAYER.weapons[(p || this.player).weapon]; }
+
+  swapWeapon(id) {
+    const p = this.player;
+    if (!p.alive || p.swapT > 0) return false;
+    const next = id || (p.weapon === 'sword' ? 'crossbow' : 'sword');
+    if (!PLAYER.weapons[next] || next === p.weapon) return false;
+    p.weapon = next;
+    p.swapT = PLAYER.swapTime;
+    p.atkCd = Math.max(p.atkCd, PLAYER.swapTime);
+    this.emit({ type: 'swap', weapon: next });
+    return true;
+  }
+
+  // One entry point for "the player attacks in this direction"; the weapon
+  // decides what that means. Callers never branch on weapon kind.
+  attack(dirx, dirz, diry) {
+    const p = this.player;
+    if (!p.alive || p.atkCd > 0 || p.swapT > 0) return null;
+    return this.weaponDef(p).kind === 'melee'
+      ? this._melee(dirx, dirz)
+      : this.fireBolt(dirx, dirz, diry);
+  }
+
+  // A sweep, not a projectile: everything on the ground inside the arc is hit
+  // at once. That is what makes it worth standing in the brawl.
+  _melee(dirx, dirz) {
+    const p = this.player;
+    const def = PLAYER.weapons.sword;
+    const len = Math.hypot(dirx, dirz) || 1;
+    const ux = dirx / len, uz = dirz / len;
+    p.atkCd = def.cooldown;
+    p.swingT = 0.18;
+    p.yaw = Math.atan2(ux, uz);
+
+    const near = this._scratch;
+    this.foeHash.query(p.x, p.z, def.range + 1.5, near);
+    const cosHalf = Math.cos(def.arc / 2);
+    let hits = 0;
+    for (let n = 0; n < near.length; n++) {
+      const f = near[n];
+      if (f.dead || f.def.flying) continue;          // cannot reach the air
+      const dx = f.x - p.x, dz = f.z - p.z;
+      const d = Math.hypot(dx, dz);
+      if (d > def.range + f.def.radius) continue;
+      if (d > 0.001 && (dx * ux + dz * uz) / d < cosHalf) continue;
+      this.hurtFoe(f, def.damage, 'player');
+      hits++;
+    }
+    this.emit({ type: 'swing', x: p.x, z: p.z, dx: ux, dz: uz, hits });
+    return hits;
+  }
+
+  dodge(dirx, dirz) {
+    const p = this.player;
+    if (!p.alive || p.dodgeCd > 0 || p.dodgeT > 0) return false;
+    let ux = dirx, uz = dirz;
+    const len = Math.hypot(ux, uz);
+    if (len < 0.01) { ux = Math.sin(p.yaw); uz = Math.cos(p.yaw); }
+    else { ux /= len; uz /= len; }
+    p.dodgeX = ux; p.dodgeZ = uz;
+    p.dodgeT = PLAYER.dodge.time;
+    p.dodgeCd = PLAYER.dodge.cooldown;
+    p.invuln = PLAYER.dodge.iframes;
+    this.emit({ type: 'dodge', x: p.x, z: p.z, dx: ux, dz: uz });
+    return true;
+  }
+
   fireBolt(dirx, dirz, diry) {
     const p = this.player;
-    if (!p.alive || p.boltCd > 0) return null;
-    p.boltCd = PLAYER.boltCooldown;
+    const wd = PLAYER.weapons.crossbow;
+    if (!p.alive || p.atkCd > 0) return null;
+    p.atkCd = wd.cooldown;
 
     // Aim assist: snap to the nearest foe inside a narrow cone. Without this,
     // hitting a 0.5m wisp at 4m altitude with a mouse is miserable.
@@ -288,7 +361,7 @@ export class World {
       if (f.dead) continue;
       const vx = f.x - p.x, vy = (f.y + f.def.height * 0.5) - (p.y + 1.2), vz = f.z - p.z;
       const d = Math.hypot(vx, vy, vz);
-      if (d > PLAYER.boltRange || d < 0.001) continue;
+      if (d > wd.range || d < 0.001) continue;
       const dot = (vx * ux + vy * uy + vz * uz) / d;
       if (dot > PLAYER.aimCone && d < bestD) { bestD = d; best = f; }
     }
@@ -297,8 +370,8 @@ export class World {
       id: NEXT_ID++, source: 'player',
       x: p.x, y: p.y + 1.2, z: p.z,
       dx: ux, dy: uy, dz: uz,
-      speed: PLAYER.boltSpeed, damage: PLAYER.boltDamage,
-      radius: PLAYER.boltRadius, target: best, life: PLAYER.boltRange / PLAYER.boltSpeed,
+      speed: wd.speed, damage: wd.damage,
+      radius: wd.radius, target: best, life: wd.range / wd.speed,
       dead: false,
     };
     this.projectiles.push(b);
@@ -357,8 +430,16 @@ export class World {
     this.t += dt;
 
     const p = this.player;
-    if (p.boltCd > 0) p.boltCd -= dt;
+    if (p.atkCd > 0) p.atkCd -= dt;
     if (p.hurtT > 0) p.hurtT -= dt;
+    if (p.swapT > 0) p.swapT -= dt;
+    if (p.swingT > 0) p.swingT -= dt;
+    if (p.dodgeCd > 0) p.dodgeCd -= dt;
+    if (p.invuln > 0) p.invuln -= dt;
+    if (p.dodgeT > 0) {
+      p.dodgeT -= dt;
+      this.movePlayer(p.dodgeX * PLAYER.dodge.speed, p.dodgeZ * PLAYER.dodge.speed, dt);
+    }
     if (!p.alive) {
       p.respawnT -= dt;
       if (p.respawnT <= 0) {

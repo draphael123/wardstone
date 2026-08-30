@@ -39,10 +39,11 @@ const state = {
   running: false, selected: null,
   keys: new Set(),
   move: { x: 0, y: 0 },        // -1..1 from stick or WASD
-  firing: false, mending: false,
+  firing: false, mending: false, wantDodge: false,
   pointer: { x: 0, y: 0, has: false },
   ghostCell: null,
   acc: 0, last: 0, lastFrame: 0,
+  vel: { x: 0, z: 0 },
   hintShown: new Set(),
   low: isTouch,
   musicOn: true, soundOn: true,
@@ -151,6 +152,19 @@ function syncHud() {
   for (const el of document.querySelectorAll('.ward')) {
     const d = WARD_BY_ID[el.dataset.id];
     el.classList.toggle('poor', w.mana < d.cost || w.du + d.du > ECON.duBudget);
+  }
+
+  const p = w.player;
+  const wp = $('weap');
+  if (wp) {
+    wp.textContent = PLAYER.weapons[p.weapon].name;
+    wp.className = 'wchip ' + p.weapon;
+  }
+  const rl = $('roll');
+  if (rl) {
+    const ready = p.dodgeCd <= 0;
+    rl.classList.toggle('ready', ready);
+    rl.style.setProperty('--k', ready ? 1 : (1 - p.dodgeCd / PLAYER.dodge.cooldown));
   }
 }
 
@@ -290,7 +304,9 @@ function bindInput() {
       if (w) select(w.id);
     }
     if (k === 'escape' || k === '0') { state.selected = null; select(null); }
-    if (k === 'r' || k === ' ') { if (state.world.ready()) state.snd.play('click'); }
+    if (k === 'r') { if (state.world.ready()) state.snd.play('click'); }
+    if (k === 'q' || k === 'tab') { e.preventDefault(); state.world.swapWeapon(); }
+    if (k === ' ' || k === 'shift') { e.preventDefault(); state.wantDodge = true; }
     if (k === 'x' && state.selected === null) sellUnderPointer();
   });
   addEventListener('keyup', (e) => state.keys.delete(e.key.toLowerCase()));
@@ -336,8 +352,8 @@ function bindInput() {
 
   cv.addEventListener('wheel', (e) => {
     e.preventDefault();
-    state.rend.camDist = Math.max(9, Math.min(30, state.rend.camDist + Math.sign(e.deltaY) * 1.4));
-    state.rend.camHeight = state.rend.camDist * 0.8;
+    state.rend.camDist = Math.max(7, Math.min(26, state.rend.camDist + Math.sign(e.deltaY) * 1.3));
+    state.rend.camHeight = 2.2 + state.rend.camDist * 0.48;
   }, { passive: false });
 
   // ---- touch stick
@@ -376,6 +392,12 @@ function bindInput() {
   };
   hold($('bFire'), (v) => state.firing = v);
   hold($('bMend'), (v) => state.mending = v);
+
+  const tap = (el, fn) => el.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); e.stopPropagation(); fn();
+  });
+  tap($('bRoll'), () => state.wantDodge = true);
+  tap($('bSwap'), () => state.world.swapWeapon());
 
   // a dedicated turn pad, for when a thumb is busy on the stick
   const cam = $('bCam');
@@ -453,11 +475,28 @@ function applyInput(dt) {
   const rx = cos, rz = -sin;           // camera right
   const vx = (fx * -my + rx * mx) * PLAYER.speed;
   const vz = (fz * -my + rz * mx) * PLAYER.speed;
-  if (m > 0.02) {
-    w.movePlayer(vx, vz, dt);
-    p.yaw = Math.atan2(vx, vz);
+
+  // Momentum. Snapping straight to full speed and to a dead stop is most of
+  // what "movement feels off" was: there is no weight to a body that changes
+  // direction instantly, and no walk cycle can rescue it.
+  const rate = m > 0.02 ? 15 : 12;
+  const k = 1 - Math.exp(-rate * dt);
+  state.vel.x += (vx - state.vel.x) * k;
+  state.vel.z += (vz - state.vel.z) * k;
+  const sp = Math.hypot(state.vel.x, state.vel.z);
+
+  // The roll drives position itself; do not fight it with input.
+  if (sp > 0.05 && p.dodgeT <= 0) w.movePlayer(state.vel.x, state.vel.z, dt);
+
+  // Turn toward travel instead of snapping. Shortest way round.
+  if (sp > 0.5 && p.dodgeT <= 0) {
+    const want = Math.atan2(state.vel.x, state.vel.z);
+    let d = want - p.yaw;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    p.yaw += d * Math.min(1, dt * 15);
   }
-  state._moving = m > 0.02;
+  state._moving = sp > 0.5;
 
   // mending
   const wantMend = state.mending || state.keys.has('e');
@@ -471,8 +510,15 @@ function applyInput(dt) {
     p.repairing = null;
   }
 
-  // loosing a bolt — aimed down the camera unless the pointer says otherwise
-  if ((state.firing || state.keys.has('f')) && p.boltCd <= 0 && !state.selected) {
+  // the roll. Direction is whatever you are holding; if nothing, straight ahead.
+  if (state.wantDodge) {
+    state.wantDodge = false;
+    if (m > 0.02) w.dodge(vx, vz);
+    else w.dodge(Math.sin(p.yaw), Math.cos(p.yaw));
+  }
+
+  // attacking — the weapon decides whether that is a sweep or a bolt
+  if ((state.firing || state.keys.has('f')) && p.atkCd <= 0 && !state.selected) {
     let ax = fx, az = fz, ay = 0;
     if (!isTouch && state.pointer.has) {
       const c = pickCell(state.pointer.x, state.pointer.y);
@@ -483,14 +529,17 @@ function applyInput(dt) {
         if (d > 0.5) { ax = dx / d; az = dz / d; }
       }
     }
-    w.fireBolt(ax, az, ay);
+    w.attack(ax, az, ay);
     p.yaw = Math.atan2(ax, az);
-    r.spark(p.x + ax * 0.8, 1.25, p.z + az * 0.8, 0xffe0a8, 3, 3, 0.5, -1);
+    if (w.weaponDef(p).kind === 'ranged') {
+      r.spark(p.x + ax * 0.8, 1.25, p.z + az * 0.8, 0xffe0a8, 3, 3, 0.5, -1);
+    }
   }
 
   // ghost while building
   if (state.selected) {
     const c = (!isTouch && state.pointer.has ? pickCell(state.pointer.x, state.pointer.y) : null) || cellAhead();
+    r.showBuildGrid(w, state.selected, p.x, p.z, 17);
     if (c) {
       state.ghostCell = c;
       r.showGhost(state.selected, c.i, c.j, w.canBuild(state.selected, c.i, c.j).ok);
@@ -542,8 +591,8 @@ function resize() {
   // and this game is about watching three lanes at once. Widen the lens as the
   // viewport gets taller than it is wide.
   const aspect = w / h;
-  state.rend.camera.fov = aspect < 0.72 ? 76 : (aspect < 1.05 ? 66 : 56);
-  state.rend.lookAhead = aspect < 0.72 ? 7.5 : (aspect < 1.05 ? 6 : 4);
+  state.rend.camera.fov = aspect < 0.72 ? 78 : (aspect < 1.05 ? 70 : 62);
+  state.rend.lookAhead = aspect < 0.72 ? 4.5 : (aspect < 1.05 ? 4 : 3);
   state.rend.resize(w, h, dpr);
   if (state.map) state.map.resize();
 }

@@ -268,7 +268,9 @@ export class Bot {
     if (m && !urgent && md < 16) {
       gox = m.x; goz = m.z; standoff = 0;
     } else if (foe) {
-      gox = foe.x; goz = foe.z; standoff = 11;
+      gox = foe.x; goz = foe.z;
+      // close for ground foes, keep range on anything airborne
+      standoff = foe.def.flying ? 12 : 2.0;
     } else {
       const dmg = w.wards.filter(x => !x.dead && x.hp < x.maxHp)
         .sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp))[0];
@@ -288,12 +290,38 @@ export class Bot {
       w.movePlayer((dx / d) * s, (dz / d) * s, dt);
     }
 
-    if (foe && p.boltCd <= 0) {
-      const ax = foe.x - p.x;
-      const ay = (foe.y + foe.def.height * 0.5) - (p.y + 1.2);
-      const az = foe.z - p.z;
-      const al = Math.hypot(ax, ay, az) || 1;
-      if (al <= PLAYER.boltRange) w.fireBolt(ax / al, az / al, ay / al);
+    if (!foe) return;
+
+    const ax = foe.x - p.x;
+    const ay = (foe.y + foe.def.height * 0.5) - (p.y + 1.2);
+    const az = foe.z - p.z;
+    const flat = Math.hypot(ax, az) || 1;
+    const al = Math.hypot(ax, ay, az) || 1;
+
+    // Weapon choice, which is the whole point of having two: the sword is
+    // worth 100 dps but cannot touch the air and needs you at 2.8m, so it is
+    // only correct when the target is on the ground AND already close.
+    const sword = PLAYER.weapons.sword;
+    const wantSword = !foe.def.flying && flat < sword.range + 0.6;
+    if (wantSword && p.weapon !== 'sword') w.swapWeapon('sword');
+    else if (!wantSword && p.weapon !== 'crossbow') w.swapWeapon('crossbow');
+
+    // Roll out when something is about to land on you and the roll is ready.
+    if (p.dodgeCd <= 0 && p.hp < p.maxHp * 0.55) {
+      let close = 0;
+      for (const f of w.foes) {
+        if (!f.dead && Math.hypot(f.x - p.x, f.z - p.z) < 2.4) close++;
+      }
+      if (close >= 2) w.dodge(-ax / flat, -az / flat);
+    }
+
+    if (p.atkCd <= 0) {
+      const wd = w.weaponDef(p);
+      if (wd.kind === 'melee') {
+        if (flat <= wd.range + foe.def.radius) w.attack(ax / flat, az / flat, 0);
+      } else if (al <= wd.range) {
+        w.attack(ax / al, az / al, ay / al);
+      }
     }
   }
 }

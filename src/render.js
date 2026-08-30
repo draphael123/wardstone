@@ -12,8 +12,12 @@
 // what keeps this under 4 MB and lets a phone hold 120 foes.
 
 import * as THREE from '../vendor/three.module.js';
-import { FOES, FOE_BY_ID, WARDS, WARD_BY_ID, WARDSTONE as STONE_DEF, PLAYER } from './defs.js';
-import { LANES, ARENA, CELL, cellCenter, laneAt, nearestLane } from './arena.js';
+import {
+  FOES, FOE_BY_ID, WARDS, WARD_BY_ID, WARDSTONE as STONE_DEF, PLAYER, ECON,
+} from './defs.js';
+import {
+  LANES, ARENA, CELL, cellOf, cellCenter, laneAt, nearestLane, isBuildableCell,
+} from './arena.js';
 import { makeRng } from './rand.js';
 
 export const PAL = {
@@ -73,10 +77,26 @@ function glowTexture() {
 // Patches a standard material so each instance can flash its own emissive.
 // instanceColor is DIFFUSE-only in three.js, so a hit flash done that way is
 // invisible under a dark key light — see [[threejs-instancecolor-vs-emissive]].
+// Also carries the WALK. These bodies are instanced, so limbs cannot be
+// separate meshes — the gait is done by displacing vertices in OBJECT space
+// before the instance matrix: everything low on the body swings fore and aft
+// by a per-instance phase, arms counter-swing, the body bobs. One attribute,
+// no extra draw calls, and it is the whole difference between a crowd that
+// walks and a crowd that slides.
 function withInstanceFlash(mat) {
   mat.onBeforeCompile = (sh) => {
-    sh.vertexShader = 'attribute float aFlash;\nvarying float vFlash;\n' +
-      sh.vertexShader.replace('void main() {', 'void main() {\n\tvFlash = aFlash;');
+    sh.vertexShader = 'attribute float aFlash;\nattribute float aPhase;\nvarying float vFlash;\n' +
+      sh.vertexShader
+        .replace('void main() {', 'void main() {\n\tvFlash = aFlash;')
+        .replace('#include <begin_vertex>',
+          '#include <begin_vertex>\n' +
+          '\tfloat legMask = 1.0 - smoothstep(0.10, 0.85, position.y);\n' +
+          '\tfloat sideSign = position.x < 0.0 ? 3.14159265 : 0.0;\n' +
+          '\tfloat sw = sin(aPhase + sideSign);\n' +
+          '\ttransformed.z += sw * 0.36 * legMask;\n' +
+          '\tfloat armMask = smoothstep(0.55, 1.05, position.y) * step(0.32, abs(position.x));\n' +
+          '\ttransformed.z -= sw * 0.30 * armMask;\n' +
+          '\ttransformed.y += abs(sin(aPhase)) * 0.055 * step(0.2, position.y);\n');
     sh.fragmentShader = 'varying float vFlash;\n' +
       sh.fragmentShader.replace('#include <emissivemap_fragment>',
         '#include <emissivemap_fragment>\n\ttotalEmissiveRadiance += vec3(vFlash);');
@@ -260,10 +280,13 @@ export class Renderer {
 
     this.camera = new THREE.PerspectiveCamera(56, 1, 0.5, 260);
     this.camYaw = Math.PI;
-    this.camDist = 19;
-    this.camHeight = 21;      // ~48 deg. Lower than this and the far lane is
-                              // edge-on and unreadable; higher and the player
-                              // stops being a character and becomes a cursor.
+    // Dungeon Defenders sits close behind the character, not above the board:
+    // ~34 degrees and 11m back. You lose the whole-arena read that a tactical
+    // overhead gives, which is exactly why the minimap exists — awareness moves
+    // to the map and the 3D view becomes a place you are standing in.
+    // Wheel zooms out to 26 for players who want the old view.
+    this.camDist = 11;
+    this.camHeight = 7.5;
     this.shake = 0;
     // How far past the player the camera aims. Without it the player sits in
     // the middle of frame with dead floor below and the lane you are walking
@@ -661,7 +684,10 @@ export class Renderer {
       mesh.castShadow = !this.low && !isWisp;
       mesh.count = 0;
       const flash = flashAttr(geo, n);
-      this.foeMeshes[def.id] = { mesh, flash, cap: n };
+      const phase = new THREE.InstancedBufferAttribute(new Float32Array(n), 1);
+      phase.setUsage(THREE.DynamicDrawUsage);
+      geo.setAttribute('aPhase', phase);
+      this.foeMeshes[def.id] = { mesh, flash, phase, cap: n };
       this.scene.add(mesh);
     }
 
@@ -680,12 +706,7 @@ export class Renderer {
     this.wispGlow.count = 0;
     this.scene.add(this.wispGlow);
 
-    this.player = new THREE.Mesh(playerGeo(), new THREE.MeshStandardMaterial({
-      color: PAL.player, roughness: 0.6, metalness: 0.35,
-      emissive: 0x2a3550, emissiveIntensity: 0.4,
-    }));
-    this.player.castShadow = !this.low;
-    this.scene.add(this.player);
+    this._buildPlayerRig();
 
     // the lantern you carry — a second, small, moving light source
     this.lantern = new THREE.PointLight(0xffd9a0, 26, 17, 2);
@@ -697,6 +718,84 @@ export class Renderer {
     }));
     this.lanternGlow.scale.set(5, 5, 1);
     this.scene.add(this.lanternGlow);
+  }
+
+  // The player is ONE object, so unlike the instanced foes it can afford a
+  // real rig: limbs as separate meshes on their own pivots. This is what makes
+  // walking read as walking rather than as a bobbing statue, and it lets the
+  // held weapon actually change when you swap.
+  _buildPlayerRig() {
+    const steel = new THREE.MeshStandardMaterial({
+      color: PAL.player, roughness: 0.55, metalness: 0.45,
+      emissive: 0x2a3550, emissiveIntensity: 0.35, flatShading: true,
+    });
+    const cloth = new THREE.MeshStandardMaterial({
+      color: PAL.cloak, roughness: 0.9, flatShading: true,
+    });
+    const wood = new THREE.MeshStandardMaterial({
+      color: 0x6b4a2f, roughness: 0.85, flatShading: true,
+    });
+
+    const g = new THREE.Group();
+
+    const body = new THREE.Mesh(assemble([
+      { g: box(0.66, 0.84, 0.44), y: 1.06 },              // cuirass
+      { g: box(0.84, 0.20, 0.52), y: 1.42 },              // shoulders
+      { g: box(0.42, 0.38, 0.40), y: 1.68 },              // helm
+      { g: box(0.46, 0.13, 0.46), y: 1.86 },              // helm ridge
+      { g: box(0.30, 0.10, 0.12), y: 1.66, z: 0.24 },     // visor slit
+      { g: box(0.34, 0.20, 0.34), y: 0.62 },              // belt
+    ]), steel);
+    body.castShadow = !this.low;
+    g.add(body);
+
+    const cape = new THREE.Mesh(assemble([
+      { g: box(0.56, 0.72, 0.09), y: 1.12, z: -0.28 },
+      { g: box(0.48, 0.34, 0.09), y: 0.62, z: -0.32, rx: 0.16 },
+    ]), cloth);
+    g.add(cape);
+
+    const limb = (w, h, d, mat) => {
+      const m = new THREE.Mesh(box(w, h, d), mat || steel);
+      m.geometry.translate(0, -h / 2, 0);      // pivot at the TOP, i.e. the joint
+      m.castShadow = !this.low;
+      return m;
+    };
+
+    const legL = limb(0.24, 0.64), legR = limb(0.24, 0.64);
+    legL.position.set(0.18, 0.66, 0);
+    legR.position.set(-0.18, 0.66, 0);
+    g.add(legL, legR);
+
+    const armL = limb(0.19, 0.66), armR = limb(0.19, 0.66);
+    armL.position.set(0.44, 1.38, 0);
+    armR.position.set(-0.44, 1.38, 0);
+    g.add(armL, armR);
+
+    // --- the two weapons, each parented to a hand so they follow the swing
+    const sword = new THREE.Mesh(assemble([
+      { g: box(0.10, 0.10, 0.28), y: -0.70 },                    // grip
+      { g: box(0.30, 0.07, 0.09), y: -0.76 },                    // crossguard
+      { g: box(0.13, 0.06, 1.05), y: -0.80, z: 0.60 },           // blade
+      { g: box(0.06, 0.05, 0.22), y: -0.80, z: 1.20 },           // point
+    ]), new THREE.MeshStandardMaterial({
+      color: 0xc8d2e2, roughness: 0.32, metalness: 0.8, flatShading: true,
+    }));
+    armR.add(sword);
+
+    const bow = new THREE.Mesh(assemble([
+      { g: box(0.09, 0.16, 0.62), y: -0.66, z: 0.10 },           // stock
+      { g: box(0.86, 0.07, 0.09), y: -0.66, z: 0.32 },           // lath
+      { g: box(0.07, 0.07, 0.30), y: -0.60, z: -0.06 },          // butt
+    ]), wood);
+    armR.add(bow);
+
+    this.scene.add(g);
+    this.playerRig = {
+      group: g, body, cape, legL, legR, armL, armR, sword, bow,
+      gait: 0, mat: steel,
+    };
+    this.player = g;               // kept so existing code can hide/show it
   }
 
   // ------------------------------------------------------------------ pools
@@ -729,7 +828,7 @@ export class Renderer {
       new THREE.PlaneGeometry(1, 1),
       new THREE.MeshBasicMaterial({
         map: this.glowTex, transparent: true, blending: THREE.AdditiveBlending,
-        depthWrite: false, vertexColors: true,
+        depthWrite: false,
       }), this.PN);
     this.partMesh.frustumCulled = false;
     this.partMesh.count = 0;
@@ -739,9 +838,9 @@ export class Renderer {
     this._pn = 0;
 
     // build ghost
-    this.ghost = new THREE.Mesh(box(CELL * 0.92, 0.3, CELL * 0.92),
+    this.ghost = new THREE.Mesh(box(CELL * 0.92, 0.32, CELL * 0.92),
       new THREE.MeshBasicMaterial({
-        color: 0x7fe08a, transparent: true, opacity: 0.42, depthWrite: false,
+        color: 0x7fe08a, transparent: true, opacity: 0.62, depthWrite: false,
       }));
     this.ghost.visible = false;
     this.scene.add(this.ghost);
@@ -767,11 +866,36 @@ export class Renderer {
       this.threatRings.push(m);
     }
 
+    // Build grid. Shown the moment a ward is picked: without it you are
+    // guessing where placement is legal, which was the single most common
+    // complaint after the first playtest.
+    this.GRIDN = 420;
+    // OUTLINES, not filled quads. A 30%-opacity green fill over a warm lit
+    // floor is invisible — which is how the first version shipped a build grid
+    // that technically rendered 204 cells and told the player nothing.
+    const cellOutline = assemble([
+      { g: box(CELL * 0.9, 0.04, 0.13), z: CELL * 0.45 },
+      { g: box(CELL * 0.9, 0.04, 0.13), z: -CELL * 0.45 },
+      { g: box(0.13, 0.04, CELL * 0.9), x: CELL * 0.45 },
+      { g: box(0.13, 0.04, CELL * 0.9), x: -CELL * 0.45 },
+    ]);
+    this.gridMesh = new THREE.InstancedMesh(
+      cellOutline,
+      new THREE.MeshBasicMaterial({
+        transparent: true, opacity: 0.9, depthWrite: false,
+      }), this.GRIDN);
+    this.gridMesh.frustumCulled = false;
+    this.gridMesh.count = 0;
+    this.gridMesh.renderOrder = 1;
+    this.gridMesh.instanceColor = new THREE.InstancedBufferAttribute(
+      new Float32Array(this.GRIDN * 3), 3);
+    this.scene.add(this.gridMesh);
+
     // ward range ring, shown while placing
     this.ring = new THREE.Mesh(
       new THREE.RingGeometry(0.94, 1, 64).rotateX(-Math.PI / 2),
       new THREE.MeshBasicMaterial({
-        color: 0x7fe08a, transparent: true, opacity: 0.35,
+        color: 0x7fe08a, transparent: true, opacity: 0.6,
         side: THREE.DoubleSide, depthWrite: false,
       }));
     this.ring.visible = false;
@@ -980,13 +1104,49 @@ export class Renderer {
 
     // --- player
     if (p.alive) {
+      const rig = this.playerRig;
       this.player.visible = true;
       this.player.position.set(p.x, 0, p.z);
       this.player.rotation.y = p.yaw;
-      const bob = Math.sin(this.t * 12) * 0.5;
-      const moving = input && input.moving;
-      this.player.position.y = moving ? Math.abs(bob) * 0.09 : 0;
-      this.player.material.emissiveIntensity = p.hurtT > 0 ? 2.4 : 0.4;
+
+      // gait from ground covered, same rule as the foes
+      const pdx = p.x - (this._px == null ? p.x : this._px);
+      const pdz = p.z - (this._pz == null ? p.z : this._pz);
+      this._px = p.x; this._pz = p.z;
+      const stride = Math.hypot(pdx, pdz);
+      rig.gait += stride * 2.3;
+      const sw = Math.sin(rig.gait);
+      const speedK = Math.min(1, stride * 90);        // damp the swing at a walk
+
+      rig.legL.rotation.x = sw * 0.85 * speedK;
+      rig.legR.rotation.x = -sw * 0.85 * speedK;
+      rig.armL.rotation.x = -sw * 0.55 * speedK;
+      rig.armR.rotation.x = sw * 0.45 * speedK;
+      this.player.position.y = Math.abs(sw) * 0.055 * speedK;
+      rig.cape.rotation.x = -0.10 - speedK * 0.22;
+
+      // the swing: a fast forward chop that overrides the walk on the arm
+      if (p.swingT > 0) {
+        const k = 1 - (p.swingT / 0.18);
+        rig.armR.rotation.x = -1.5 + k * 2.6;
+        rig.armR.rotation.z = 0.4 - k * 0.5;
+      } else {
+        rig.armR.rotation.z = 0;
+      }
+      // the roll: tuck and spin
+      if (p.dodgeT > 0) {
+        const k = 1 - (p.dodgeT / PLAYER.dodge.time);
+        this.player.position.y = Math.sin(k * Math.PI) * 0.45;
+        rig.body.rotation.x = k * Math.PI * 2;
+        rig.legL.rotation.x = -1.2; rig.legR.rotation.x = -1.2;
+      } else {
+        rig.body.rotation.x = 0;
+      }
+
+      rig.sword.visible = p.weapon === 'sword';
+      rig.bow.visible = p.weapon === 'crossbow';
+      rig.mat.emissiveIntensity = p.hurtT > 0 ? 2.4
+        : (p.invuln > 0 ? 1.4 : 0.35);
       this.lantern.position.set(p.x + Math.sin(p.yaw + 1.2) * 0.6, 1.55,
         p.z + Math.cos(p.yaw + 1.2) * 0.6);
       this.lanternGlow.position.copy(this.lantern.position);
@@ -1013,15 +1173,19 @@ export class Renderer {
 
       let y = f.y;
       let lean = 0, sc = 1;
+      // The gait phase advances with GROUND COVERED, not with the clock, so a
+      // foe held at a wall stops stepping instead of jogging on the spot.
+      const gdx = f.x - (f.gx == null ? f.x : f.gx);
+      const gdz = f.z - (f.gz == null ? f.z : f.gz);
+      f.gx = f.x; f.gz = f.z;
+      f.gait = (f.gait || (f.id % 6)) + Math.hypot(gdx, gdz) * 2.6;
       if (f.def.flying) {
         y = f.y + Math.sin(this.t * 3.4 + f.id) * 0.28;
       } else {
-        // a walk cycle without a skeleton: bob and lean by phase
-        const ph = this.t * f.def.speed * 2.4 + f.id;
+        const ph = f.gait;
         const walking = f.targetKind == null;
         if (walking) {
-          y += Math.abs(Math.sin(ph)) * 0.1;
-          lean = Math.sin(ph) * 0.08;
+          lean = Math.sin(ph) * 0.05;
         } else {
           // a strike is a lunge, so an attack is visible from across the room
           const sw = Math.max(0, Math.sin((f.def.attackCd - f.atkCd) * 9));
@@ -1035,6 +1199,7 @@ export class Renderer {
       slot.mesh.setMatrixAt(i, _m);
       // capped well below 1: a full-white flash erases the silhouette colour
       slot.flash.array[i] = f.hitT > 0 ? Math.min(0.55, f.hitT * 5.5) : 0;
+      slot.phase.array[i] = f.def.flying ? 0 : (f.gait || 0);
 
       if (f.def.flying && wg < FOE_CAP.wisp) {
         _q.copy(this.camera.quaternion);
@@ -1047,6 +1212,7 @@ export class Renderer {
       slot.mesh.count = counts[id];
       slot.mesh.instanceMatrix.needsUpdate = true;
       slot.flash.needsUpdate = true;
+      slot.phase.needsUpdate = true;
     }
     this.wispGlow.count = wg;
     this.wispGlow.instanceMatrix.needsUpdate = true;
@@ -1130,6 +1296,51 @@ export class Renderer {
     this.renderer.render(this.scene, this.camera);
   }
 
+  // Paint every cell within reach of the player: green where this ward can go,
+  // amber where something already stands, dim red where the ground refuses it.
+  showBuildGrid(world, wardId, px, pz, radius) {
+    const R = radius || 16;
+    // Affordability asked DIRECTLY. Probing canBuild() at a fixed cell does not
+    // work: it returns 'not buildable ground' first and never reaches the
+    // mana/unit checks, so the dim state would never trigger.
+    const def = WARD_BY_ID[wardId];
+    const affordable = !!def && world.mana >= def.cost &&
+      world.du + def.du <= ECON.duBudget;
+    const c0 = cellOf(px - R, pz - R), c1 = cellOf(px + R, pz + R);
+    let n = 0;
+    const col = this.gridMesh.instanceColor.array;
+    for (let i = c0.i; i <= c1.i && n < this.GRIDN; i++) {
+      for (let j = c0.j; j <= c1.j && n < this.GRIDN; j++) {
+        const c = cellCenter(i, j);
+        if (Math.hypot(c.x - px, c.z - pz) > R) continue;
+        const terrainOk = isBuildableCell(i, j);
+        const occupied = !!world.wardAtCell(i, j);
+        if (!terrainOk && !occupied) continue;      // don't paint the void
+
+        // Colour by what is true of the GROUND, then dim the whole grid if the
+        // player simply cannot afford this ward. Colouring by canBuild() alone
+        // turns every cell red the moment the unit budget is spent, which
+        // teaches nothing about where wards go — and being out of units is
+        // already stated in the HUD.
+        let cr, cg, cb;
+        if (occupied) { cr = 1.00; cg = 0.74; cb = 0.20; }      // something there
+        else if (!terrainOk) { cr = 1.00; cg = 0.24; cb = 0.20; } // refuses a ward
+        else { cr = 0.24; cg = 1.00; cb = 0.38; }                // free ground
+        if (!affordable) { cr *= 0.34; cg *= 0.34; cb *= 0.34; }
+        _q.identity();
+        _m.compose(_v.set(c.x, 0.34, c.z), _q, _s.set(1, 1, 1));
+        this.gridMesh.setMatrixAt(n, _m);
+        col[n * 3] = cr; col[n * 3 + 1] = cg; col[n * 3 + 2] = cb;
+        n++;
+      }
+    }
+    this.gridMesh.count = n;
+    this.gridMesh.instanceMatrix.needsUpdate = true;
+    this.gridMesh.instanceColor.needsUpdate = true;
+  }
+
+  hideBuildGrid() { this.gridMesh.count = 0; }
+
   // --------------------------------------------------------------- ghost
   showGhost(wardId, i, j, ok) {
     const c = cellCenter(i, j);
@@ -1151,6 +1362,7 @@ export class Renderer {
     }
   }
   hideGhost() {
+    this.hideBuildGrid();
     this.ghost.visible = false;
     this.ghostPost.visible = false;
     this.ring.visible = false;

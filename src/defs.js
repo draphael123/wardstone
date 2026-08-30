@@ -22,12 +22,38 @@ export const PLAYER = {
   radius: 0.6,
   respawn: 5.0,        // s, back at the wardstone
 
-  boltDamage: 26,
-  boltCooldown: 0.42,  // -> 62 dps sustained
-  boltSpeed: 58,       // m/s
-  boltRadius: 0.9,     // small splash so near-misses on wisps still land
-  boltRange: 34,
+  // Two weapons, swapped freely. This is what makes "you hold what the lanes
+  // don't cover" a moment-to-moment decision instead of a standing fact: the
+  // sword is far stronger but cannot reach a wisp and puts you inside the
+  // brawl, where things hit back.
+  //
+  // The crossbow's dps is deliberately IDENTICAL to the old single weapon
+  // (62), so the air fight — the load-bearing gap — is mathematically
+  // unchanged and the whole balance sweep stays valid. Only the ground
+  // option is new.
+  weapons: {
+    crossbow: {
+      name: 'Crossbow', kind: 'ranged', targets: 'all',
+      damage: 34, cooldown: 0.55,      // 62 dps
+      speed: 62, radius: 0.9, range: 34,
+    },
+    sword: {
+      name: 'Sword', kind: 'melee', targets: 'ground',
+      damage: 36, cooldown: 0.36,      // 100 dps, but only within 2.8m
+      range: 2.8, arc: 1.9,            // radians, total sweep
+    },
+  },
+  swapTime: 0.22,      // brief lockout so swapping mid-brawl is a real choice
   aimCone: 0.978,      // cos(12deg) — assist snaps to a foe inside this cone
+
+  // A dodge on a plain cooldown. No stamina: the cost is the cooldown and the
+  // fact that it commits you to a direction for a fifth of a second.
+  dodge: {
+    speed: 27,         // m/s during the roll
+    time: 0.20,        // how long the roll lasts
+    cooldown: 1.15,
+    iframes: 0.24,     // slightly longer than the roll, so it covers the recovery
+  },
 
   repairRate: 45,      // hp/s  (deliberately BELOW BREAKER_DPS, see above)
   repairCostPerHp: 0.12,
