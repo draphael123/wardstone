@@ -1179,3 +1179,28 @@ nothing rather than at something arbitrary.
 - **`syncHud` assigned `className` wholesale** on the weapon chip every frame,
   which deleted the pointer ring the instant it was added. It now touches only
   the classes it owns.
+
+---
+
+# Two rendering bugs with the same shape
+
+Both were things that looked wrong and had no effect on the simulation at all —
+and both came from rotating something about the wrong origin.
+
+**Foes did not face what they were hitting.** Facing was derived purely from the
+movement delta: `atan2(f.x - f.px, f.z - f.pz)`. A foe that STOPS to attack has
+no delta, so `atan2(0, 0)` returned 0 and it snapped to facing north — chopping
+at empty air beside the fire it was supposedly attacking — while sub-pixel
+jitter made a stationary foe's facing spin at random. Reported as *"moving
+weirdly and not actually attacking the fire properly"*, which is exactly what it
+was doing.
+
+A foe now faces its target if it has one, its heading if it is moving, and holds
+its last facing otherwise — and turns toward it rather than snapping. Verified
+over 40 foes engaged with the fire: worst facing error 0.00000 rad.
+
+**The knight's cape was rotating about his feet.** Its parts sit at chest height
+but the mesh's origin was the model root, so every lean swung the whole cloth
+out behind him like a detached plank. Reported as *"what is this thing behind
+the knight?"* — it was his cape, three feet away from him. It now pivots at the
+shoulders.

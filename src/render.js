@@ -1670,10 +1670,17 @@ export class Renderer {
     body.castShadow = !this.low;
     g.add(body);
 
+    // The cape hangs from the SHOULDERS, so its geometry is built around a
+    // pivot there and the mesh is placed at that height. It used to be built in
+    // model space and rotated about the group origin — the knight's FEET — so
+    // every lean swung it out behind him like a detached plank. Reported as
+    // "what is this thing behind the knight?"
+    const CAPE_PIVOT = 1.34;
     const cape = new THREE.Mesh(assemble([
-      { g: box(0.66, 0.66, 0.09), y: 1.00, z: -0.30 },
-      { g: box(0.56, 0.32, 0.09), y: 0.54, z: -0.34, rx: 0.18 },
+      { g: box(0.66, 0.66, 0.09), y: 1.00 - CAPE_PIVOT, z: -0.30 },
+      { g: box(0.56, 0.32, 0.09), y: 0.54 - CAPE_PIVOT, z: -0.34, rx: 0.18 },
     ]), cloth);
+    cape.position.y = CAPE_PIVOT;
     g.add(cape);
 
     const limb = (w, h, d, mat) => {
@@ -2569,8 +2576,43 @@ export class Renderer {
       if (i >= slot.cap) continue;
       counts[f.kind] = i + 1;
 
-      const ang = Math.atan2(f.x - (f.px == null ? f.x - 0.01 : f.px),
-        f.z - (f.pz == null ? f.z - 0.01 : f.pz));
+      // Facing.
+      //
+      // This used to be derived purely from the movement delta. A foe that
+      // STOPS to attack has no delta, so atan2(0, 0) returned 0 and it snapped
+      // to facing north — chopping at empty air beside the thing it was hitting
+      // — and sub-pixel jitter made a stationary foe's facing spin at random.
+      // Reported as "moving weirdly and not actually attacking the fire".
+      //
+      // So: face what you are attacking; failing that, face where you are
+      // going; failing that, hold the last facing rather than snapping to zero.
+      let want;
+      // windAt is not cleared after a swing, so it only counts while one is
+      // actually running — otherwise a foe that once hit the player would face
+      // them for the rest of its life.
+      const swinging = f.windT > 0 || f.strikeT > 0;
+      const tgt = f.targetKind === 'ward' && f.target && !f.target.dead ? f.target
+        : (f.targetKind === 'stone' ? world.stone
+          : (swinging && f.windAt === 'player' ? world.player
+            : (swinging && f.windAt === 'stone' ? world.stone : null)));
+      if (tgt) {
+        want = Math.atan2(tgt.x - f.x, tgt.z - f.z);
+      } else {
+        const mdx = f.x - (f.px == null ? f.x : f.px);
+        const mdz = f.z - (f.pz == null ? f.z : f.pz);
+        want = (Math.abs(mdx) + Math.abs(mdz) > 1e-5)
+          ? Math.atan2(mdx, mdz)
+          : (f.faceAng == null ? 0 : f.faceAng);
+      }
+      // turn toward it rather than snapping, so a foe pivots to face you
+      if (f.faceAng == null) f.faceAng = want;
+      else {
+        let d = want - f.faceAng;
+        while (d > Math.PI) d -= Math.PI * 2;
+        while (d < -Math.PI) d += Math.PI * 2;
+        f.faceAng += d * Math.min(1, dt * 9);
+      }
+      const ang = f.faceAng;
       f.px = f.x; f.pz = f.z;
 
       // Ground foes stand on the visible floor; fliers keep their own altitude,
