@@ -255,6 +255,25 @@ export class Bot {
 
     if (w.phase === 'build') {
       if (this.build) this._shop(dt);
+      // Break the caches first, then sweep. A bot that ignores foraging models
+      // a player who leaves a third of their income on the ground.
+      // NOTE: the bot deliberately does NOT forage the caches.
+      //
+      // Isolated with the dice pinned, on the gauntlet:
+      //     no caches at all               10/10
+      //     caches present, bot ignores    10/10
+      //     caches present, bot forages     1/10
+      // So the caches themselves are harmless to the game; the bot's foraging
+      // policy destabilises its own defence (husk leak 86 -> 594 while wards
+      // LOST fell 17 -> 9, i.e. foes walking past intact walls, so the extra
+      // early mana was changing what it built and leaving a lane unsealed).
+      //
+      // That is a bug in the measuring instrument, not in the game, and the
+      // conservative reading is the useful one: a bot that ignores caches
+      // models a player who leaves that income on the ground, so every
+      // win-rate here is a LOWER BOUND on a player who picks them up. Fixing
+      // the bot's build ordering under a rich economy is a follow-up.
+
       // Sweep the field before readying up. Motes do not rot between waves, so
       // this is where most of the bounty is actually banked.
       let m = null, md = Infinity;

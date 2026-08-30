@@ -330,6 +330,19 @@ function drainEvents() {
         if (s) s.play('build', 1, 0.8);
         toast(`${WARD_BY_ID[e.ward].name} — level ${e.level}`);
         break;
+      case 'cacheHit':
+        r.spark(e.x, 0.8, e.z, 0xc9a978, 5, 4, 0.7);
+        if (s) s.play('impact', 0.7, 1.2);
+        break;
+      case 'cacheBreak':
+        r.ringBurst(e.x, 0.4, e.z, 0x9fe8ff, 1.8, 16);
+        r.spark(e.x, 0.9, e.z, 0xc9a978, 16, 6, 1.1);
+        r.addShake(0.14);
+        if (s) s.layer('wardDown', 'mote', 0.8, 1.25);
+        break;
+      case 'caches':
+        toast(`<b>${e.n}</b> caches in the wood &mdash; break them for mana`);
+        break;
       case 'built':
         r.ringBurst(e.x, 0.4, e.z, 0x9fe8a0, 1.9, 14);
         if (s) s.play('build');

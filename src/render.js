@@ -1397,6 +1397,39 @@ export class Renderer {
       this.threatRings.push(m);
     }
 
+    // Mana caches. One instanced crate, plus a glint sprite so they can be
+    // picked out across a dark clearing — the whole point is that you go and
+    // look for them, which requires being able to see them from a distance.
+    this.CACHEN = 16;
+    this.cacheMesh = new THREE.InstancedMesh(assemble([
+      { g: box(1.05, 0.85, 0.85), y: 0.42, c: 0x6b4a2f },
+      { g: box(1.12, 0.16, 0.92), y: 0.20, c: 0x4a3524 },
+      { g: box(1.12, 0.16, 0.92), y: 0.68, c: 0x4a3524 },
+      { g: box(0.30, 0.24, 0.30), y: 0.95, c: 0x8fa2c0 },
+      { g: box(0.16, 0.16, 0.16), y: 1.12, c: 0x9fe8ff, e: 0.9 },
+    ]), new THREE.MeshStandardMaterial({
+      color: 0xffffff, vertexColors: true, roughness: 0.9, flatShading: true,
+    }), this.CACHEN);
+    this.cacheMesh.frustumCulled = false;
+    this.cacheMesh.count = 0;
+    this.cacheMesh.castShadow = !this.low;
+    flashAttr(this.cacheMesh.geometry, this.CACHEN);
+    this.cacheMesh.geometry.setAttribute('aPhase',
+      new THREE.InstancedBufferAttribute(new Float32Array(this.CACHEN), 1));
+    this.cacheMesh.geometry.setAttribute('aTele',
+      new THREE.InstancedBufferAttribute(new Float32Array(this.CACHEN), 1));
+    this.scene.add(this.cacheMesh);
+
+    this.cacheGlow = new THREE.InstancedMesh(
+      new THREE.PlaneGeometry(3.2, 3.2),
+      new THREE.MeshBasicMaterial({
+        map: this.glowTex, color: 0x9fe8ff, transparent: true, opacity: 0.42,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      }), this.CACHEN);
+    this.cacheGlow.frustumCulled = false;
+    this.cacheGlow.count = 0;
+    this.scene.add(this.cacheGlow);
+
     // Health bars. Two instanced billboards: a dark backing and a coloured
     // fill whose geometry is offset so scaling X grows it from the LEFT.
     this.HPN = 160;
@@ -2107,6 +2140,29 @@ export class Renderer {
     }
     this.projMesh.count = pi;
     this.projMesh.instanceMatrix.needsUpdate = true;
+
+    // --- caches
+    let ci = 0;
+    const cflash = this.cacheMesh.geometry.attributes.aFlash;
+    for (const c of world.caches) {
+      if (c.dead || ci >= this.CACHEN) continue;
+      if (c.hitT > 0) c.hitT -= dt;
+      const bob = Math.sin(this.t * 1.6 + c.spin) * 0.05;
+      _q.setFromEuler(new THREE.Euler(0, c.spin, 0));
+      const k = 0.75 + 0.25 * (c.hp / c.maxHp);      // splinters as it breaks
+      _m.compose(_v.set(c.x, bob, c.z), _q, _s.set(k, k, k));
+      this.cacheMesh.setMatrixAt(ci, _m);
+      cflash.array[ci] = c.hitT > 0 ? Math.min(0.6, c.hitT * 6) : 0;
+      _q.copy(this.camera.quaternion);
+      _m.compose(_v.set(c.x, 1.1 + bob, c.z), _q, _s.set(1, 1, 1));
+      this.cacheGlow.setMatrixAt(ci, _m);
+      ci++;
+    }
+    this.cacheMesh.count = ci;
+    this.cacheGlow.count = ci;
+    this.cacheMesh.instanceMatrix.needsUpdate = true;
+    this.cacheGlow.instanceMatrix.needsUpdate = true;
+    cflash.needsUpdate = true;
 
     // --- motes
     let mi = 0;

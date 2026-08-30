@@ -9,11 +9,11 @@
 // repair, ready) is a command the caller issues between steps.
 
 import {
-  PLAYER, WARDSTONE, ECON, WARDS, WARD_BY_ID, FOE_BY_ID, WAVES, AGGRO, UPGRADE, ABILITY, HEARTH,
+  PLAYER, WARDSTONE, ECON, WARDS, WARD_BY_ID, FOE_BY_ID, WAVES, AGGRO, UPGRADE, ABILITY, HEARTH, CACHE,
 } from './defs.js';
 import {
   LANES, LANE_BY_ID, laneAt, cellOf, cellCenter, cellKey,
-  isBuildableCell, clampToArena, nearestLane, distToLane,
+  isBuildableCell, clampToArena, nearestLane, distToLane, ARENA,
 } from './arena.js';
 import { makeRng } from './rand.js';
 
@@ -75,6 +75,9 @@ let NEXT_ID = 1;
 export class World {
   constructor(opts = {}) {
     this.rng = makeRng(opts.seed == null ? 12345 : opts.seed);
+    // Separate stream for scenery and scatter, so adding or changing props
+    // can never perturb the combat dice and invalidate a comparison.
+    this.propRng = makeRng((opts.seed == null ? 12345 : opts.seed) ^ 0x9e3779b9);
     // Sandbox freezes the wave machine so a directed test can spawn exactly
     // one foe and watch exactly one rule. See [[asserts-must-fit-the-thing-tested]].
     this.sandbox = !!opts.sandbox;
@@ -101,10 +104,14 @@ export class World {
     this.wards = [];
     this.projectiles = [];
     this.motes = [];
+    this.caches = [];
     this.occupancy = new Map();  // cellKey -> ward
     this.granted = new Set();    // wards unlocked ahead of their wave
     this.spawnQueue = [];
     this.events = [];
+
+    this.scatterCaches();
+    this.events.length = 0;      // the opening scatter is not news
 
     this.foeHash = new Hash(4);
     this.wardHash = new Hash(4);
@@ -256,6 +263,46 @@ export class World {
     return true;
   }
 
+  // Scatter caches for a muster. Off the roads, away from the fire, so that
+  // collecting them is a walk that shows you the ground you are defending.
+  scatterCaches() {
+    this.caches.length = 0;
+    let guard = 0;
+    while (this.caches.length < CACHE.count && guard++ < 400) {
+      const a = this.propRng() * Math.PI * 2;
+      const r = CACHE.minFromFire + this.propRng() * (CACHE.maxFromFire - CACHE.minFromFire);
+      const x = Math.cos(a) * r, z = Math.sin(a) * r;
+      if (Math.abs(x) > ARENA.buildInset || Math.abs(z) > ARENA.buildInset) continue;
+      if (nearestLane(x, z).dist < CACHE.minLaneDist) continue;
+      if (this.caches.some(c => Math.hypot(c.x - x, c.z - z) < 6)) continue;
+      this.caches.push({
+        id: NEXT_ID++, x, z, hp: CACHE.hp, maxHp: CACHE.hp,
+        value: CACHE.value, dead: false, hitT: 0, spin: this.propRng() * 3,
+      });
+    }
+    this.emit({ type: 'caches', n: this.caches.length });
+  }
+
+  hurtCache(c, amount) {
+    if (!c || c.dead) return 0;
+    c.hp -= amount;
+    c.hitT = 0.12;
+    this.emit({ type: 'cacheHit', x: c.x, z: c.z });
+    if (c.hp <= 0) {
+      c.dead = true;
+      // pays out as motes, so it is still a walk rather than a click
+      for (let i = 0; i < 3; i++) {
+        const a = Math.PI * 2 * (i / 3) + this.propRng();
+        this.motes.push({
+          id: NEXT_ID++, x: c.x + Math.cos(a) * 0.9, z: c.z + Math.sin(a) * 0.9,
+          y: 0.6, value: Math.round(c.value / 3), life: 35, taken: false, vx: 0, vz: 0,
+        });
+      }
+      this.emit({ type: 'cacheBreak', x: c.x, z: c.z, value: c.value });
+    }
+    return amount;
+  }
+
   // ------------------------------------------------------------------ waves
   _startWave() {
     const wave = WAVES[this.waveIndex];
@@ -267,6 +314,7 @@ export class World {
       }
     }
     this.spawnQueue.sort((a, b) => a.t - b.t);
+    this.caches.length = 0;          // the muster is over; no more foraging
     this.phase = 'combat';
     this.emit({ type: 'wave', index: this.waveIndex, name: wave.name });
   }
@@ -435,6 +483,15 @@ export class World {
         if (f.dead || !f.def.flying) continue;
         if (Math.hypot(f.x - p.x, f.z - p.z) <= def.range + 1.4) { airborneInReach = true; break; }
       }
+    }
+    for (const c of this.caches) {
+      if (c.dead) continue;
+      const dx = c.x - p.x, dz = c.z - p.z;
+      const d = Math.hypot(dx, dz);
+      if (d > def.range + 0.9) continue;
+      if (d > 0.001 && (dx * ux + dz * uz) / d < cosHalf) continue;
+      this.hurtCache(c, def.damage);
+      hits++;
     }
     this.emit({ type: 'swing', x: p.x, z: p.z, dx: ux, dz: uz, hits, airborneInReach });
     return hits;
@@ -649,6 +706,7 @@ export class World {
     if (this.foes.some(f => f.dead)) this.foes = this.foes.filter(f => !f.dead);
     if (this.wards.some(w => w.dead)) this.wards = this.wards.filter(w => !w.dead);
     if (this.projectiles.some(b => b.dead)) this.projectiles = this.projectiles.filter(b => !b.dead);
+    if (this.caches.some(c => c.dead)) this.caches = this.caches.filter(c => !c.dead);
     if (this.motes.some(m => m.taken || m.life <= 0)) {
       this.motes = this.motes.filter(m => !m.taken && m.life > 0);
     }
@@ -671,6 +729,7 @@ export class World {
       } else {
         this.phase = 'build';
         this.phaseTimer = ECON.interPhase;
+        this.scatterCaches();
       }
     }
   }
@@ -966,6 +1025,21 @@ export class World {
       b.y += b.dy * b.speed * dt;
       b.z += b.dz * b.speed * dt;
       if (b.y < 0.05) b.y = 0.05;
+
+      if (b.source === 'player' && this.caches.length) {
+        let struck = false;
+        for (const c of this.caches) {
+          if (c.dead) continue;
+          if (Math.hypot(c.x - b.x, c.z - b.z) > 1.0 + b.radius) continue;
+          if (b.y > 1.9) continue;
+          this.hurtCache(c, b.damage);
+          b.dead = true;
+          this.emit({ type: 'impact', x: b.x, y: b.y, z: b.z, source: b.source });
+          struck = true;
+          break;
+        }
+        if (struck) continue;
+      }
 
       this.foeHash.query(b.x, b.z, b.radius + 1.4, near);
       for (let n = 0; n < near.length; n++) {

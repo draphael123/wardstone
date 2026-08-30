@@ -126,6 +126,23 @@ export const ABILITY = {
   buffTime: 7,
 };
 
+// Breakable caches, scattered each muster. Dungeon Defenders' first map does
+// this with mana chests and it does three jobs at once: it gives the build
+// phase an ACTIVITY instead of "place things, press R", it teaches you the
+// layout while nothing is chasing you, and it makes starting mana earned
+// rather than granted.
+//
+// They respawn every muster rather than being one-time, because a one-time
+// scatter only gives wave one a job and this game has six.
+export const CACHE = {
+  count: 7,          // per muster
+  hp: 40,
+  value: 26,         // mana, dropped as motes you still have to walk over
+  minLaneDist: 5.0,  // never in the road
+  minFromFire: 11,   // far enough that you must actually go and look
+  maxFromFire: 31,
+};
+
 export const ECON = {
   // THE most load-bearing number in the game. Mana is a flow; DU is a HARD CAP
   // on how much board you may cover at once, and it is the reason the body has

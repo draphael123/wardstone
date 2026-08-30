@@ -127,6 +127,17 @@ const INVARIANTS = [
     return null;
   }],
 
+  ['caches stay sane and only exist in the muster', (w) => {
+    if (w.caches.length > 40) return `${w.caches.length} caches`;
+    for (let i = 0; i < w.caches.length; i++) {
+      const c = w.caches[i];
+      if (!num(c.x) || !num(c.z) || !num(c.hp)) return `cache ${c.x},${c.z},${c.hp}`;
+      if (c.dead) return 'a broken cache is still listed';
+    }
+    return (w.phase === 'combat' && w.caches.length)
+      ? `${w.caches.length} caches during a wave` : null;
+  }],
+
   ['phase is a known value', (w) =>
     ['build', 'combat', 'won', 'lost'].includes(w.phase) ? null : `phase is ${w.phase}`],
 
