@@ -105,21 +105,57 @@ export function setMap(id) {
 // The offset tapers to zero over the last TAPER metres so that everything
 // converges on the stone instead of striking it from a spread-out arc.
 const TAPER = 7;
+// Metres either side of a bend over which the lane's normal turns, rather than
+// flipping in a single frame.
+//
+// Deliberately the SMALLEST value that removes the jump, not the smoothest one.
+// This shifts where foes actually walk, and the gauntlet is sensitive to it —
+// swept over 21 seeds on both maps, a 2.2m blend cost that map 14/21 -> 8/21
+// because the bot's ward placements are sized for the old lane shape. At 0.4m
+// the behaviour audit is clean and the balance is the best of any value tried.
+const LANE_BLEND = 0.4;
+
 export function laneAt(lane, d, off, out) {
   out = out || { x: 0, z: 0, dx: 0, dz: 0 };
   const dc = Math.max(0, Math.min(lane.total, d));
-  let s = lane.segs[lane.segs.length - 1];
+  let s = lane.segs[lane.segs.length - 1], si = lane.segs.length - 1;
   for (let i = 0; i < lane.segs.length; i++) {
     const g = lane.segs[i];
-    if (dc <= g.start + g.len) { s = g; break; }
+    if (dc <= g.start + g.len) { s = g; si = i; break; }
   }
   const t = dc - s.start;
   const remaining = lane.total - dc;
   const k = remaining < TAPER ? remaining / TAPER : 1;
   const o = (off || 0) * k;
+
+  // The direction the OFFSET is measured against, blended through corners.
+  //
+  // This used to be the current segment's tangent, full stop — so the instant a
+  // foe's arclength crossed a bend, the perpendicular flipped to the new
+  // segment's and the foe SNAPPED sideways by up to twice its lateral offset.
+  // Measured by the behaviour audit: every ground foe jumped 1.0-1.4m in a
+  // single frame, on every lane, within the first few seconds. The centreline
+  // was always continuous; only the normal was not.
+  let ndx = s.dx, ndz = s.dz;
+  if (si > 0 && t < LANE_BLEND) {
+    const p = lane.segs[si - 1];
+    const u = 0.5 + 0.5 * (t / LANE_BLEND);
+    const e = u * u * (3 - 2 * u);
+    ndx = p.dx + (s.dx - p.dx) * e;
+    ndz = p.dz + (s.dz - p.dz) * e;
+  } else if (si < lane.segs.length - 1 && (s.len - t) < LANE_BLEND) {
+    const q = lane.segs[si + 1];
+    const u = 0.5 * (1 - (s.len - t) / LANE_BLEND);
+    const e = u * u * (3 - 2 * u);
+    ndx = s.dx + (q.dx - s.dx) * e;
+    ndz = s.dz + (q.dz - s.dz) * e;
+  }
+  const nl = Math.hypot(ndx, ndz) || 1;
+  ndx /= nl; ndz /= nl;
+
   // left normal of (dx,dz) is (dz,-dx)
-  out.x = s.ax + s.dx * t + s.dz * o;
-  out.z = s.az + s.dz * t - s.dx * o;
+  out.x = s.ax + s.dx * t + ndz * o;
+  out.z = s.az + s.dz * t - ndx * o;
   out.dx = s.dx;
   out.dz = s.dz;
   return out;
@@ -147,6 +183,34 @@ export function nearestLane(x, z) {
     if (d < bd) { bd = d; best = l; }
   }
   return { lane: best, dist: bd };
+}
+
+// ---------------------------------------------------------------------------
+// The height of the visible ground at a point.
+//
+// This exists because everything that walks was drawn at y = 0 while the ground
+// the player can SEE is the sward at 0.16 and the worn dirt of a track at 0.285.
+// Every goblin stood 16-28cm inside the terrain, and — worse — sank further the
+// instant it stepped from grass onto a track, because the ground changed height
+// under it and the foe did not. Reported as "the goblins fall through the
+// terrain" and "they don't remain consistent as they move", and it was both.
+//
+// One function, imported by everything that stands on the floor, so a foe, the
+// player and a ward can never disagree about where the floor is.
+// ---------------------------------------------------------------------------
+export const SWARD_Y = 0.16;   // the grass plane
+export const LANE_Y = 0.285;   // the top face of a worn dirt track
+
+export function groundY(x, z) {
+  const n = nearestLane(x, z);
+  if (!n.lane) return SWARD_Y;
+  // Blended across the verge rather than a hard step: a 12cm cliff at the edge
+  // of every track would read as a stutter every time anything walked on.
+  const half = n.lane.width / 2;
+  const a = half - 0.5, b = half + 0.7;
+  const t = n.dist <= a ? 1 : (n.dist >= b ? 0 : 1 - (n.dist - a) / (b - a));
+  const e = t * t * (3 - 2 * t);            // smoothstep
+  return SWARD_Y + (LANE_Y - SWARD_Y) * e;
 }
 
 // ---------------------------------------------------------------------------

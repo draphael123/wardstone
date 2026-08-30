@@ -807,3 +807,54 @@ a mechanic the measurement cannot see
 
 So the leash was set at the point where the suite still holds — 14 m, nearly
 double the old one — rather than at the point the bot happens to prefer.
+
+---
+
+# The jank pass, and the tool that found it
+
+## A behaviour audit, separate from the fuzzer
+
+The fuzzer asks "can a hostile player break the sim". `src/behaviour.js` asks a
+different question: **does every foe, left alone, behave like a creature?**
+
+Jank is usually not a crash. It is a goblin standing inside a wall, or sliding
+two metres in one frame, or waiting politely beside a tower it is meant to be
+hitting. None of that throws, none of it fails a balance test, and all of it
+reads as unfinished. So each foe type is walked through a full minute of life on
+a real map with real wards, and five invariants are checked **every step**:
+below-ground, outside-arena, teleport, flier-altitude, and doing-nothing-at-all.
+
+It also asks whether each type ever actually did its job — and what that means
+depends on the foe. A bomber that never swings is correct; a bomber that never
+lights a fuse is not.
+
+`node run-behaviour.mjs` — currently **8/8 clean**.
+
+## Two bugs it found immediately
+
+**1. Everything stood inside the floor.** Foes, the player and the wards were
+all drawn at `y = 0`, while the ground you can *see* is the sward at 0.16 and
+the worn dirt of a track at 0.285. So every goblin was sunk 16–28 cm into the
+terrain — and sank *further* the instant it stepped from grass onto a track,
+because the ground changed height under it and the foe did not. That is both
+halves of the report: "they fall through the terrain" and "they don't remain
+consistent as they move".
+
+Fixed with one shared `groundY(x, z)` in `arena.js`, imported by everything that
+stands on the floor, so a foe, the player and a ward can never disagree about
+where the floor is. It blends across the verge rather than stepping, because a
+12 cm cliff at the edge of every track would stutter every time anything walked
+onto one.
+
+**2. Every ground foe teleported 1.0–1.4 m in a single frame.** On every lane,
+within the first few seconds, on every type. The lateral offset was measured
+against the *current segment's* normal, so the moment a foe's arclength crossed
+a bend the perpendicular flipped and the foe snapped sideways by up to twice its
+offset. The centreline was always continuous; only the normal was not.
+
+The normal now turns across a **0.4 m** window at each bend — deliberately the
+smallest value that removes the jump rather than the smoothest one, because this
+shifts where foes actually walk and the gauntlet is sensitive to it: a 2.2 m
+blend cost that map **14/21 → 8/21** over 21 seeds, since the bot's ward
+placements are sized for the old lane shape. At 0.4 m the audit is clean and the
+balance is the best of any value tried.

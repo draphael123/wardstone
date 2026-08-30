@@ -17,7 +17,7 @@ import {
 } from './defs.js';
 import {
   LANES, ARENA, CELL, cellOf, cellCenter, laneAt, nearestLane, isBuildableCell,
-  currentMap,
+  currentMap, groundY,
 } from './arena.js';
 import { makeRng } from './rand.js';
 import { AGGRO } from './defs.js';
@@ -2239,7 +2239,7 @@ export class Renderer {
         pen.visible = false;
         v.add(pen);
         v.userData.pennant = pen;
-        v.position.set(w.x, 0, w.z);
+        v.position.set(w.x, groundY(w.x, w.z), w.z);
         v.rotation.y = w.rot || 0;
         this.scene.add(v);
         this.wardViews.set(w.id, v);
@@ -2352,7 +2352,7 @@ export class Renderer {
     // screen.
     if (this.player) {
       this.player.visible = true;
-      this.player.position.set(3.4, 0, 4.4);
+      this.player.position.set(3.4, groundY(3.4, 4.4), 4.4);
       this.player.rotation.y = Math.PI + Math.sin(a * 0.9) * 0.25;
     }
 
@@ -2456,7 +2456,7 @@ export class Renderer {
     if (p.alive) {
       const rig = this.playerRig;
       this.player.visible = true;
-      this.player.position.set(p.x, 0, p.z);
+      this.player.position.set(p.x, groundY(p.x, p.z), p.z);
       this.player.rotation.y = p.yaw;
 
       // gait from ground covered, same rule as the foes
@@ -2554,7 +2554,10 @@ export class Renderer {
         f.z - (f.pz == null ? f.z - 0.01 : f.pz));
       f.px = f.x; f.pz = f.z;
 
-      let y = f.y;
+      // Ground foes stand on the visible floor; fliers keep their own altitude,
+      // measured from it so a wisp over a track is as high as one over grass.
+      const gy = groundY(f.x, f.z);
+      let y = f.y + gy;
       let lean = 0, sc = 1, lunge = 0;
       // The gait phase advances with GROUND COVERED, not with the clock, so a
       // foe held at a wall stops stepping instead of jogging on the spot.
@@ -2890,7 +2893,7 @@ export class Renderer {
     const def = WARD_BY_ID[wardId];
     const col = ok ? 0x7fe08a : 0xe0605a;
     this.ghost.visible = true;
-    this.ghost.position.set(c.x, 0.16, c.z);
+    this.ghost.position.set(c.x, groundY(c.x, c.z) + 0.01, c.z);
     this.ghost.material.color.setHex(col);
     this.ghostPost.visible = true;
     this.ghostPost.position.set(c.x, 1.1, c.z);
