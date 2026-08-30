@@ -1497,90 +1497,139 @@ export class Renderer {
   addShake(v) { if (this.allowShake) this.shake = Math.min(1.5, this.shake + v); }
 
   // --------------------------------------------------------------- wards
+  // ONE RULE: silhouette by role, so two wards can never be confused at a
+  // glance — least of all from the overhead build camera, where everything is
+  // seen from above and colour is most of what is left.
+  //
+  //   Palisade   a WALL      — flat-on, wide, vertical stakes
+  //   Ballista   LOW         — a wide, heavy, obviously mechanical engine
+  //   Watchtower TALL        — the tallest thing you own, on legs
+  //   Caltrops   FLAT        — no vertical mass at all, scattered on the dirt
+  //
+  // And each shows its function while idle: the ballista's arms are drawn and
+  // a bolt is loaded, the watchtower's archer is scanning, the caltrops glint.
   _wardMesh(def) {
-    const iron = new THREE.MeshStandardMaterial({ color: PAL.iron, roughness: 0.55, metalness: 0.6 });
-    const timber = new THREE.MeshStandardMaterial({ color: PAL.timber, roughness: 0.9 });
+    const iron = new THREE.MeshStandardMaterial({
+      color: 0xffffff, vertexColors: true, roughness: 0.5, metalness: 0.55,
+      flatShading: true,
+    });
+    const timber = new THREE.MeshStandardMaterial({
+      color: 0xffffff, vertexColors: true, roughness: 0.95, flatShading: true,
+    });
+    const W = 0x6b4a2f, WD = 0x503522, IR = 0x707a8c, ID = 0x4d5666;
     const g = new THREE.Group();
 
     if (def.id === 'palisade') {
+      // a WALL: sharpened stakes, lashed, leaning into whatever is coming
       const parts = [];
-      for (let i = -1; i <= 1; i++) {
-        parts.push({ g: box(0.5, 2.3 + (i === 0 ? 0.3 : 0), 0.5), x: i * 0.6, y: 1.15, rz: i * 0.045 });
+      for (let i = -2; i <= 2; i++) {
+        const h = 2.2 + (i % 2 ? 0.18 : 0);
+        parts.push({ g: box(0.34, h, 0.34), x: i * 0.42, y: h / 2, rz: i * 0.03, c: i % 2 ? W : WD });
+        parts.push({ g: box(0.34, 0.30, 0.34), x: i * 0.42, y: h + 0.12, rz: i * 0.03, c: 0x8a6a44 });
       }
-      parts.push({ g: box(1.9, 0.22, 0.28), y: 1.75, z: 0.2 });
-      parts.push({ g: box(1.9, 0.22, 0.28), y: 0.85, z: 0.2 });
+      parts.push({ g: box(2.2, 0.20, 0.22), y: 1.62, z: 0.20, c: WD });
+      parts.push({ g: box(2.2, 0.20, 0.22), y: 0.80, z: 0.20, c: WD });
+      parts.push({ g: box(0.20, 1.5, 0.20), x: 0.7, y: 0.75, z: 0.5, rx: 0.6, c: WD });
+      parts.push({ g: box(0.20, 1.5, 0.20), x: -0.7, y: 0.75, z: 0.5, rx: 0.6, c: WD });
       const m = new THREE.Mesh(assemble(parts), timber);
       m.castShadow = !this.low;
       g.add(m);
+
     } else if (def.id === 'ballista') {
+      // LOW and WIDE: a heavy engine on a splayed frame, arms drawn, loaded
       const base = new THREE.Mesh(assemble([
-        { g: box(1.5, 0.4, 1.5), y: 0.2 },
-        { g: box(0.5, 0.7, 0.5), y: 0.6 },
+        { g: box(2.3, 0.30, 1.9), y: 0.15, c: WD },
+        { g: box(0.34, 0.66, 0.34), x: 0.85, y: 0.4, rz: 0.30, c: W },
+        { g: box(0.34, 0.66, 0.34), x: -0.85, y: 0.4, rz: -0.30, c: W },
+        { g: box(0.30, 0.30, 1.7), y: 0.44, c: W },
+        { g: box(0.5, 0.34, 0.5), y: 0.66, c: ID },
       ]), timber);
       base.castShadow = !this.low;
       g.add(base);
+
       const head = new THREE.Mesh(assemble([
-        { g: box(0.34, 0.34, 1.9), y: 0 },
-        { g: box(2.3, 0.2, 0.2), y: 0.12, z: 0.2 },
-        { g: box(0.2, 0.5, 0.5), y: 0.1, z: -0.75 },
+        { g: box(0.40, 0.26, 1.9), c: W },                          // stock
+        { g: box(0.24, 0.20, 0.5), z: -0.9, c: ID },                // butt
+        { g: box(2.7, 0.16, 0.16), z: 0.30, c: ID },                // bow arms
+        { g: box(0.22, 0.22, 0.5), x: 1.28, z: 0.14, rz: 0.5, c: W },
+        { g: box(0.22, 0.22, 0.5), x: -1.28, z: 0.14, rz: -0.5, c: W },
+        { g: box(0.10, 0.10, 1.5), z: 0.62, c: 0xd8c9a8 },          // loaded bolt
+        { g: box(0.22, 0.06, 0.22), z: 1.30, c: 0xe8e0cc },
+        { g: box(1.9, 0.05, 0.05), z: -0.10, c: 0x2a2a2a },         // drawn string
       ]), iron);
-      head.position.y = 1.15;
+      head.position.y = 0.86;
       head.castShadow = !this.low;
       g.add(head);
       g.userData.head = head;
+
     } else if (def.id === 'archers') {
-      // a hurdle platform with a bowman on it — the soldier's answer to
-      // something in the air, and it can plausibly shoot at anything
+      // TALL: legs, a deck at 3.4m, a rail, and an archer above everything
       const legs = new THREE.Mesh(assemble([
-        { g: box(0.20, 2.0, 0.20), x: 0.55, y: 1.0, z: 0.55 },
-        { g: box(0.20, 2.0, 0.20), x: -0.55, y: 1.0, z: 0.55 },
-        { g: box(0.20, 2.0, 0.20), x: 0.55, y: 1.0, z: -0.55 },
-        { g: box(0.20, 2.0, 0.20), x: -0.55, y: 1.0, z: -0.55 },
-        { g: box(0.30, 0.12, 1.5), y: 1.1, rz: 0.2 },
+        { g: box(0.24, 3.4, 0.24), x: 0.62, y: 1.7, z: 0.62, rz: 0.05, c: WD },
+        { g: box(0.24, 3.4, 0.24), x: -0.62, y: 1.7, z: 0.62, rz: -0.05, c: WD },
+        { g: box(0.24, 3.4, 0.24), x: 0.62, y: 1.7, z: -0.62, rz: 0.05, c: WD },
+        { g: box(0.24, 3.4, 0.24), x: -0.62, y: 1.7, z: -0.62, rz: -0.05, c: WD },
+        { g: box(1.7, 0.16, 0.16), y: 1.2, z: 0.62, c: W },
+        { g: box(1.7, 0.16, 0.16), y: 2.2, z: -0.62, c: W },
+        { g: box(0.16, 1.6, 0.16), x: 0.62, y: 1.6, z: 0, rx: 0.7, c: W },
       ]), timber);
       legs.castShadow = !this.low;
       g.add(legs);
+
       const deck = new THREE.Mesh(assemble([
-        { g: box(1.7, 0.22, 1.7), y: 2.1 },
-        { g: box(1.8, 0.4, 0.18), y: 2.42, z: 0.8 },
-        { g: box(1.8, 0.4, 0.18), y: 2.42, z: -0.8 },
-        { g: box(0.18, 0.4, 1.8), y: 2.42, x: 0.8 },
+        { g: box(1.9, 0.22, 1.9), y: 3.5, c: W },
+        { g: box(2.0, 0.44, 0.16), y: 3.86, z: 0.9, c: WD },
+        { g: box(2.0, 0.44, 0.16), y: 3.86, z: -0.9, c: WD },
+        { g: box(0.16, 0.44, 2.0), y: 3.86, x: 0.9, c: WD },
+        { g: box(0.16, 0.44, 2.0), y: 3.86, x: -0.9, c: WD },
       ]), timber);
       deck.castShadow = !this.low;
       g.add(deck);
+
       const archer = new THREE.Mesh(assemble([
-        { g: box(0.34, 0.46, 0.26), y: 2.55, c: 0x4a5a6e },
-        { g: box(0.26, 0.24, 0.26), y: 2.90, c: 0xb8a58a },
-        { g: box(0.30, 0.10, 0.28), y: 3.00, c: 0x3f4a5c },
-        { g: box(0.08, 0.80, 0.08), x: 0.26, y: 2.66, rz: 0.25, c: 0x6b4a2f },
+        { g: box(0.40, 0.52, 0.30), y: 3.92, c: 0x4a5a6e },
+        { g: box(0.46, 0.14, 0.34), y: 4.22, c: 0x39465a },
+        { g: box(0.30, 0.28, 0.30), y: 4.40, c: 0xc0a688 },
+        { g: box(0.34, 0.12, 0.32), y: 4.50, c: 0x39465a },
+        { g: box(0.10, 1.0, 0.10), x: 0.30, y: 4.02, rz: 0.18, c: 0x6b4a2f },
+        { g: box(0.05, 0.9, 0.05), x: 0.36, y: 4.02, c: 0x1e1e1e },
+        { g: box(0.16, 0.16, 0.34), x: -0.26, y: 3.98, z: 0.16, c: 0x8a6a44 },
       ]), new THREE.MeshStandardMaterial({
-        color: 0xffffff, vertexColors: true, roughness: 0.8, flatShading: true,
+        color: 0xffffff, vertexColors: true, roughness: 0.85, flatShading: true,
       }));
       archer.castShadow = !this.low;
       g.add(archer);
-      g.userData.head = archer;         // turns toward its target like the ballista
+      g.userData.head = archer;
+
     } else if (def.id === 'caltrops') {
-      // a rigged log held up over the track; it drops, then has to be hauled
-      // back up, which is exactly the trap's recharge
-      const frame = new THREE.Mesh(assemble([
-        { g: box(0.22, 2.6, 0.22), x: 0.95, y: 1.3 },
-        { g: box(0.22, 2.6, 0.22), x: -0.95, y: 1.3 },
-        { g: box(2.3, 0.2, 0.2), y: 2.55 },
-      ]), timber);
-      frame.castShadow = !this.low;
-      g.add(frame);
-      const log = new THREE.Mesh(assemble([
-        { g: box(0.5, 0.5, 2.0), rz: 0.04 },
-        { g: box(0.24, 0.24, 0.4), x: 0.3, z: 0.9 },
-        { g: box(0.24, 0.24, 0.36), x: -0.28, z: -0.7 },
-      ]), new THREE.MeshStandardMaterial({
-        color: 0x5b4530, roughness: 1, flatShading: true,
+      // FLAT: nothing stands up. A scatter of iron on the dirt that glints.
+      const spikes = [];
+      const rng = makeRng(7);
+      for (let i = 0; i < 26; i++) {
+        const a = rng() * Math.PI * 2;
+        const r = rng() * 1.5;
+        const x = Math.cos(a) * r, z = Math.sin(a) * r;
+        const s = 0.13 + rng() * 0.09;
+        // each caltrop is a little jack: three crossed spikes, one always up
+        spikes.push({ g: box(s * 2.6, s * 0.34, s * 0.34), x, y: s * 0.5, z, ry: rng() * 3, c: IR });
+        spikes.push({ g: box(s * 0.34, s * 0.34, s * 2.6), x, y: s * 0.5, z, ry: rng() * 3, c: ID });
+        spikes.push({ g: box(s * 0.30, s * 1.7, s * 0.30), x, y: s * 1.1, z, c: 0x9aa6ba });
+      }
+      const m = new THREE.Mesh(assemble(spikes), new THREE.MeshStandardMaterial({
+        color: 0xffffff, vertexColors: true, roughness: 0.32, metalness: 0.8,
+        flatShading: true,
       }));
-      log.position.y = 2.0;
-      log.castShadow = !this.low;
-      g.add(log);
-      g.userData.log = log;
-        }
+      g.add(m);
+      // a scuffed patch of ground, so the covered area is legible from above
+      const patch = new THREE.Mesh(
+        new THREE.CircleGeometry(def.range * 0.92, 16).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial({
+          color: 0x8a94a8, transparent: true, opacity: 0.14, depthWrite: false,
+        }));
+      patch.position.y = 0.28;
+      g.add(patch);
+      g.userData.patch = patch;
+    }
     return g;
   }
 
@@ -1667,13 +1716,13 @@ export class Renderer {
         fire.scale.set(fl, fl, 1);
         v.userData.light.intensity = 30 + Math.sin(this.t * 9 + w.id) * 6;
       }
-      const log = v.userData.log;
-      if (log) {
-        const ready = w.cd <= 0;
-        // hauled up and waiting, or lying on the track being re-rigged
-        const want = ready ? 2.0 : 0.28;
-        log.position.y += (want - log.position.y) * Math.min(1, dt * (ready ? 3 : 16));
-        log.rotation.z = ready ? Math.sin(this.t * 1.6) * 0.03 : 0.12;
+      const patch = v.userData.patch;
+      if (patch) {
+        // brightens while something is actually crawling through it
+        const busy = world.foes.some(f => !f.dead && !f.def.flying &&
+          Math.hypot(f.x - w.x, f.z - w.z) < w.def.range);
+        const want = busy ? 0.30 : 0.12;
+        patch.material.opacity += (want - patch.material.opacity) * Math.min(1, dt * 5);
       }
       const plate = v.userData.plate;
       if (plate) {
