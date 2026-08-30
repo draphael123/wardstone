@@ -1019,3 +1019,57 @@ firing, so aiming is deliberate rather than discovered after the shot.
 Taking damage was a red tint and nothing else. It now also stops time for a
 beat, kicks the camera, and throws a ring off the player. The most important hit
 in the game to notice is the one you take.
+
+---
+
+# The bug hunt, and a thing I had to back out of
+
+## World-level invariants over a whole run
+
+The behaviour audit now also plays **three full six-wave games with the real
+bot** and checks seven world invariants every step: ward health in range, units
+within budget, mana sane, the occupancy map agreeing with the ward list, the
+player on the floor and inside the arena, projectiles bounded, and no crowd
+collapsing onto a point. This is where the compounding, hard-to-reproduce jank
+lives — 20,000 steps a run, roughly 60,000 checks per seed.
+
+## Wisps arrived as one object
+
+The audit found six wisps inside a 0.25 m circle at the fire. They converge on a
+single point by design, so a flock landed on top of itself — and it is also why
+their additive glows summed into a white smear.
+
+Fixed by spreading them **vertically**, not horizontally. Auras key on
+*horizontal* distance, so height separates a flock to the eye while changing
+nothing about which towers can reach it. That distinction was not academic:
+pushing them apart sideways put more wisps inside more watchtower auras and
+**broke the premise test outright** on the gauntlet.
+
+## Ground separation: measured, and backed out
+
+Giving walking foes the same treatment looked obviously right and was not. It is
+a **balance dial, not a visual fix** — how tightly a wave bunches decides how
+much of it a ward's area covers at once:
+
+| attempt | glade | gauntlet |
+|---|---|---|
+| none (baseline) | 13/21 | 16/21 |
+| separation 0.85 | walkover, 19/21 | 10/21 |
+| separation 0.3 | 15/21 | 14/21 |
+| engaged foes hold instead | 8/21 | 3/21 |
+
+And letting it act on a crowd already pressed against the fire **shoved them off
+the objective**, which alone was enough for an air-heavy ring to win with nobody
+playing.
+
+Meanwhile every pileup the audit ever found was a wisp.
+
+So it was backed out, and the visual problem moved to where it belongs: the
+**renderer** fans a packed bucket of foes around a small circle, deterministically
+by id, where it cannot affect a single hit point. The sim keeps its exact
+positions and a crowd is still allowed to press.
+
+The audit's pileup check was rescoped to **free-moving** foes — which is a
+statement about what a defect is, not a way of passing. Six runners converging
+on one palisade genuinely arrive at one place; free-moving foes collapsing onto
+a point means their movement is broken.

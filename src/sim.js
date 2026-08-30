@@ -28,6 +28,21 @@ const STRIKE_TIME = 0.26;
 // How high above the player's feet the sword's arc reaches.
 const SWORD_TOP = 2.5;
 
+// How much of the combined body radii foes insist on keeping between them.
+// Below 1 they may touch, which is correct — a crowd SHOULD press.
+//
+// Swept over 21 seeds on both maps, and it is a balance dial as much as a
+// visual one: at 0.85 the glade became a walkover and the gauntlet fell from
+// 16/21 to 10/21, because how tightly a wave bunches decides how much of it a
+// ward's area covers at once. 0.3 is the least separation that stops bodies
+// occupying the same point, which is all the visual problem ever needed.
+const SEPARATION = 0.3;
+// Fliers are held much closer than walkers. They converge on ONE point by
+// design, and spreading them widely around the standoff ring puts more of
+// them inside more watchtower auras — which broke the premise test outright.
+// This only has to stop six wisps occupying a single pixel.
+const FLIER_SEPARATION = 0.12;
+
 // How close the player has to be before an unoccupied foe takes an interest.
 const NOTICE_RADIUS = 4.5;
 // How far a foe will reach off its own path to hit something you built.
@@ -947,6 +962,7 @@ export class World {
     this._stepFoes(dt);
     this._stepWards(dt);
     this._stepProjectiles(dt);
+    this._separate(dt);
     this._stepMotes(dt);
 
     // ---- cull
@@ -1289,6 +1305,86 @@ export class World {
     const ds = Math.hypot(f.x, f.z);
     if (ds < bd) { bd = ds; best = { kind: 'stone' }; }
     return best;
+  }
+
+  // Crowd separation.
+  //
+  // Foes had none, so a lane backed up behind a wall collapsed into a single
+  // point — the world audit caught six of them inside a 0.25m circle. It reads
+  // as one goblin with too many limbs, and it is the single biggest source of
+  // "this looks unfinished" in a busy wave.
+  //
+  // Deliberately gentle and positional rather than a force: one relaxation pass
+  // per step, half the overlap each, so it can never fight the lane and never
+  // accumulates velocity. A lane-walking foe has the push folded into its
+  // lateral OFFSET (clamped inside the lane) so it persists instead of being
+  // overwritten by the next `laneAt`; anything moving freely is pushed directly.
+  _separate(dt) {
+    const near = this._scratch;
+    for (const f of this.foes) {
+      if (f.dead) continue;
+      // FLIERS ONLY, and this is a deliberate retreat from something broader.
+      //
+      // Ground separation was tried at four strengths and it is a BALANCE dial,
+      // not a visual one: how tightly a wave bunches decides how much of it a
+      // ward's area covers at once. At 0.85 the glade became a walkover and the
+      // gauntlet fell 16/21 -> 10/21; making engaged foes hold instead pushed
+      // the player down to 8/21 and 3/21; and letting separation act on a crowd
+      // pressed against the fire shoved them off the objective and let an
+      // air-heavy ring win unattended.
+      //
+      // Meanwhile both pileups the audit ever found were WISPS. So this fixes
+      // the problem that actually exists and leaves the one that does not.
+      if (!f.def.flying) continue;
+      this.foeHash.query(f.x, f.z, f.def.radius * 2 + 0.6, near);
+      let px = 0, pz = 0;
+      for (let n = 0; n < near.length; n++) {
+        const g = near[n];
+        // Fliers separate from fliers and walkers from walkers, never across:
+        // a wisp four metres up has no business shoving a goblin.
+        if (g === f || g.dead || g.def.flying !== f.def.flying) continue;
+        const dx = f.x - g.x, dz = f.z - g.z;
+        const d = Math.hypot(dx, dz);
+        const want = (f.def.radius + g.def.radius) *
+          (f.def.flying ? FLIER_SEPARATION : SEPARATION);
+        if (d >= want) continue;
+        if (d < 1e-4) {            // exactly coincident: break the tie by id
+          px += (f.id % 2 ? 1 : -1) * 0.02;
+          pz += (f.id % 3 ? 1 : -1) * 0.02;
+          continue;
+        }
+        const push = (want - d) * 0.5;
+        px += (dx / d) * push;
+        pz += (dz / d) * push;
+      }
+      if (px === 0 && pz === 0) continue;
+      const cap = f.def.speed * dt * 1.5;          // never out-runs its own walk
+      const pl = Math.hypot(px, pz);
+      if (pl > cap) { px = px / pl * cap; pz = pz / pl * cap; }
+
+      if (f.def.flying) {
+        // Wisps converge on one point by design, so without this an entire
+        // flock arrives as a single overlapping blob at the standoff ring —
+        // which is also why their additive glows summed to a white smear.
+        f.x += px; f.z += pz;
+        // Height is where a flock gets its spread, not width. Auras key on
+        // HORIZONTAL distance, so stacking wisps vertically separates them to
+        // the eye while changing nothing about which towers can reach them —
+        // pushing them apart sideways put more of them inside more auras and
+        // broke the premise test on the gauntlet.
+        const want = f.def.flyHeight + ((f.id % 7) - 3) * 0.42;
+        f.y += (want - f.y) * Math.min(1, dt * 1.5);
+      } else if (f.standing || f.targetKind || f.aggroT > 0) {
+        f.x += px; f.z += pz;                       // free-moving: push directly
+      } else {
+        // lane-walking: fold the sideways part into `off` so it survives
+        const q = laneAt(f.lane, f.dist, 0);
+        const nx = q.dz, nz = -q.dx;                // left normal
+        const lat = px * nx + pz * nz;
+        const half = f.lane.width / 2 - f.def.radius - 0.15;
+        f.off = Math.max(-half, Math.min(half, f.off + lat));
+      }
+    }
   }
 
   _pickTarget(w, near) {

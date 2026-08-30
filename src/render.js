@@ -22,6 +22,9 @@ import {
 import { makeRng } from './rand.js';
 import { AGGRO } from './defs.js';
 const WINDUP = AGGRO.windup;
+// Display-only crowd fan-out: bucket size, and how far a packed bucket spreads.
+const CROWD_CELL = 0.55;
+const CROWD_FAN = 0.44;
 
 export const PAL = {
   night:    0x1a1622,   // warm dark, not blue-black
@@ -2555,6 +2558,7 @@ export class Renderer {
     // --- foes
     const counts = { husk: 0, runner: 0, wisp: 0, breaker: 0 };
     let wg = 0;
+    const crowd = this._crowdOffsets(world);
     for (const f of world.foes) {
       if (f.dead) continue;
       const slot = this.foeMeshes[f.kind];
@@ -2568,7 +2572,10 @@ export class Renderer {
 
       // Ground foes stand on the visible floor; fliers keep their own altitude,
       // measured from it so a wisp over a track is as high as one over grass.
-      const gy = groundY(f.x, f.z);
+      const co = crowd.get(f.id);
+      const fx = f.x + (co ? co.dx : 0);
+      const fz = f.z + (co ? co.dz : 0);
+      const gy = groundY(fx, fz);
       let y = f.y + gy;
       let lean = 0, sc = 1, lunge = 0;
       // The gait phase advances with GROUND COVERED, not with the clock, so a
@@ -2632,7 +2639,7 @@ export class Renderer {
       // lunge is along the foe's own facing, so a strike visibly travels
       const lx = f.def.flying && f.faceX != null ? f.faceX : Math.sin(ang);
       const lz = f.def.flying && f.faceZ != null ? f.faceZ : Math.cos(ang);
-      _m.compose(_v.set(f.x + lx * lunge, y, f.z + lz * lunge), _q, _s);
+      _m.compose(_v.set(fx + lx * lunge, y, fz + lz * lunge), _q, _s);
       slot.mesh.setMatrixAt(i, _m);
       // capped well below 1: a full-white flash erases the silhouette colour
       slot.flash.array[i] = f.hitT > 0 ? Math.min(0.55, f.hitT * 5.5) : 0;
@@ -3021,6 +3028,42 @@ export class Renderer {
   }
 
   hideAbilityRing() { if (this.abilRing) this.abilRing.visible = false; }
+
+  // Display-only crowd fan-out.
+  //
+  // A crowd pressed against a wall genuinely occupies almost one point, and the
+  // sim is RIGHT to let it — separation there turned out to be a balance dial
+  // that swung both maps hard in every configuration tried. But six bodies in
+  // one place still reads as one goblin with too many limbs.
+  //
+  // So the spreading happens here, in the renderer, where it cannot affect a
+  // single hit point. Foes are bucketed on a coarse grid and any bucket holding
+  // more than one fans its members out around a small circle, deterministically
+  // by id so nothing jitters frame to frame.
+  _crowdOffsets(world) {
+    const buckets = this._crowdBuckets || (this._crowdBuckets = new Map());
+    const out = this._crowdOut || (this._crowdOut = new Map());
+    buckets.clear();
+    out.clear();
+    for (const f of world.foes) {
+      if (f.dead || f.def.flying) continue;
+      const key = `${Math.round(f.x / CROWD_CELL)},${Math.round(f.z / CROWD_CELL)}`;
+      let b = buckets.get(key);
+      if (!b) { b = []; buckets.set(key, b); }
+      b.push(f);
+    }
+    for (const b of buckets.values()) {
+      if (b.length < 2) continue;
+      // stable order, so a foe keeps its place in the ring while the crowd holds
+      b.sort((p, q) => p.id - q.id);
+      const r = Math.min(CROWD_FAN, 0.16 * b.length);
+      for (let i = 0; i < b.length; i++) {
+        const a = (i / b.length) * Math.PI * 2;
+        out.set(b[i].id, { dx: Math.cos(a) * r, dz: Math.sin(a) * r });
+      }
+    }
+    return out;
+  }
 
   // Which foe is under the pointer, in SCREEN space.
   //

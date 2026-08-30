@@ -13,7 +13,8 @@
 
 import { World } from './sim.js';
 import { setMap, groundY, ARENA, nearestLane, laneAt } from './arena.js';
-import { FOES, FOE_BY_ID, AGGRO } from './defs.js';
+import { FOES, FOE_BY_ID, AGGRO, ECON } from './defs.js';
+import { Bot } from './harness.js';
 
 const DT = 1 / 60;
 
@@ -145,6 +146,126 @@ function cellXZ(i, j) {
 }
 
 // ---------------------------------------------------------------------------
+// World-level invariants. These are not about one creature behaving; they are
+// about the WORLD staying coherent while a whole run plays out. Checked every
+// step of a full six-wave game, which is where the compounding, hard-to-repro
+// jank lives.
+// ---------------------------------------------------------------------------
+const WORLD_CHECKS = [
+  {
+    id: 'ward-hp-range',
+    why: 'a ward outside its own health range',
+    test: (w) => {
+      for (const x of w.wards) {
+        if (x.dead) continue;
+        if (x.hp > x.maxHp + 0.01) return `${x.def.id} at ${x.hp.toFixed(0)}/${x.maxHp}`;
+        if (x.hp < 0) return `${x.def.id} at ${x.hp.toFixed(2)}`;
+      }
+      return null;
+    },
+  },
+  {
+    id: 'units-within-budget',
+    why: 'more defence units spent than the budget allows',
+    test: (w) => (w.du > w.duBudget ? `${w.du}/${w.duBudget}` : null),
+  },
+  {
+    id: 'mana-sane',
+    why: 'negative mana, or mana past its cap',
+    test: (w) => {
+      if (w.mana < -0.01) return `${w.mana.toFixed(1)}`;
+      if (w.mana > ECON.manaCap + 0.5) return `${w.mana.toFixed(0)} > cap ${ECON.manaCap}`;
+      return null;
+    },
+  },
+  {
+    id: 'occupancy-agrees',
+    why: 'the occupancy map and the ward list disagree about what is standing',
+    // These two go out of sync the moment something removes a ward without
+    // clearing its cell, and the symptom is a cell you can never build on again.
+    test: (w) => {
+      const live = w.wards.filter(x => !x.dead).length;
+      return w.occupancy.size !== live
+        ? `${w.occupancy.size} cells vs ${live} live wards` : null;
+    },
+  },
+  {
+    id: 'player-grounded',
+    why: 'the player below the floor or outside the arena',
+    test: (w) => {
+      const p = w.player;
+      if (p.y < -0.01) return `y = ${p.y.toFixed(2)}`;
+      const lim = ARENA.wallInset + 1;
+      if (Math.abs(p.x) > lim || Math.abs(p.z) > lim)
+        return `at ${p.x.toFixed(1)}, ${p.z.toFixed(1)}`;
+      return null;
+    },
+  },
+  {
+    id: 'projectiles-bounded',
+    why: 'projectiles accumulating without ever resolving',
+    test: (w) => (w.projectiles.length > 400 ? `${w.projectiles.length} in flight` : null),
+  },
+  {
+    id: 'no-foe-pileup',
+    why: 'foes occupying almost exactly one point',
+    // Deliberately tight. A crowd pressed against a wall genuinely occupies
+    // nearly one place and the sim is right to allow it — spreading them there
+    // was measured to be a balance dial, not a visual fix. Making them
+    // DISTINGUISHABLE is the renderer's job (see _crowdOffsets). What this
+    // still has to catch is the pathological case: bodies at the same point.
+    test: (w) => {
+      // Foes ENGAGED on the same target are excluded, and that is a statement
+      // about what a defect is rather than a way of passing. Six runners
+      // converging on one palisade genuinely arrive at one place; the sim is
+      // right to let them, and spreading them there was measured to swing both
+      // maps hard. Their being distinguishable is the renderer's job and is
+      // solved there (_crowdOffsets). What remains a real defect — and what
+      // this still catches — is free-moving foes collapsing onto a point,
+      // which means something has gone wrong with their movement.
+      const live = w.foes.filter(f => !f.dead && !f.targetKind);
+      if (live.length < 6) return null;
+      for (let i = 0; i < live.length; i++) {
+        let n = 0;
+        for (let j = 0; j < live.length; j++) {
+          if (i === j) continue;
+          const a = live[i], b = live[j];
+          const dy = (a.def.flying || b.def.flying) ? (a.y - b.y) : 0;
+          if (Math.hypot(a.x - b.x, dy, a.z - b.z) < 0.10) n++;
+        }
+        if (n >= 5) {
+          const f = live[i];
+          return `${n + 1} free-moving foes within 0.10m at (${f.x.toFixed(1)}, ${f.z.toFixed(1)})` +
+            ` — kind ${f.kind}, target ${f.targetKind || 'none'},` +
+            ` distFromFire ${Math.hypot(f.x, f.z).toFixed(1)}m`;
+        }
+      }
+      return null;
+    },
+  },
+];
+
+// A full six-wave run with the real bot, checking the world every step.
+export function auditRun(seed = 7, log = console.log) {
+  const w = new World({ seed });
+  const bot = new Bot(w, { build: true, fight: true });
+  const found = [];
+  let steps = 0;
+  while (w.phase !== 'won' && w.phase !== 'lost' && steps < 90000) {
+    bot.tick(DT);
+    w.step(DT);
+    steps++;
+    for (const c of WORLD_CHECKS) {
+      const bad = c.test(w);
+      if (bad && !found.some(x => x.id === c.id)) {
+        found.push({ id: c.id, why: c.why, detail: bad, t: steps * DT });
+      }
+    }
+  }
+  return { found, steps, phase: w.phase, wave: w.waveIndex + 1 };
+}
+
+// ---------------------------------------------------------------------------
 export function runBehaviour(log = console.log) {
   log('\n--- WARDSTONE foe behaviour audit ---\n');
   setMap('glade');
@@ -176,6 +297,22 @@ export function runBehaviour(log = console.log) {
     }
   }
 
-  log(`\n--- ${total - bad}/${total} foe types clean ---\n`);
+  log('\n  [full-run world invariants]');
+  for (const seed of [7, 3, 21]) {
+    const r = auditRun(seed, log);
+    total++;
+    if (r.found.length) {
+      bad++;
+      log(`  FAIL  seed ${String(seed).padEnd(9)} ${r.found.length} problem(s)`);
+      for (const f of r.found) {
+        log(`          ${f.id} @ ${f.t.toFixed(1)}s — ${f.detail}`);
+        log(`            (${f.why})`);
+      }
+    } else {
+      log(`  ok    seed ${String(seed).padEnd(9)} ${r.phase} at wave ${r.wave}, ${r.steps} steps clean`);
+    }
+  }
+
+  log(`\n--- ${total - bad}/${total} checks clean ---\n`);
   return { total, bad };
 }
