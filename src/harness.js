@@ -955,6 +955,52 @@ export function runTests(log = console.log) {
   }
 
 
+  // ------------------------------------------------------------------- jump
+  // Jumping lets the sword reach a will-o-wisp. That was asked for knowing it
+  // hands melee an answer to the air, which is the one thing the design says
+  // only the crossbow does — so the rule that keeps it honest is that the reach
+  // exists ONLY at the top of the arc. From the ground the sword must still be
+  // useless against the sky, exactly as before.
+  //
+  // Worth stating plainly: the harness bot does not jump, so the DIFFICULTY
+  // effect of this is unmeasured. What is measured is the geometry, and that
+  // the air still belongs to the player either way (T14).
+  {
+    log('\n[jump]');
+    const arc = new World({ seed: 3, sandbox: true });
+    arc.jump();
+    let apex = 0, air = 0;
+    for (let n = 0; n < 300; n++) {
+      arc.step(DT);
+      apex = Math.max(apex, arc.player.y);
+      if (arc.player.y > 0) air += DT; else if (n > 5) break;
+    }
+
+    const swordVsWisp = (fromAir) => {
+      const x = new World({ seed: 3, sandbox: true });
+      x._spawn('north', 'wisp');
+      const f = x.foes[x.foes.length - 1];
+      x.player.weapon = 'sword';
+      for (let n = 0; n < 240; n++) {
+        f.x = x.player.x + 1.5; f.z = x.player.z; f.y = f.def.flyHeight;
+        if (fromAir && x.player.y <= 0.01) x.jump();
+        const high = fromAir ? x.player.y > 1.6 : true;
+        if (high && x.player.atkCd <= 0 && x._melee(1, 0) > 0) return true;
+        x.step(DT);
+      }
+      return false;
+    };
+
+    const ground = swordVsWisp(false);
+    const air2 = swordVsWisp(true);
+    ok('T31 the sword reaches the sky only at the top of a jump',
+      !ground && air2,
+      `apex ${apex.toFixed(2)}m over ${air.toFixed(2)}s — ` +
+      `from the ground ${ground ? 'HITS (should not)' : 'misses'}, ` +
+      `at apex ${air2 ? 'hits' : 'MISSES (should hit)'}`);
+  }
+
+
   log(`\n--- ${pass}/${pass + fail} passed ---\n`);
   return { pass, fail, results };
 }

@@ -117,7 +117,7 @@ const state = {
   move: { x: 0, y: 0 },        // -1..1 from stick or WASD
   firing: false, mending: false, wantDodge: false, blocking: false,
   pointer: { x: 0, y: 0, has: false },
-  ghostCell: null, ghostRot: null, overhead: false, showAbil: false,
+  ghostCell: null, ghostRot: null, overhead: false, showAbil: false, wantJump: false,
   binds: null, keyToAction: {},
   inspect: null, runFrom: null,
   acc: 0, last: 0, lastFrame: 0, hitstop: 0,
@@ -400,6 +400,16 @@ function drainEvents() {
       case 'blocked':
         r.spark(e.x, 1.2, e.z, 0xffe8b8, 7, 5, 0.7, -1);
         r.addShake(0.09);
+        break;
+      case 'jump':
+        r.shock(e.x, 0.12, e.z, 0xbcd2f5, 0.4, 1.9, 0.28);
+        if (s) s.play('foeSwing', 0.4, 1.8);
+        break;
+      case 'land':
+        // dust, and a small kick — a landing with no weight reads as floating
+        r.spark(e.x, 0.2, e.z, 0xa8b4c8, 7, 3.2, 0.7, -6);
+        r.shock(e.x, 0.12, e.z, 0xa8b4c8, 0.5, 2.4, 0.3);
+        r.addShake(0.06);
         break;
       case 'dodge':
         r.ringBurst(e.x, 0.25, e.z, 0xbcd2f5, 1.5, 12);
@@ -1096,6 +1106,7 @@ function applyInput(dt) {
   }
 
   // the roll. Direction is whatever you are holding; if nothing, straight ahead.
+  if (state.wantJump) { w.jump(); state.wantJump = false; }
   if (state.wantDodge) {
     state.wantDodge = false;
     if (m > 0.02) w.dodge(vx, vz);

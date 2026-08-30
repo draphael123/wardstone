@@ -56,6 +56,16 @@ export const PLAYER = {
   },
 
   swapTime: 0.22,      // brief lockout so swapping mid-brawl is a real choice
+  // Jump. The apex is chosen from ONE requirement: the sword must reach a
+  // will-o-wisp at the top of it, and must not reach one from the ground.
+  // Wisp altitude 4.2m, the blade tops out about 2.5m above the player's feet,
+  // so the apex has to clear ~1.9m. h = v^2/2g, so v = sqrt(2*18*2.1) ~ 8.7.
+  jump: {
+    speed: 8.7,        // m/s upward at takeoff
+    gravity: 18,       // m/s^2 — brisk, so the hang time stays readable
+    airReach: 1.2,     // how far ABOVE the sword's arc a flier can still be hit
+    cooldown: 0.12,    // just enough to stop a held key machine-gunning it
+  },
   aimCone: 0.978,      // cos(12deg) — assist snaps to a foe inside this cone
   aimConeAir: 0.62,    // cos(52deg) — fliers, which sit well above a flat aim
 

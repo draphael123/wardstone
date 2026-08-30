@@ -938,3 +938,41 @@ while G swaps.
 - **Every chip now carries its own key** — `Roll Space`, `Rally V` — so a rebind
   shows up where the control is rather than only in a settings list nobody
   reopens.
+
+---
+
+# Jump, and letting the sword reach the sky
+
+Asked for explicitly, and chosen over the safer option knowing it hands melee an
+answer to the air — which is the one thing the whole design says only the
+crossbow does. So the rule that keeps it honest is **geometry**:
+
+- The apex is not a feel number. It is derived: a wisp flies at **4.2 m**, the
+  blade tops out about **2.5 m** above the player's feet, so the jump has to
+  clear ~1.9 m and no more. `v = sqrt(2gh)` gives 8.7 m/s at g = 18, and the
+  measured arc is **2.03 m over 0.95 s**.
+- **From the ground the sword still cannot touch a flier.** What jumping buys is
+  a *window*, not a capability.
+- **No double jump**, because the point of the apex is that it is a window you
+  have to time.
+
+`T31` asserts both halves: from the ground it misses, at apex it hits.
+
+## What is measured, and what is not
+
+The **premise is unaffected** and still asserted: wards alone lose, and a player
+who ignores the sky still loses (`T14`). The air remains the *body's* job — this
+only changes which weapon the body can do it with.
+
+The **difficulty effect is unmeasured**, and I would rather say so than imply
+otherwise: the harness bot does not jump, so every balance number in the suite
+reflects a player who never uses this. That is the same blind spot as the chase
+mechanic — the bot suffers what it cannot exploit
+([[sim-cannot-measure-a-strategy-the-bot-cannot-play]]).
+
+## A bug the browser found
+
+The jump was invisible. Two places *assigned* `player.position.y` — the walk bob
+and the roll — so whichever ran last overwrote the height set from `p.y`.
+Measured: sim apex 2.03 m, mesh apex **0.00 m**. Everything vertical is additive
+over one base now: mesh apex 2.19 m (2.03 of jump over 0.16 of sward).

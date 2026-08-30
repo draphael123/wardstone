@@ -25,6 +25,9 @@ const RUN_MAX = 12;
 // How long a foe's weapon takes to come down and recover after the windup.
 const STRIKE_TIME = 0.26;
 
+// How high above the player's feet the sword's arc reaches.
+const SWORD_TOP = 2.5;
+
 // How close the player has to be before an unoccupied foe takes an interest.
 const NOTICE_RADIUS = 4.5;
 // How far a foe will reach off its own path to hit something you built.
@@ -116,6 +119,7 @@ export class World {
       weapon: 'crossbow', swapT: 0, swingT: 0,
       dodgeT: 0, dodgeCd: 0, dodgeX: 0, dodgeZ: 0, invuln: 0,
       blocking: false, abilityCd: 0, rallyT: 0, warming: false,
+      vy: 0, airT: 0, jumpCd: 0,
     };
 
     this.foes = [];
@@ -656,7 +660,15 @@ export class World {
     let hits = 0;
     for (let n = 0; n < near.length; n++) {
       const f = near[n];
-      if (f.dead || f.def.flying) continue;          // cannot reach the air
+      if (f.dead) continue;
+      // From the GROUND the sword still cannot touch the sky — that rule is
+      // load-bearing. What jumping buys is a window: at the top of a jump the
+      // blade is high enough to reach a wisp, and only then.
+      if (f.def.flying) {
+        const blade = p.y + SWORD_TOP;
+        if (f.y > blade + PLAYER.jump.airReach) continue;
+        if (f.y < blade - PLAYER.jump.airReach - f.def.height) continue;
+      }
       const dx = f.x - p.x, dz = f.z - p.z;
       const d = Math.hypot(dx, dz);
       if (d > def.range + f.def.radius) continue;
@@ -687,6 +699,31 @@ export class World {
     }
     this.emit({ type: 'swing', x: p.x, z: p.z, dx: ux, dz: uz, hits, airborneInReach });
     return hits;
+  }
+
+  // Jump. Grounded only — no double jump, because the whole point of the apex
+  // is that it is a WINDOW you have to time against a flier, and a second jump
+  // would let you simply stay up there.
+  jump() {
+    const p = this.player;
+    if (!p.alive || p.y > 0.001 || p.jumpCd > 0 || p.dodgeT > 0) return false;
+    p.vy = PLAYER.jump.speed;
+    p.jumpCd = PLAYER.jump.cooldown;
+    this.emit({ type: 'jump', x: p.x, z: p.z });
+    return true;
+  }
+
+  _stepJump(dt) {
+    const p = this.player;
+    if (p.jumpCd > 0) p.jumpCd -= dt;
+    if (p.y <= 0 && p.vy <= 0) { p.y = 0; p.vy = 0; p.airT = 0; return; }
+    p.vy -= PLAYER.jump.gravity * dt;
+    p.y += p.vy * dt;
+    p.airT += dt;
+    if (p.y <= 0) {
+      p.y = 0; p.vy = 0; p.airT = 0;
+      this.emit({ type: 'land', x: p.x, z: p.z });
+    }
   }
 
   // Blocking is a held state rather than an action, so it costs you movement
@@ -863,6 +900,7 @@ export class World {
     if (p.abilityCd > 0) p.abilityCd -= dt;
     if (p.rallyT > 0) p.rallyT -= dt;
     if (p.invuln > 0) p.invuln -= dt;
+    this._stepJump(dt);
     if (p.dodgeT > 0) {
       p.dodgeT -= dt;
       this.movePlayer(p.dodgeX * PLAYER.dodge.speed, p.dodgeZ * PLAYER.dodge.speed, dt);

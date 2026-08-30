@@ -2456,7 +2456,9 @@ export class Renderer {
     if (p.alive) {
       const rig = this.playerRig;
       this.player.visible = true;
-      this.player.position.set(p.x, groundY(p.x, p.z), p.z);
+      // p.y is the jump. Without adding it the whole arc is invisible and the
+      // jump reads as a cooldown that does nothing.
+      this.player.position.set(p.x, groundY(p.x, p.z) + p.y, p.z);
       this.player.rotation.y = p.yaw;
 
       // gait from ground covered, same rule as the foes
@@ -2472,7 +2474,8 @@ export class Renderer {
       rig.legR.rotation.x = -sw * 0.85 * speedK;
       rig.armL.rotation.x = -sw * 0.55 * speedK;
       rig.armR.rotation.x = sw * 0.45 * speedK;
-      this.player.position.y = Math.abs(sw) * 0.055 * speedK;
+      const baseY = groundY(p.x, p.z) + p.y;
+      this.player.position.y = baseY + Math.abs(sw) * 0.055 * speedK;
       rig.cape.rotation.x = -0.10 - speedK * 0.22;
 
       // the swing: a fast forward chop that overrides the walk on the arm
@@ -2483,10 +2486,19 @@ export class Renderer {
       } else {
         rig.armR.rotation.z = 0;
       }
+      // airborne: legs tuck at the top, then reach for the ground on the way
+      // down, so the arc reads as a jump rather than a float
+      if (p.y > 0.02) {
+        const rising = p.vy > 0;
+        const tuck = rising ? -1.0 : -0.35;
+        rig.legL.rotation.x = tuck; rig.legR.rotation.x = tuck * 0.7;
+        rig.armL.rotation.x = rising ? -0.9 : -0.3;
+        rig.cape.rotation.x = -0.45;
+      }
       // the roll: tuck and spin
       if (p.dodgeT > 0) {
         const k = 1 - (p.dodgeT / PLAYER.dodge.time);
-        this.player.position.y = Math.sin(k * Math.PI) * 0.45;
+        this.player.position.y = baseY + Math.sin(k * Math.PI) * 0.45;
         rig.body.rotation.x = k * Math.PI * 2;
         rig.legL.rotation.x = -1.2; rig.legR.rotation.x = -1.2;
       } else {
