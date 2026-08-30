@@ -463,6 +463,16 @@ export class Renderer {
     // the middle of frame with dead floor below and the lane you are walking
     // toward cropped off the top — worst on a tall portrait phone.
     this.lookAhead = 4;
+
+    // Overhead build view — Dungeon Defenders' "overlord" camera. Lifts off
+    // the shoulder to a high angled view you can pan, so a far track can be
+    // built on without walking there. Deliberately NOT straight down: a few
+    // degrees of tilt keeps the wards' silhouettes readable, which a pure
+    // plan view destroys.
+    this.overhead = false;
+    this.ohTarget = { x: 0, z: 0 };
+    this.ohHeight = 40;
+    this.ohBlend = 0;              // 0 = chase, 1 = overhead
     this._camPos = new THREE.Vector3(0, 20, 20);
     this._camLook = new THREE.Vector3();
 
@@ -1672,6 +1682,14 @@ export class Renderer {
     const p = world.player;
 
     // --- camera: chase, high, smoothed. Yaw is the player's to steer.
+    // The two cameras are blended rather than switched, so entering and
+    // leaving the build view is a move you can follow rather than a cut.
+    const want = this.overhead ? 1 : 0;
+    this.ohBlend += (want - this.ohBlend) * Math.min(1, dt * 6.5);
+    if (this.ohBlend < 0.001) this.ohBlend = 0;
+    if (this.ohBlend > 0.999) this.ohBlend = 1;
+    const ob = this.ohBlend * this.ohBlend * (3 - 2 * this.ohBlend);   // smoothstep
+
     let tx = p.x - Math.sin(this.camYaw) * this.camDist;
     let tz = p.z - Math.cos(this.camYaw) * this.camDist;
     const lim = ARENA.half - 2.5;
@@ -1687,6 +1705,18 @@ export class Renderer {
     this._camLook.x += (lx - this._camLook.x) * k;
     this._camLook.z += (lz - this._camLook.z) * k;
     this._camLook.y = 1.2;
+
+    // fold the overhead camera in over the top of the chase result
+    if (ob > 0) {
+      const oh = this.ohTarget;
+      const ox = oh.x, oz = oh.z + this.ohHeight * 0.38;
+      this._camPos.x += (ox - this._camPos.x) * ob;
+      this._camPos.y += (this.ohHeight - this._camPos.y) * ob;
+      this._camPos.z += (oz - this._camPos.z) * ob;
+      this._camLook.x += (oh.x - this._camLook.x) * ob;
+      this._camLook.z += (oh.z - this._camLook.z) * ob;
+      this._camLook.y += (0 - this._camLook.y) * ob;
+    }
 
     if (this.shake > 0) {
       this.shake = Math.max(0, this.shake - dt * 2.6);

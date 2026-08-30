@@ -42,7 +42,7 @@ const state = {
   move: { x: 0, y: 0 },        // -1..1 from stick or WASD
   firing: false, mending: false, wantDodge: false,
   pointer: { x: 0, y: 0, has: false },
-  ghostCell: null, ghostRot: null,
+  ghostCell: null, ghostRot: null, overhead: false,
   acc: 0, last: 0, lastFrame: 0, hitstop: 0,
   vel: { x: 0, z: 0 },
   hintShown: new Set(),
@@ -418,12 +418,13 @@ function bindInput() {
         state.snd.play('click');
       }
     }
-    if (k === 'q' || k === 'tab') { e.preventDefault(); state.world.swapWeapon(); }
+    if (k === 'q') state.world.swapWeapon();
+    if (k === 'tab' || k === 'b') { e.preventDefault(); toggleOverhead(); }
     if (k === ' ' || k === 'shift') { e.preventDefault(); state.wantDodge = true; }
     if (k === 'x' && state.selected === null) sellUnderPointer();
     if (k === 'f' && state.selected === null) {
       const w = state.world;
-      const near = w.wardNear(4.2);
+      const near = state.overhead ? wardUnderPointer() : w.wardNear(4.2);
       const r = w.canUpgrade(near);
       if (r.ok) { w.upgrade(near); }
       else if (near) { toast(r.why); state.snd.play('hover', 0.6, 0.7); }
@@ -472,8 +473,13 @@ function bindInput() {
 
   cv.addEventListener('wheel', (e) => {
     e.preventDefault();
-    state.rend.camDist = Math.max(7, Math.min(26, state.rend.camDist + Math.sign(e.deltaY) * 1.3));
-    state.rend.camHeight = 2.2 + state.rend.camDist * 0.48;
+    if (state.overhead) {
+      state.rend.ohHeight = Math.max(22, Math.min(64,
+        state.rend.ohHeight + Math.sign(e.deltaY) * 3));
+    } else {
+      state.rend.camDist = Math.max(7, Math.min(26, state.rend.camDist + Math.sign(e.deltaY) * 1.3));
+      state.rend.camHeight = 2.2 + state.rend.camDist * 0.48;
+    }
   }, { passive: false });
 
   // ---- touch stick
@@ -518,6 +524,7 @@ function bindInput() {
   });
   tap($('bRoll'), () => state.wantDodge = true);
   tap($('bSwap'), () => state.world.swapWeapon());
+  tap($('bView'), () => toggleOverhead());
 
   // a dedicated turn pad, for when a thumb is busy on the stick
   const cam = $('bCam');
@@ -542,6 +549,28 @@ function bindInput() {
   $('again').addEventListener('click', () => location.reload());
 }
 
+// The build view. Freezes the body and lifts the camera so a far track can be
+// worked on without walking there — the single biggest quality-of-life gap
+// against Dungeon Defenders. Available in combat too, because a wall you
+// cannot rebuild mid-wave is the same as no wall.
+function toggleOverhead(on) {
+  const r = state.rend, w = state.world;
+  const next = on == null ? !state.overhead : on;
+  if (next === state.overhead) return;
+  state.overhead = next;
+  r.overhead = next;
+  if (next) {
+    r.ohTarget.x = w.player.x;
+    r.ohTarget.z = w.player.z;
+    state.firing = false;
+    state.vel.x = state.vel.z = 0;
+  }
+  $('ohBadge').classList.toggle('on', next);
+  const b = $('bView');
+  if (b) b.classList.toggle('on', next);
+  state.snd.play('select', 0.8, next ? 1.1 : 0.85);
+}
+
 function tryBuild(px, py) {
   const w = state.world;
   const c = pickCell(px, py) || cellAhead();
@@ -564,12 +593,15 @@ function tryBuild(px, py) {
   }
 }
 
-function sellUnderPointer() {
+function wardUnderPointer() {
   const w = state.world;
   const c = state.pointer.has ? pickCell(state.pointer.x, state.pointer.y) : cellAhead();
-  if (!c) return;
-  const ward = w.wardAtCell(c.i, c.j);
-  if (ward) w.sell(ward);
+  return c ? w.wardAtCell(c.i, c.j) : null;
+}
+
+function sellUnderPointer() {
+  const ward = wardUnderPointer();
+  if (ward) state.world.sell(ward);
 }
 
 // ---------------------------------------------------------------------------
@@ -590,6 +622,31 @@ function applyInput(dt) {
   // Movement is camera-relative, which is the only scheme that survives a
   // camera the player is free to spin. Test the TRANSFORM, not the sim —
   // see [[world-space-tests-cannot-see-inverted-controls]].
+  // In the build view the body is parked and the same keys pan the camera.
+  if (state.overhead) {
+    const sp = 34 * (state.rend.ohHeight / 40);
+    const pan = state.rend.ohTarget;
+    pan.x += mx * sp * dt;
+    pan.z += my * sp * dt;
+    const lim = ARENA.half - 4;
+    pan.x = Math.max(-lim, Math.min(lim, pan.x));
+    pan.z = Math.max(-lim, Math.min(lim, pan.z));
+    state._moving = false;
+    state.vel.x = state.vel.z = 0;
+    if (state.selected) {
+      const c = (state.pointer.has ? pickCell(state.pointer.x, state.pointer.y) : null);
+      r.showBuildGrid(w, state.selected, pan.x, pan.z, 26);
+      if (c) {
+        const cc = cellCenter(c.i, c.j);
+        const rot = state.ghostRot == null ? w.defaultRotAt(cc.x, cc.z) : state.ghostRot;
+        r.showGhost(state.selected, c.i, c.j, w.canBuild(state.selected, c.i, c.j).ok, rot);
+      }
+    } else {
+      r.hideGhost();
+    }
+    return;
+  }
+
   const sin = Math.sin(r.camYaw), cos = Math.cos(r.camYaw);
   const fx = -sin, fz = -cos;          // camera forward on the ground plane
   const rx = cos, rz = -sin;           // camera right

@@ -188,9 +188,10 @@
     bottom:calc(max(20px,env(safe-area-inset-bottom)) + 258px);width:56px;height:56px;font-size:9px}
   #bRoll{right:calc(max(20px,env(safe-area-inset-right)) + 106px);
     bottom:calc(max(20px,env(safe-area-inset-bottom)) + 68px);width:64px;height:64px}
-  #bSwap{right:calc(max(20px,env(safe-area-inset-right)) + 6px);
-    bottom:calc(max(20px,env(safe-area-inset-bottom)) + 258px);width:56px;height:56px;
-    right:auto;left:calc(max(20px,env(safe-area-inset-left)) + 138px)}
+  #bSwap{bottom:calc(max(20px,env(safe-area-inset-bottom)) + 258px);width:56px;height:56px;
+    left:calc(max(20px,env(safe-area-inset-left)) + 138px)}
+  #bView{left:calc(max(20px,env(safe-area-inset-left)) + 138px);
+    bottom:calc(max(20px,env(safe-area-inset-bottom)) + 190px);width:56px;height:56px;font-size:9px}
 
   /* ================= overlays ================= */
   #over{position:fixed;inset:0;z-index:60;display:none;place-items:center;
@@ -223,6 +224,13 @@
   .skeys{font-size:11px;color:#8e97a8;line-height:1.9;margin:16px 0 18px;
     padding-top:14px;border-top:1px solid rgba(255,255,255,.08)}
   .skeys b{color:#e9e6dd;font-weight:400}
+  #ohBadge{position:absolute;top:calc(max(14px,env(safe-area-inset-top)) + 74px);
+    left:50%;transform:translateX(-50%);padding:6px 14px;border-radius:4px;
+    font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
+    background:rgba(255,179,71,.16);border:1px solid rgba(255,179,71,.5);
+    color:#ffb347;display:none;pointer-events:none;white-space:nowrap}
+  #ohBadge.on{display:block}
+  #ohBadge b{color:#fff;font-weight:400}
   #gearBtn{position:absolute;top:max(14px,env(safe-area-inset-top));
     left:50%;transform:translateX(-50%);margin-top:34px;
     width:30px;height:30px;border-radius:50%;pointer-events:auto;cursor:pointer;
@@ -324,6 +332,9 @@
     #bSwap{width:54px;height:54px;left:auto;
       right:calc(max(12px,env(safe-area-inset-right)) + 6px);
       bottom:calc(max(9px,env(safe-area-inset-bottom)) + 318px)}
+    #bView{width:54px;height:54px;left:auto;
+      right:calc(max(12px,env(safe-area-inset-right)) + 6px);
+      bottom:calc(max(9px,env(safe-area-inset-bottom)) + 382px)}
     #gear{bottom:auto;top:calc(max(8px,env(safe-area-inset-top)) + 112px);
       left:max(11px,env(safe-area-inset-left))}
     .wchip,.rchip{padding:5px 9px;font-size:9.5px}
@@ -376,6 +387,9 @@
     #bSwap{width:46px;height:46px;left:auto;
       right:max(14px,env(safe-area-inset-right));
       bottom:calc(max(8px,env(safe-area-inset-bottom)) + 186px)}
+    #bView{width:46px;height:46px;left:auto;
+      right:calc(max(14px,env(safe-area-inset-right)) + 54px);
+      bottom:calc(max(8px,env(safe-area-inset-bottom)) + 186px)}
     #gear{bottom:auto;top:calc(max(8px,env(safe-area-inset-top)) + 176px);
       left:max(10px,env(safe-area-inset-left));flex-direction:column;align-items:flex-start;gap:4px}
     .wchip,.rchip{padding:4px 8px;font-size:9px}
@@ -426,6 +440,7 @@
     <div id="phase">&mdash;</div>
   </div>
   <div id="gearBtn">&#9881;</div>
+  <div id="ohBadge">Build view &mdash; <b>Tab</b> to return</div>
   <div id="stoneBar">
     <div class="lbl">Hearthfire</div>
     <div id="stoneTrack"><div id="stoneFill"></div></div>
@@ -455,6 +470,7 @@
   <div class="tbtn" id="bCam">Turn</div>
   <div class="tbtn" id="bRoll">Roll</div>
   <div class="tbtn" id="bSwap">Swap</div>
+  <div class="tbtn" id="bView">View</div>
 </div>
 
 <div id="settings" class="hidden">
@@ -472,7 +488,7 @@
     <div class="skeys">
       <b>WASD</b> move &nbsp;·&nbsp; <b>right-drag</b> look &nbsp;·&nbsp; <b>click</b> attack<br>
       <b>Q</b> swap weapon &nbsp;·&nbsp; <b>Space</b> roll &nbsp;·&nbsp; <b>E</b> mend<br>
-      <b>1-4</b> pick a ward &nbsp;·&nbsp; <b>R</b> rotate while placing<br><b>F</b> upgrade &nbsp;·&nbsp; <b>X</b> sell &nbsp;·&nbsp; <b>R</b> ready
+      <b>Tab</b> build view &nbsp;·&nbsp; <b>1-4</b> pick a ward &nbsp;·&nbsp; <b>R</b> rotate while placing<br><b>F</b> upgrade &nbsp;·&nbsp; <b>X</b> sell &nbsp;·&nbsp; <b>R</b> ready
     </div>
     <button class="opt on" id="closeSet" style="padding:11px 26px;font-size:11px">Close</button>
   </div>
