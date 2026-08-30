@@ -1095,3 +1095,58 @@ they vanished into the ground at chase distance. The whole line is warmer and
 brighter now, so separation comes from colour as well as shadow.
 
 Cost: 69 draw calls for the full scene with a wave on the field.
+
+---
+
+# Measuring the two mechanics the bot could not play
+
+Both the chase and the jump were shipped with the same caveat: the harness bot
+suffered them and never used them, so every balance number described a player
+who owned neither. The fix is not more caveats — it is teaching the bot to play
+them, and then reading the number.
+
+## Bait
+
+Taught, measured, and the **first policy was wrong**. Walking 7 m past a heavy
+to drag it off a wall measured *worse than not baiting at all* (gauntlet 18/21 →
+15/21, median fire 302 → 194): the walk abandoned repair and anti-air duty for
+its whole duration.
+
+But no walk is needed. **Hitting the thing already angers it, and an angry foe
+comes to you** — so simply refusing to close is enough to peel it, and costs no
+position. With that policy: glade median fire 544 → 614, gauntlet 302 → 380, win
+rate unchanged. A mild, real positive.
+
+## Jump — the honest answer is "decorative, and now slightly less so"
+
+Measured on the shipped build: **0 jumps taken in a whole game, 0 wisps killed
+by sword, and a wisp was inside sword range 2 % of the time.** The mechanic was
+asked for, works exactly as specified (`T31`), and never happened. The premise
+risk I flagged when it was chosen never materialised — for the worst possible
+reason.
+
+The cause is structural: wisps hover at 4.2 m *over the fire* and the whole game
+teaches you to answer them at range.
+
+So wisps now **dive to 3.4 m to strike the fire** rather than hovering over it.
+It reads as an attack instead of a hover, and it is what creates the window.
+Balance-neutral for wards, because auras key on horizontal distance and the
+ballista has no anti-air at all.
+
+`airReach` also had to tighten from 1.2 m to 0.5 m: at 1.2 the ground ceiling was
+3.7 m, which made a diving wisp hittable **while standing still** and sent the
+jump straight back to being decorative.
+
+Result, measured over three full games: **1–2 jumps per game, and the sword takes
+about 15 % of the player's wisp kills** (3–5 against 19–26 by bolt).
+
+That is the honest size of it. It is a skill-expression flourish for a wisp
+diving on your fire, not an answer to the air — and the crossbow remains the
+answer, which is why the premise still holds.
+
+## T25 was measuring noise against zero
+
+It compared **median** fire remaining over **10** seeds. Warden loses most runs
+on both maps, so its median is 0 and the comparison degenerated. Re-based on
+**win rate over 21 seeds**, which does not saturate: glade 21 > 16 > 2, gauntlet
+20 > 14 > 7. Same claim, an instrument that can actually see it.

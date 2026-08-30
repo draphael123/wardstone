@@ -27,6 +27,10 @@ import {
 
 const DT = 1 / 60;
 
+// How far the bot keeps from a heavy it is peeling off a wall. Far enough
+// that the foe has to leave the wall to reach it, inside the foe's leash.
+const BAIT_STANDOFF = 6.5;
+
 // ---------------------------------------------------------------------------
 // Placement helpers — the bot needs to name cells the way a player would point
 // at them, i.e. "across the mouth of the north lane", not by index.
@@ -176,6 +180,14 @@ export class Bot {
     this.blocked = new Set();            // list slots that can never be built
     this.shopCd = 0;                     // see _shop
     this.parked = { x: -24, z: 26 };     // clear of all three lanes
+    // Two capabilities the bot lacked, which meant the game had two mechanics
+    // it could suffer but never use — so every balance number reflected a
+    // player who owned neither. Default ON (a competent player uses both);
+    // switch off to measure what each is worth.
+    // See [[sim-cannot-measure-a-strategy-the-bot-cannot-play]].
+    this.useJump = opts.useJump !== false;
+    this.useBait = opts.useBait !== false;
+    this.baiting = null;
   }
 
   // Re-walks the whole list every call rather than advancing a pointer, so a
@@ -319,7 +331,30 @@ export class Bot {
     } else if (foe) {
       gox = foe.x; goz = foe.z;
       // close for ground foes, keep range on anything airborne
-      standoff = foe.def.flying ? 12 : 2.0;
+      // A diving wisp is a melee target, not a shooting one — closing on it
+      // is the whole reason the jump exists.
+      const lowFlier = foe.def.flying && this.useJump && foe.y < 3.8;
+      standoff = (foe.def.flying && !lowFlier) ? 12 : 2.0;
+
+      // BAIT. A heavy chewing on a wall is the case the chase mechanic exists
+      // for: hit it, then walk away from the wall so it follows you, and kill
+      // it on open ground while the wall survives. Without this the bot only
+      // ever ate the downside of foes leaving their lanes.
+      const heavy = foe.kind === 'breaker' || foe.kind === 'bruiser' || foe.kind === 'maul';
+      if (this.useBait && heavy && foe.targetKind === 'ward' && foe.target) {
+        // Do not WALK it off the wall — just refuse to close.
+        //
+        // The first version marched 7m past the foe to drag it away, and it
+        // measured worse than not baiting at all (gauntlet 18/21 -> 15/21):
+        // the walk abandoned repair and anti-air duty for the whole trip. But
+        // no walk is needed. Hitting the thing already angers it, and an angry
+        // foe comes to YOU — so standing off is enough to peel it, and costs
+        // no position at all.
+        standoff = BAIT_STANDOFF;
+        this.baiting = foe.id;
+      } else if (this.baiting != null && (!foe || foe.id !== this.baiting)) {
+        this.baiting = null;
+      }
     } else {
       const dmg = w.wards.filter(x => !x.dead && x.hp < x.maxHp)
         .sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp))[0];
@@ -351,7 +386,13 @@ export class Bot {
     // worth 100 dps but cannot touch the air and needs you at 2.8m, so it is
     // only correct when the target is on the ground AND already close.
     const sword = PLAYER.weapons.sword;
-    const wantSword = !foe.def.flying && flat < sword.range + 0.6;
+    // A flier already overhead is worth jumping at: the sword is 100 dps
+    // against the crossbow's 62, and at this range the crossbow is not
+    // meaningfully safer. Anything further off stays a shooting problem.
+    const jumpable = this.useJump && foe.def.flying && foe.y < 3.8 &&
+      flat < sword.range - 0.4 &&
+      foe.y < PLAYER.jump.speed * PLAYER.jump.speed / (2 * PLAYER.jump.gravity) + 2.5;
+    const wantSword = jumpable || (!foe.def.flying && flat < sword.range + 0.6);
     if (wantSword && p.weapon !== 'sword') w.swapWeapon('sword');
     else if (!wantSword && p.weapon !== 'crossbow') w.swapWeapon('crossbow');
 
@@ -364,10 +405,16 @@ export class Bot {
       if (close >= 2) w.dodge(-ax / flat, -az / flat);
     }
 
+    // Leave the ground when a flier is in reach and we are stood still enough
+    // to land the swing. Timing is the whole mechanic: swing near the apex.
+    if (jumpable && p.y <= 0.001) w.jump();
+
     if (p.atkCd <= 0) {
       const wd = w.weaponDef(p);
       if (wd.kind === 'melee') {
-        if (flat <= wd.range + foe.def.radius) w.attack(ax / flat, az / flat, 0);
+        // against a flier, hold the swing until the arc is high enough
+        if (jumpable && p.y < 1.5) { /* still climbing */ }
+        else if (flat <= wd.range + foe.def.radius) w.attack(ax / flat, az / flat, 0);
       } else if (al <= wd.range) {
         w.attack(ax / al, az / al, ay / al);
       }
@@ -836,11 +883,16 @@ export function runTests(log = console.log) {
           });
           if (r.phase === 'won') anyIdleWon = `${map}/${d}/${plan}`;
         }
-        const st = [1, 2, 3, 5, 8, 13, 21, 34, 55, 89]
-          .map(sd => Math.max(0, Math.round(
-            playRun({ seed: sd, build: true, fight: true, difficulty: d }).stone.hp)))
-          .sort((a, b) => a - b);
-        meds[`${map}.${d}`] = st[5];
+        // 21 seeds and WIN RATE, for the same reason T13 and T22 were raised:
+        // small-sample readings of this bot are noise-dominated. The median
+        // fire remaining is additionally a bad ordered quantity here because it
+        // SATURATES — Warden loses most runs on both maps, so its median is 0
+        // and the comparison degenerates into comparing noise against zero.
+        // Win rate orders cleanly across the whole range.
+        const runs = [1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 7, 11, 17, 23, 29,
+                      37, 41, 43, 47, 53, 59]
+          .map(sd => playRun({ seed: sd, build: true, fight: true, difficulty: d }));
+        meds[`${map}.${d}`] = runs.filter(r => r.phase === 'won').length;
       }
     }
     setMap('glade');
@@ -853,10 +905,10 @@ export function runTests(log = console.log) {
     const ordered = ['glade', 'gauntlet'].every(m =>
       meds[`${m}.squire`] > meds[`${m}.knight`] &&
       meds[`${m}.knight`] > meds[`${m}.warden`]);
-    ok('T25 the tiers are ordered — each leaves less fire standing',
+    ok('T25 the tiers are ordered — each one is won less often',
       ordered,
       ['glade', 'gauntlet'].map(m =>
-        `${m} ${meds[`${m}.squire`]}>${meds[`${m}.knight`]}>${meds[`${m}.warden`]}`).join(', '));
+        `${m} ${meds[`${m}.squire`]}>${meds[`${m}.knight`]}>${meds[`${m}.warden`]} of 21`).join(', '));
   }
 
 

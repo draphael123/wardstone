@@ -63,7 +63,13 @@ export const PLAYER = {
   jump: {
     speed: 8.7,        // m/s upward at takeoff
     gravity: 18,       // m/s^2 — brisk, so the hang time stays readable
-    airReach: 1.2,     // how far ABOVE the sword's arc a flier can still be hit
+    // How far above the blade's arc a flier can still be caught. Tightened
+    // from 1.2: with the blade topping out at 2.5m from the ground, 1.2 gave
+    // a 3.7m ceiling — which made a DIVING wisp hittable while standing
+    // still, and the jump went back to being decorative. At 0.5 the ground
+    // ceiling is 3.0m, below the 3.4m a wisp dives to, so the dive can only
+    // be answered in the air.
+    airReach: 0.5,
     cooldown: 0.12,    // just enough to stop a held key machine-gunning it
   },
   aimCone: 0.978,      // cos(12deg) — assist snaps to a foe inside this cone
@@ -342,6 +348,9 @@ export const FOES = [
     id: 'wisp', name: 'Wisp',
     hp: 52, speed: 4.4, radius: 0.5, bounty: 12,
     damage: 10, playerDamage: 9, attackCd: 1.0, flying: true, height: 1.1, flyHeight: 4.2,
+    // how low it comes to actually strike the fire — inside a jumping
+    // sword's reach, which is the whole point of it
+    diveHeight: 3.4,
   },
   {
     // The answer to "I will just wall the lane". A maul does ordinary damage to

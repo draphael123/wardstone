@@ -1063,7 +1063,18 @@ export class World {
         const dx = -f.x, dz = -f.z;
         const d = Math.hypot(dx, dz) || 1;
         const stop = stoneStandoff(def);
-        f.y += ((def.flyHeight) - f.y) * Math.min(1, dt * 2);
+        // A wisp DIVES to strike the fire rather than hovering at cruising
+        // height over it. Two reasons, and the second is the important one:
+        // it reads as an attack instead of a hover, and it is what makes the
+        // jump a real mechanic. Measured before this: a wisp was inside sword
+        // range 2% of the time and the bot took ZERO jumps in a whole game, so
+        // "jump to reach the air" existed and never happened.
+        //
+        // Balance-neutral for wards: auras key on HORIZONTAL distance and the
+        // ballista has no anti-air at all, so altitude changes nothing there.
+        const diving = Math.hypot(f.x, f.z) <= stop + 1.5;
+        const wantY = diving ? def.diveHeight : def.flyHeight;
+        f.y += (wantY - f.y) * Math.min(1, dt * 2);
         if (d > stop) {
           f.x += (dx / d) * spd * dt;
           f.z += (dz / d) * spd * dt;
