@@ -9,7 +9,7 @@
 // repair, ready) is a command the caller issues between steps.
 
 import {
-  PLAYER, WARDSTONE, ECON, WARDS, WARD_BY_ID, FOE_BY_ID, WAVES, AGGRO, UPGRADE,
+  PLAYER, WARDSTONE, ECON, WARDS, WARD_BY_ID, FOE_BY_ID, WAVES, AGGRO, UPGRADE, ABILITY, HEARTH,
 } from './defs.js';
 import {
   LANES, LANE_BY_ID, laneAt, cellOf, cellCenter, cellKey,
@@ -94,6 +94,7 @@ export class World {
       atkCd: 0, repairing: null, hurtT: 0,
       weapon: 'crossbow', swapT: 0, swingT: 0,
       dodgeT: 0, dodgeCd: 0, dodgeX: 0, dodgeZ: 0, invuln: 0,
+      blocking: false, abilityCd: 0, rallyT: 0, warming: false,
     };
 
     this.foes = [];
@@ -160,7 +161,7 @@ export class World {
       id: NEXT_ID++, def, kind: def.kind, i, j,
       x: p.x, z: p.z, rot: rot == null ? defaultRot(p.x, p.z) : rot,
       hp: def.hp, maxHp: def.hp, level: 1, power: 1,
-      cd: 0, target: null, retarget: 0, dead: false,
+      cd: 0, target: null, retarget: 0, dead: false, buffT: 0,
       // Under construction: solid and attackable from the moment it is placed,
       // but it does not FIRE, and its hit points ramp up as it goes together.
       buildT: this.phase === 'combat' ? (def.buildTime || 0) : 0,
@@ -282,7 +283,7 @@ export class World {
       hp: def.hp, maxHp: def.hp,
       atkCd: this.rng.range(0, 0.4),
       target: null, targetKind: null, dead: false, hitT: 0,
-      aggroT: 0, windT: 0,
+      aggroT: 0, windT: 0, stunT: 0,
       // fliers cut the corner: they take the straight line to the stone
       fx: 0, fz: 0,
     };
@@ -345,6 +346,10 @@ export class World {
     const p = this.player;
     if (!p.alive) return;
     if (p.invuln > 0) return;         // rolling through it
+    if (p.blocking && p.weapon === 'sword') {
+      amount *= PLAYER.block.reduce;
+      this.emit({ type: 'blocked', x: p.x, z: p.z });
+    }
     p.hp -= amount;
     p.hurtT = 0.25;
     this.emit({ type: 'playerHurt', amount });
@@ -388,7 +393,7 @@ export class World {
   // decides what that means. Callers never branch on weapon kind.
   attack(dirx, dirz, diry) {
     const p = this.player;
-    if (!p.alive || p.atkCd > 0 || p.swapT > 0) return null;
+    if (!p.alive || p.atkCd > 0 || p.swapT > 0 || p.blocking) return null;
     return this.weaponDef(p).kind === 'melee'
       ? this._melee(dirx, dirz)
       : this.fireBolt(dirx, dirz, diry);
@@ -419,8 +424,68 @@ export class World {
       this.hurtFoe(f, def.damage, 'player');
       hits++;
     }
-    this.emit({ type: 'swing', x: p.x, z: p.z, dx: ux, dz: uz, hits });
+    // A swing that connects with nothing, while something airborne WAS in
+    // reach, is the single most confusing moment in the game: seventeen swings
+    // at a will-o-wisp with no response reads as "the enemy is frozen and
+    // unattackable", which is exactly how it was reported. Say it out loud.
+    let airborneInReach = false;
+    if (!hits) {
+      for (let n = 0; n < near.length; n++) {
+        const f = near[n];
+        if (f.dead || !f.def.flying) continue;
+        if (Math.hypot(f.x - p.x, f.z - p.z) <= def.range + 1.4) { airborneInReach = true; break; }
+      }
+    }
+    this.emit({ type: 'swing', x: p.x, z: p.z, dx: ux, dz: uz, hits, airborneInReach });
     return hits;
+  }
+
+  // Blocking is a held state rather than an action, so it costs you movement
+  // and your attack for as long as you want the protection.
+  setBlocking(on) {
+    const p = this.player;
+    const want = !!on && p.alive && p.weapon === 'sword' && p.dodgeT <= 0;
+    if (want !== p.blocking) this.emit({ type: 'block', on: want });
+    p.blocking = want;
+    return want;
+  }
+
+  canRally() {
+    const p = this.player;
+    return p.alive && p.abilityCd <= 0;
+  }
+
+  // The horn: shoves everything nearby off its feet and puts a burst of speed
+  // through the wards behind you. One button, long cooldown, for the moment
+  // two things need you at once.
+  rally() {
+    const p = this.player;
+    if (!this.canRally()) return false;
+    p.abilityCd = ABILITY.cooldown;
+    p.rallyT = 0.6;
+    let hit = 0;
+    for (const f of this.foes) {
+      if (f.dead) continue;
+      const dx = f.x - p.x, dz = f.z - p.z;
+      const d = Math.hypot(dx, dz);
+      if (d > ABILITY.radius) continue;
+      f.stunT = ABILITY.stun;
+      f.windT = 0;                       // its swing is interrupted
+      const k = ABILITY.knock * (1 - d / ABILITY.radius);
+      if (d > 0.01) {
+        f.x += (dx / d) * k;
+        f.z += (dz / d) * k;
+        if (!f.def.flying) f.dist = Math.max(0, f.dist - k);
+      }
+      hit++;
+    }
+    for (const w of this.wards) {
+      if (w.dead || w.buildT > 0) continue;
+      if (Math.hypot(w.x - p.x, w.z - p.z) > ABILITY.wardRadius) continue;
+      w.buffT = ABILITY.buffTime;
+    }
+    this.emit({ type: 'rally', x: p.x, z: p.z, hit });
+    return true;
   }
 
   dodge(dirx, dirz) {
@@ -492,6 +557,7 @@ export class World {
   movePlayer(vx, vz, dt) {
     const p = this.player;
     if (!p.alive) return;
+    if (p.blocking && p.dodgeT <= 0) { vx *= PLAYER.block.slow; vz *= PLAYER.block.slow; }
     let nx = p.x + vx * dt, nz = p.z + vz * dt;
     const c = clampToArena(nx, nz, PLAYER.radius);
     nx = c.x; nz = c.z;
@@ -527,6 +593,8 @@ export class World {
     if (p.swapT > 0) p.swapT -= dt;
     if (p.swingT > 0) p.swingT -= dt;
     if (p.dodgeCd > 0) p.dodgeCd -= dt;
+    if (p.abilityCd > 0) p.abilityCd -= dt;
+    if (p.rallyT > 0) p.rallyT -= dt;
     if (p.invuln > 0) p.invuln -= dt;
     if (p.dodgeT > 0) {
       p.dodgeT -= dt;
@@ -538,6 +606,18 @@ export class World {
         p.alive = true; p.hp = p.maxHp;
         p.x = 0; p.z = WARDSTONE.radius + 2.5;
         this.emit({ type: 'respawn' });
+      }
+    }
+
+    // Warming at the fire. Between waves only: it is a reward for coming home,
+    // not a fountain you can stand in during a fight.
+    p.warming = false;
+    if (this.phase === 'build' && p.alive && p.hp < p.maxHp) {
+      if (Math.hypot(p.x, p.z) < HEARTH.radius) {
+        p.warming = true;
+        const before = p.hp;
+        p.hp = Math.min(p.maxHp, p.hp + HEARTH.heal * dt);
+        this.stats.healed = (this.stats.healed || 0) + (p.hp - before);
       }
     }
 
@@ -606,6 +686,7 @@ export class World {
       // The player outranks a ward: standing in a lane has to cost something,
       // or the safe play is to park on top of the palisade and hold repair.
       if (f.aggroT > 0) f.aggroT -= dt;
+      if (f.stunT > 0) { f.stunT -= dt; continue; }   // off its feet
       let hitPlayer = false;
       let dPlayer = Infinity;
       if (p.alive) {
@@ -632,6 +713,8 @@ export class World {
         } else {
           f.targetKind = 'stone';
         }
+        // face what it is going for, so the strike animation has a direction
+        f.faceX = dx / (d || 1); f.faceZ = dz / (d || 1);
       } else {
         // Ground foes ride their lane. A ward in the way is attacked, never
         // routed around. Query is a disc because everything here is a disc.
@@ -752,12 +835,14 @@ export class World {
           const f = near[n];
           if (f.dead) continue;
           if (Math.hypot(f.x - w.x, f.z - w.z) > def.range) continue;
-          this.hurtFoe(f, def.dps * w.power * dt, 'ward');
+          this.hurtFoe(f, def.dps * w.power * (w.buffT > 0 ? ABILITY.wardBuff : 1) * dt, 'ward');
         }
         continue;
       }
 
-      if (w.cd > 0) w.cd -= dt;
+      if (w.buffT > 0) w.buffT -= dt;
+      const rate = w.buffT > 0 ? ABILITY.wardBuff : 1;
+      if (w.cd > 0) w.cd -= dt * rate;
 
       if (def.kind === 'trap') {
         if (w.cd > 0) continue;

@@ -1295,6 +1295,19 @@ export class Renderer {
     ]), wood);
     armR.add(bow);
 
+    // The shield, on the left arm. It was previously nowhere — the red shape
+    // on his back was the cloak.
+    const shield = new THREE.Mesh(assemble([
+      { g: box(0.72, 0.86, 0.10), y: -0.52, z: 0.18, c: 0x9c3038 },
+      { g: box(0.80, 0.20, 0.11), y: -0.52, z: 0.19, c: 0xd7a24e },
+      { g: box(0.18, 0.62, 0.12), y: -0.52, z: 0.20, c: 0xd7a24e },
+      { g: box(0.22, 0.22, 0.13), y: -0.52, z: 0.21, c: 0xe6d5b0 },
+    ]), new THREE.MeshStandardMaterial({
+      color: 0xffffff, vertexColors: true, roughness: 0.7, metalness: 0.2,
+      flatShading: true,
+    }));
+    armL.add(shield);
+
     // Outline every rig part. The player is the one thing always in frame, so
     // this is where the dark edge matters most.
     const ow = 0.045;
@@ -1310,7 +1323,7 @@ export class Renderer {
     g.scale.setScalar(1.12);   // presence at an 11m camera
     this.scene.add(g);
     this.playerRig = {
-      group: g, body, cape, legL, legR, armL, armR, sword, bow,
+      group: g, body, cape, legL, legR, armL, armR, sword, bow, shield,
       gait: 0, mat: steel,
     };
     this.player = g;               // kept so existing code can hide/show it
@@ -1821,9 +1834,26 @@ export class Renderer {
         this.arc.visible = false;
       }
 
+      // braced: shield up and across, body turned behind it
+      if (p.blocking) {
+        rig.armL.rotation.x = -1.15;
+        rig.armL.rotation.z = -0.55;
+        rig.body.rotation.y = 0.35;
+        rig.armR.rotation.x = 0.5;
+      } else {
+        rig.armL.rotation.z = 0;
+        rig.body.rotation.y = 0;
+      }
+      rig.shield.visible = p.weapon === 'sword';
+
       rig.sword.visible = p.weapon === 'sword';
       rig.bow.visible = p.weapon === 'crossbow';
-      rig.mat.emissiveIntensity = p.hurtT > 0 ? 2.4
+      // embers rising off you while you warm at the fire
+      if (p.warming && Math.random() < dt * 22) {
+        this.spark(p.x + (Math.random() - 0.5) * 1.3, 0.5 + Math.random() * 1.4,
+          p.z + (Math.random() - 0.5) * 1.3, 0xffc074, 1, 1.6, 0.8, -1.4);
+      }
+      rig.mat.emissiveIntensity = p.warming ? 1.1 : p.hurtT > 0 ? 2.4
         : (p.invuln > 0 ? 1.4 : 0.35);
       this.lantern.position.set(p.x + Math.sin(p.yaw + 1.2) * 0.6, 1.55,
         p.z + Math.cos(p.yaw + 1.2) * 0.6);
@@ -1859,6 +1889,21 @@ export class Renderer {
       f.gait = (f.gait || (f.id % 6)) + Math.hypot(gdx, gdz) * 2.6;
       if (f.def.flying) {
         y = f.y + Math.sin(this.t * 3.4 + f.id) * 0.28;
+        // the same three beats as everything on the ground: rear up through
+        // the windup, dive on the blow, drift back. A hovering wisp that only
+        // bobbed read as frozen even while it was eating the fire.
+        if (f.windT > 0) {
+          const k = 1 - f.windT / WINDUP;
+          y += k * 0.85;
+          lunge = -0.3 * k;
+          sc = 1 + k * 0.10;
+        } else if (f.targetKind === 'stone') {
+          const since = f.def.attackCd - f.atkCd;
+          const k = Math.max(0, 1 - since / 0.22);
+          y -= k * 0.75;
+          lunge = 0.55 * k;
+          sc = 1 + k * 0.07;
+        }
       } else {
         const ph = f.gait;
         const walking = f.targetKind == null;
@@ -1870,15 +1915,15 @@ export class Renderer {
           // part the player is meant to react to, so it is the slow one.
           if (f.windT > 0) {
             const k = 1 - f.windT / WINDUP;          // 0 -> 1 across the windup
-            lean = 0.62 * k;                          // leaning away, weapon up
-            lunge = -0.34 * k;
-            sc = 1 + k * 0.08;
+            lean = 0.80 * k;                          // rocked right back, weapon up
+            lunge = -0.45 * k;
+            sc = 1 + k * 0.12;
           } else {
             const since = f.def.attackCd - f.atkCd;
             const k = Math.max(0, 1 - since / 0.22);  // 1 -> 0 just after the blow
-            lean = -0.85 * k;                         // thrown forward
-            lunge = 0.75 * k;
-            sc = 1 + k * 0.05;
+            lean = -1.15 * k;                         // thrown bodily forward
+            lunge = 1.05 * k;
+            sc = 1 + k * 0.08;
           }
         }
         // recoil: a squash-and-stretch punch on the frame a hit lands
@@ -1888,10 +1933,16 @@ export class Renderer {
           lean += hk * 0.16;
         }
       }
-      _q.setFromEuler(new THREE.Euler(lean, ang, 0));
+      // 'YXZ': yaw FIRST, then pitch in the rotated frame. With the default
+      // XYZ order the pitch is applied in world space after the yaw, so a foe
+      // walking east "leans" sideways instead of forward and the whole attack
+      // animation reads as a wobble. See [[world-space-tests-cannot-see-inverted-controls]].
+      _q.setFromEuler(new THREE.Euler(lean, ang, 0, 'YXZ'));
       _s.set(sc, sc, sc);
       // lunge is along the foe's own facing, so a strike visibly travels
-      _m.compose(_v.set(f.x + Math.sin(ang) * lunge, y, f.z + Math.cos(ang) * lunge), _q, _s);
+      const lx = f.def.flying && f.faceX != null ? f.faceX : Math.sin(ang);
+      const lz = f.def.flying && f.faceZ != null ? f.faceZ : Math.cos(ang);
+      _m.compose(_v.set(f.x + lx * lunge, y, f.z + lz * lunge), _q, _s);
       slot.mesh.setMatrixAt(i, _m);
       // capped well below 1: a full-white flash erases the silhouette colour
       slot.flash.array[i] = f.hitT > 0 ? Math.min(0.55, f.hitT * 5.5) : 0;

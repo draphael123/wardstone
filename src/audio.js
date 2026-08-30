@@ -11,6 +11,11 @@
 const SFX = {
   bolt: ['bolt'],
   impact: ['impact0', 'impact1', 'impact2'],
+  hitFlesh: ['hitFlesh0', 'hitFlesh1'],
+  hitMetal: ['hitMetal0', 'hitMetal1'],
+  blockHit: ['blockHit'],
+  swoosh: ['swoosh'],
+  rally: ['rally'],
   foeDie: ['foeDie0', 'foeDie1'],
   build: ['build'],
   wardDown: ['wardDown'],
@@ -33,6 +38,7 @@ const SFX = {
 // Per-cue mix. Levels are set here rather than in the source files so the
 // balance between, say, a bolt and the wardstone alarm is one edit.
 const GAIN = {
+  hitFlesh: 0.5, hitMetal: 0.42, blockHit: 0.6, swoosh: 0.28, rally: 0.75,
   bolt: 0.20, impact: 0.24, foeDie: 0.32, build: 0.55, wardDown: 0.7,
   snare: 0.6, ballista: 0.3, stoneHit: 0.85, hurt: 0.6, foeSwing: 0.16,
   mote: 0.3, spawn: 0.35, click: 0.4, hover: 0.18, select: 0.45,
@@ -42,6 +48,7 @@ const GAIN = {
 // A cue that can fire fifty times a second needs a floor between plays or it
 // turns into a buzz and clips the master bus.
 const THROTTLE = {
+  hitFlesh: 0.03, hitMetal: 0.03, swoosh: 0.05,
   impact: 0.035, foeSwing: 0.09, bolt: 0.05, mote: 0.04, foeDie: 0.05,
   ballista: 0.05, hurt: 0.2, stoneHit: 0.12,
 };
@@ -85,6 +92,13 @@ export class Sound {
         this.buffers.set(n, await this.ctx.decodeAudioData(ab));
       } catch (e) { /* a missing cue must never break the game */ }
     }));
+  }
+
+  // Two samples on top of each other, the second pitched and delayed a hair.
+  // A single sample reads as a click; a layered pair reads as an impact.
+  layer(a, b, vol = 1, rate = 1) {
+    this.play(a, vol, rate);
+    if (b) setTimeout(() => this.play(b, vol * 0.7, rate * 0.82), 18);
   }
 
   play(cue, vol = 1, rate = 1) {
@@ -182,11 +196,24 @@ export function playEvent(snd, ev, fx) {
   switch (ev.type) {
     case 'bolt':      snd.play('bolt'); break;
     case 'shoot':     snd.play('ballista'); break;
-    case 'impact':    snd.play('impact', ev.source === 'player' ? 1 : 0.7); break;
-    case 'kill':      snd.play('foeDie', ev.foe === 'breaker' ? 1.4 : 1,
-                               ev.foe === 'breaker' ? 0.6 : 1); break;
+    case 'impact':
+      // a player bolt lands with weight; a ward's is background
+      if (ev.source === 'player') snd.layer('hitFlesh', 'impact', 1, 1);
+      else snd.play('impact', 0.7);
+      break;
+    case 'kill':
+      snd.layer('foeDie', ev.foe === 'breaker' ? 'hitMetal' : null,
+        ev.foe === 'breaker' ? 1.4 : 1, ev.foe === 'breaker' ? 0.6 : 1);
+      break;
     case 'build':     snd.play('build'); break;
     case 'sell':      snd.play('select'); break;
+    case 'swing':
+      // the swoosh always plays; the meat only if it connected
+      snd.play('swoosh', ev.hits ? 1 : 0.6, ev.hits ? 1 : 1.15);
+      if (ev.hits) snd.layer('hitFlesh', 'hitMetal', Math.min(1.4, 0.8 + ev.hits * 0.2), 0.95);
+      break;
+    case 'blocked':   snd.play('blockHit', 1, 0.9 + Math.random() * 0.2); break;
+    case 'rally':     snd.layer('rally', 'waveStart', 1, 0.75); break;
     case 'wardDown':  snd.play('wardDown'); break;
     case 'snare':     snd.play('snare'); break;
     case 'stoneHit':  snd.play('stoneHit', Math.min(1, ev.amount / 90)); break;

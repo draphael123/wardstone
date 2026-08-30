@@ -43,6 +43,13 @@ export const PLAYER = {
       range: 2.8, arc: 1.9,            // radians, total sweep
     },
   },
+  // Blocking. Only with the sword — you cannot hold a shield up behind a
+  // crossbow — which gives the swap a second reason to exist beyond reach.
+  block: {
+    reduce: 0.22,      // damage taken multiplier while braced
+    slow: 0.42,        // movement multiplier
+  },
+
   swapTime: 0.22,      // brief lockout so swapping mid-brawl is a real choice
   aimCone: 0.978,      // cos(12deg) — assist snaps to a foe inside this cone
 
@@ -63,6 +70,14 @@ export const PLAYER = {
                        // Wide enough that walking a lane sweeps it; narrow
                        // enough that you cannot sweep three lanes at once.
   vacuumSpeed: 14,
+};
+
+// Warming yourself at the fire. Only between waves, only close to it — which
+// gives the objective a second job (it is the only way to heal) and gives the
+// muster a reason to end at the hearth rather than wherever you last fought.
+export const HEARTH = {
+  radius: 7.0,
+  heal: 14,          // hp per second
 };
 
 export const WARDSTONE = {
@@ -89,6 +104,21 @@ export const UPGRADE = {
   costMul: 1.15,     // x the ward's base cost, per level bought
   power: 1.45,       // damage and hit points per level
   time: 2.2,         // build time for an upgrade, in combat
+};
+
+// The knight's one ability: a horn. It is a PANIC BUTTON, deliberately —
+// the pressure this game creates is "the wall is about to go and two things
+// need me at once", and an ability that does not answer that moment is just
+// another damage button.
+export const ABILITY = {
+  id: 'rally', name: 'Rally',
+  cooldown: 24,
+  radius: 10,        // foes staggered
+  stun: 1.4,
+  knock: 2.2,        // metres shoved back
+  wardRadius: 13,
+  wardBuff: 1.7,     // rate multiplier on nearby wards
+  buffTime: 7,
 };
 
 export const ECON = {

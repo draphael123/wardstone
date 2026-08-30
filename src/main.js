@@ -10,7 +10,7 @@ import { Renderer, PAL } from './render.js';
 import { Sound, playEvent } from './audio.js';
 import { Minimap } from './minimap.js';
 import { Tutorial, STEPS } from './tutorial.js';
-import { WARDS, WARD_BY_ID, ECON, WAVES, PLAYER, waveByLane } from './defs.js';
+import { WARDS, WARD_BY_ID, ECON, WAVES, PLAYER, ABILITY, waveByLane } from './defs.js';
 import { cellOf, cellCenter, isBuildableCell, ARENA } from './arena.js';
 
 const $ = (id) => document.getElementById(id);
@@ -40,7 +40,7 @@ const state = {
   running: false, selected: null,
   keys: new Set(),
   move: { x: 0, y: 0 },        // -1..1 from stick or WASD
-  firing: false, mending: false, wantDodge: false,
+  firing: false, mending: false, wantDodge: false, blocking: false,
   pointer: { x: 0, y: 0, has: false },
   ghostCell: null, ghostRot: null, overhead: false,
   acc: 0, last: 0, lastFrame: 0, hitstop: 0,
@@ -152,6 +152,8 @@ function syncHud() {
   fill.style.width = (sf * 100) + '%';
   fill.classList.toggle('low', sf < 0.35);
 
+  const hw = $('hpWrap');
+  if (hw) hw.classList.toggle('warming', !!w.player.warming);
   const hf = Math.max(0, w.player.hp / w.player.maxHp);
   const hp = $('hpFill');
   hp.style.width = (hf * 100) + '%';
@@ -172,6 +174,13 @@ function syncHud() {
   if (wp) {
     wp.textContent = PLAYER.weapons[p.weapon].name;
     wp.className = 'wchip ' + p.weapon;
+  }
+  const ab = $('abil');
+  if (ab) {
+    const ready = p.abilityCd <= 0;
+    ab.classList.toggle('ready', ready);
+    ab.style.setProperty('--k', ready ? 1 : (1 - p.abilityCd / ABILITY.cooldown));
+    ab.textContent = ready ? 'Rally' : Math.ceil(p.abilityCd) + 's';
   }
   const rl = $('roll');
   if (rl) {
@@ -233,6 +242,13 @@ function drainEvents() {
         if (e.source === 'player') { r.addShake(0.08); state.hitstop = Math.max(state.hitstop, 0.035); }
         break;
       case 'swing':
+        if (e.airborneInReach) {
+          // the swing passed under it. Say why, once, rather than letting the
+          // player conclude the enemy is broken.
+          toast('Your sword cannot reach something in the air &mdash; press <b>Q</b>');
+          if (s) s.play('foeSwing', 0.9, 0.55);
+          r.spark(e.x + e.dx * 2.0, 2.6, e.z + e.dz * 2.0, 0x9fb4d0, 5, 4, 0.7, -2);
+        }
         // a sword that connects stops time for a moment; one that whiffs does not
         if (e.hits > 0) {
           state.hitstop = Math.max(state.hitstop, 0.05 + Math.min(0.05, e.hits * 0.02));
@@ -242,6 +258,17 @@ function drainEvents() {
         break;
       case 'swap':
         if (s) s.play('select', 0.7);
+        break;
+      case 'rally':
+        r.ringBurst(e.x, 0.5, e.z, 0xffd89a, 10, 40);
+        r.addShake(0.55);
+        flash(0.16);
+        state.hitstop = Math.max(state.hitstop, 0.09);
+        toast(`Rally &mdash; ${e.hit} scattered`);
+        break;
+      case 'blocked':
+        r.spark(e.x, 1.2, e.z, 0xffe8b8, 7, 5, 0.7, -1);
+        r.addShake(0.09);
         break;
       case 'dodge':
         r.ringBurst(e.x, 0.25, e.z, 0xbcd2f5, 1.5, 12);
@@ -420,7 +447,8 @@ function bindInput() {
     }
     if (k === 'q') state.world.swapWeapon();
     if (k === 'tab' || k === 'b') { e.preventDefault(); toggleOverhead(); }
-    if (k === ' ' || k === 'shift') { e.preventDefault(); state.wantDodge = true; }
+    if (k === ' ') { e.preventDefault(); state.wantDodge = true; }
+    if (k === 'v') state.world.rally();
     if (k === 'x' && state.selected === null) sellUnderPointer();
     if (k === 'f' && state.selected === null) {
       const w = state.world;
@@ -518,6 +546,7 @@ function bindInput() {
   };
   hold($('bFire'), (v) => state.firing = v);
   hold($('bMend'), (v) => state.mending = v);
+  hold($('bBlock'), (v) => state.blocking = v);
 
   const tap = (el, fn) => el.addEventListener('pointerdown', (e) => {
     e.preventDefault(); e.stopPropagation(); fn();
@@ -525,6 +554,7 @@ function bindInput() {
   tap($('bRoll'), () => state.wantDodge = true);
   tap($('bSwap'), () => state.world.swapWeapon());
   tap($('bView'), () => toggleOverhead());
+  tap($('bRally'), () => state.world.rally());
 
   // a dedicated turn pad, for when a thumb is busy on the stick
   const cam = $('bCam');
@@ -674,6 +704,9 @@ function applyInput(dt) {
     p.yaw += d * Math.min(1, dt * 15);
   }
   state._moving = sp > 0.5;
+
+  // bracing behind the shield
+  w.setBlocking(state.blocking || state.keys.has('shift'));
 
   // mending
   const wantMend = state.mending || state.keys.has('e');

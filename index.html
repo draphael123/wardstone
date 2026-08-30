@@ -131,6 +131,9 @@
   #hpTrack{height:5px;background:rgba(255,255,255,.09);border-radius:3px;overflow:hidden;margin-top:4px}
   #hpFill{height:100%;width:100%;background:#c8d4e6;transition:width .18s}
   #hpFill.low{background:#e0605a}
+  #hpWrap.warming .lbl{color:#ffb347}
+  #hpWrap.warming .lbl::after{content:" — warming"}
+  #hpWrap.warming #hpFill{background:#ffc074;box-shadow:0 0 12px rgba(255,180,80,.7)}
 
   /* ward bar */
   #bar{position:absolute;left:50%;transform:translateX(-50%);
@@ -192,6 +195,10 @@
     left:calc(max(20px,env(safe-area-inset-left)) + 138px)}
   #bView{left:calc(max(20px,env(safe-area-inset-left)) + 138px);
     bottom:calc(max(20px,env(safe-area-inset-bottom)) + 190px);width:56px;height:56px;font-size:9px}
+  #bBlock{right:calc(max(20px,env(safe-area-inset-right)) + 104px);
+    bottom:calc(max(20px,env(safe-area-inset-bottom)) + 210px);width:66px;height:66px}
+  #bRally{right:calc(max(20px,env(safe-area-inset-right)) + 8px);
+    bottom:calc(max(20px,env(safe-area-inset-bottom)) + 328px);width:58px;height:58px;font-size:9px}
 
   /* ================= overlays ================= */
   #over{position:fixed;inset:0;z-index:60;display:none;place-items:center;
@@ -453,6 +460,7 @@
   <div id="gear">
     <div class="wchip crossbow" id="weap">Crossbow</div>
     <div class="rchip" id="roll">Roll</div>
+    <div class="rchip" id="abil">Rally</div>
   </div>
   <div id="hpWrap">
     <div class="lbl">Vigour</div>
@@ -471,6 +479,8 @@
   <div class="tbtn" id="bRoll">Roll</div>
   <div class="tbtn" id="bSwap">Swap</div>
   <div class="tbtn" id="bView">View</div>
+  <div class="tbtn" id="bBlock">Block</div>
+  <div class="tbtn" id="bRally">Rally</div>
 </div>
 
 <div id="settings" class="hidden">
@@ -487,7 +497,7 @@
       <input type="range" id="setCam" min="7" max="26" step="1" value="11"></div>
     <div class="skeys">
       <b>WASD</b> move &nbsp;·&nbsp; <b>right-drag</b> look &nbsp;·&nbsp; <b>click</b> attack<br>
-      <b>Q</b> swap weapon &nbsp;·&nbsp; <b>Space</b> roll &nbsp;·&nbsp; <b>E</b> mend<br>
+      <b>Q</b> swap &nbsp;·&nbsp; <b>Space</b> roll &nbsp;·&nbsp; <b>Shift</b> block &nbsp;·&nbsp; <b>V</b> rally &nbsp;·&nbsp; <b>E</b> mend<br>
       <b>Tab</b> build view &nbsp;·&nbsp; <b>1-4</b> pick a ward &nbsp;·&nbsp; <b>R</b> rotate while placing<br><b>F</b> upgrade &nbsp;·&nbsp; <b>X</b> sell &nbsp;·&nbsp; <b>R</b> ready
     </div>
     <button class="opt on" id="closeSet" style="padding:11px 26px;font-size:11px">Close</button>
