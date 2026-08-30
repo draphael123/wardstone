@@ -282,3 +282,52 @@ us whether wave 6 is thrilling or exhausting, whether the caches are a nice
 ritual or a chore, or whether the fire dimming as it dies actually lands. That
 remains the only question measurement cannot answer, and it still gates
 everything above.
+
+---
+
+# The bomber, and the fourth time the premise broke
+
+## What the bomber is for
+
+Every other foe walks up to a thing and hits it. The Powder Goblin runs at the
+nearest **ward**, lights a fuse, and detonates — 520 damage in a 4.2 m circle.
+It ignores the player almost entirely.
+
+That makes it the only foe whose answer is *intercept before contact*, and the
+only one that punishes the thing every tower-defence player naturally does:
+pile everything into one strong point. Measured directly — one bomber into a
+clustered line does **884** ward damage; the same bomber into a spread line
+does **373**. Clustering is a 2.4× liability, which is exactly the intent.
+
+One real bug found on the way in: a bomber that reached the fire did nothing,
+because its contact damage is 0 and the blast only armed on ward contact. An
+unopposed bomber was a *free* enemy. It now lights its fuse at the objective
+too, for 260.
+
+## Then the premise broke again — for the fourth time
+
+`T21` (no ward build wins with nobody playing) failed on the gauntlet: the
+"air-heavy" plan **won at wave 7**, leaking almost nothing.
+
+Three fixes that did NOT work, each abandoned once measured:
+
+| Attempt | Result |
+|---|---|
+| Overhead dead zone — an archer can't shoot straight up | no change; only excluded the innermost ring |
+| Per-map air weighting on the gauntlet (×1.6 wisps) | air-heavy still won, and the *balanced* build fell to 0/10 |
+| Much harsher aura stacking falloff, down to `[1, .18, .05, .01]` | air-heavy still won — so stacking was never the mechanism |
+
+The diagnosis only arrived from reading the leak table properly: the winning
+build had **8 watchtowers and no walls at all**, and its *husk* leak was 44.
+It was never an anti-air build. A levelled, stacked aura sitting on the one
+point every lane converges toward is a meat grinder for **everything**, and it
+had quietly replaced the entire ground game.
+
+**The fix: upgrades do not scale an aura, on the ground or in the air.**
+Upgrades scale wards that pick a target. Area denial is bought with units, and
+units are capped. One line in `sim.js`; all six idle plans now lose on both
+maps, and the player's win rate did not move (8/10 and 9/10 before and after).
+
+The lesson, which is the same one as the previous three times: when the premise
+breaks, the cause is a way of *converting a resource into coverage* that the cap
+does not see. It is never the number I reach for first.

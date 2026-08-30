@@ -53,7 +53,6 @@ export const MAPS = {
   gauntlet: {
     name: 'The Gauntlet',
     theme: 'forest',
-    blurb: 'One long road and two short ones. You cannot hold all three the same way.',
     lanes: [
       { id: 'north', name: 'The Long Way',
         points: [[26, -28], [26, -16], [14, -12], [14, -2], [22, 6], [22, 14],

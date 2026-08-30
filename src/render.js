@@ -405,25 +405,54 @@ function trollGeo() {
   ]);
 }
 
+// The bomber. Hunched around what it is carrying, so the KEG is the read —
+// the silhouette has to say "that one is different, deal with it first" from
+// across the clearing, and the fuse gives it a light nothing else has.
+function bomberGeo() {
+  const skin = 0x8a9c4a, dark = 0x6f8038;
+  return assemble([
+    { g: box(0.54, 0.52, 0.40), y: 0.56, rx: 0.30, c: skin },
+    { g: box(0.46, 0.40, 0.42), y: 0.98, z: 0.10, c: skin },       // head
+    { g: box(0.26, 0.12, 0.10), y: 0.90, z: 0.30, c: dark },
+    EYE(0.12, 1.06, 0.24, 0.11, 0xffe14a),
+    EYE(-0.12, 1.06, 0.24, 0.11, 0xffe14a),
+    { g: box(0.26, 0.18, 0.05), x: 0.30, y: 1.14, rz: 0.6, c: skin },
+    { g: box(0.26, 0.18, 0.05), x: -0.30, y: 1.14, rz: -0.6, c: skin },
+    // the keg, clutched to the chest with both arms round it
+    { g: box(0.62, 0.62, 0.58), y: 0.66, z: 0.34, c: 0x6b4a2f },
+    { g: box(0.68, 0.12, 0.62), y: 0.80, z: 0.34, c: 0x3f3128 },
+    { g: box(0.68, 0.12, 0.62), y: 0.52, z: 0.34, c: 0x3f3128 },
+    { g: box(0.15, 0.44, 0.15), x: 0.38, y: 0.66, z: 0.30, rz: 0.7, c: dark },
+    { g: box(0.15, 0.44, 0.15), x: -0.38, y: 0.66, z: 0.30, rz: -0.7, c: dark },
+    // the fuse, which is the only warm light on it
+    { g: box(0.07, 0.26, 0.07), y: 1.06, z: 0.34, rz: 0.3, c: 0x2a2118 },
+    { g: box(0.15, 0.15, 0.15), y: 1.24, z: 0.38, c: 0xffd070, e: 1 },
+    { g: box(0.20, 0.40, 0.20), x: 0.14, y: 0.20, c: dark },
+    { g: box(0.20, 0.40, 0.20), x: -0.14, y: 0.20, c: dark },
+  ]);
+}
+
 // Roles are fixed; bodies are per theme. Nothing in sim.js knows any of this
 // exists — a husk is a husk whether it is a dead thing in a crypt or a goblin
 // in a wood.
 const SKINS = {
   crypt: {
     husk:    { geo: huskGeo,    name: 'Husk' },
+    bomber:  { geo: bomberGeo,  name: 'Powder Wight' },
     runner:  { geo: runnerGeo,  name: 'Runner' },
     wisp:    { geo: wispGeo,    name: 'Wisp' },
     breaker: { geo: breakerGeo, name: 'Breaker' },
   },
   forest: {
     husk:    { geo: goblinGeo, name: 'Goblin' },
+    bomber:  { geo: bomberGeo, name: 'Powder Goblin' },
     runner:  { geo: scoutGeo,  name: 'Scout' },
     wisp:    { geo: wispGeo,   name: 'Will-o-wisp' },
     breaker: { geo: trollGeo,  name: 'Troll' },
   },
 };
 
-const FOE_CAP = { husk: 90, runner: 110, wisp: 40, breaker: 8 };
+const FOE_CAP = { husk: 90, runner: 110, wisp: 40, breaker: 8, bomber: 24 };
 
 // ---------------------------------------------------------------------------
 export class Renderer {
@@ -2048,7 +2077,11 @@ export class Renderer {
       // capped well below 1: a full-white flash erases the silhouette colour
       slot.flash.array[i] = f.hitT > 0 ? Math.min(0.55, f.hitT * 5.5) : 0;
       slot.phase.array[i] = f.def.flying ? 0 : (f.gait || 0);
-      slot.tele.array[i] = f.windT > 0 ? (1 - f.windT / WINDUP) * 0.9 : 0;
+      // a lit fuse pushes the telegraph channel hard, so the one foe you
+      // must deal with NOW is the brightest thing on the field
+      slot.tele.array[i] = f.fuseT > 0
+        ? 0.5 + 0.5 * Math.abs(Math.sin(this.t * 26))
+        : (f.windT > 0 ? (1 - f.windT / WINDUP) * 0.9 : 0);
 
       if (f.def.flying && wg < FOE_CAP.wisp) {
         _q.copy(this.camera.quaternion);
@@ -2125,6 +2158,21 @@ export class Renderer {
     this.hpFill.instanceMatrix.needsUpdate = true;
     this.hpFill.instanceColor.needsUpdate = true;
 
+    // a bomber with a lit fuse shows the ground it is about to take out
+    let fz = 0;
+    for (const f of world.foes) {
+      if (f.dead || f.fuseT <= 0 || fz >= this.threatRings.length) continue;
+      const m = this.threatRings[this.threatRings.length - 1 - fz];
+      const b = f.def.blast;
+      const k = 1 - f.fuseT / b.fuse;
+      m.visible = true;
+      m.position.set(f.x, 0.07, f.z);
+      const sc = b.radius * (0.55 + 0.45 * k);
+      m.scale.set(sc, 1, sc);
+      m.material.opacity = 0.3 + 0.5 * k;
+      fz++;
+    }
+
     // threat rings follow live breakers; the pulse rate rises as one closes on
     // the stone, so urgency is readable without reading a number
     let tr = 0;
@@ -2139,7 +2187,7 @@ export class Renderer {
       m.scale.set(sc, 1, sc);
       m.material.opacity = 0.32 + 0.34 * (0.5 + 0.5 * Math.sin(this.t * rate));
     }
-    for (let i = tr; i < this.threatRings.length; i++) this.threatRings[i].visible = false;
+    for (let i = tr; i < this.threatRings.length - fz; i++) this.threatRings[i].visible = false;
 
     // --- projectiles
     let pi = 0;

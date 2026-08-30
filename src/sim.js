@@ -13,7 +13,7 @@ import {
 } from './defs.js';
 import {
   LANES, LANE_BY_ID, laneAt, cellOf, cellCenter, cellKey,
-  isBuildableCell, clampToArena, nearestLane, distToLane, ARENA,
+  isBuildableCell, clampToArena, nearestLane, distToLane, ARENA, currentMap,
 } from './arena.js';
 import { makeRng } from './rand.js';
 
@@ -308,8 +308,12 @@ export class World {
     const wave = WAVES[this.waveIndex];
     if (!wave) { this.phase = 'won'; return; }
     this.spawnQueue.length = 0;
+    const mod = (currentMap() && currentMap().waveMod) || null;
     for (const g of wave.groups) {
-      for (let n = 0; n < g.count; n++) {
+      const count = mod && mod[g.foe]
+        ? Math.round(g.count * mod[g.foe])
+        : g.count;
+      for (let n = 0; n < count; n++) {
         this.spawnQueue.push({ t: this.t + g.at + n * g.gap, lane: g.lane, foe: g.foe });
       }
     }
@@ -332,6 +336,7 @@ export class World {
       atkCd: this.rng.range(0, 0.4),
       target: null, targetKind: null, dead: false, hitT: 0,
       aggroT: 0, windT: 0, stunT: 0, slowT: 0, slowK: 1,
+      fuseT: 0, blastTarget: null,
       // fliers cut the corner: they take the straight line to the stone
       fx: 0, fz: 0,
     };
@@ -376,6 +381,32 @@ export class World {
       type: 'kill', x: f.x, y: f.y, z: f.z, foe: f.kind,
       by: by || 'ward', withWeapon: by === 'player' ? this.player.weapon : null,
     });
+  }
+
+  // Kill it before this happens and it costs you nothing at all — that is the
+  // whole point of the archetype. It does NOT go off when killed.
+  _detonate(f) {
+    const b = f.def.blast;
+    let hit = 0;
+    for (const w of this.wards) {
+      if (w.dead) continue;
+      const d = Math.hypot(w.x - f.x, w.z - f.z);
+      if (d > b.radius) continue;
+      // full damage at the centre, falling off to a third at the edge
+      const k = 1 - 0.66 * (d / b.radius);
+      this.hurtWard(w, b.ward * k);
+      hit++;
+    }
+    const p = this.player;
+    if (p.alive) {
+      const pd = Math.hypot(p.x - f.x, p.z - f.z);
+      if (pd < b.radius) this.hurtPlayer(b.player * (1 - 0.5 * (pd / b.radius)));
+    }
+    const ds = Math.hypot(f.x, f.z);
+    if (ds < b.radius + WARDSTONE.radius) this.hurtStone(b.stone || b.player, f.kind);
+    this.emit({ type: 'blast', x: f.x, z: f.z, r: b.radius, hit });
+    f.hp = 0;
+    this._killFoe(f, 'self');
   }
 
   hurtWard(w, amount) {
@@ -751,6 +782,11 @@ export class World {
       // or the safe play is to park on top of the palisade and hold repair.
       if (f.aggroT > 0) f.aggroT -= dt;
       if (f.stunT > 0) { f.stunT -= dt; continue; }   // off its feet
+      if (f.fuseT > 0) {
+        f.fuseT -= dt;
+        if (f.fuseT <= 0) this._detonate(f);
+        continue;                                     // committed; cannot be steered
+      }
       // slow decays rather than switching off, so leaving a field reads
       if (f.slowT > 0) { f.slowT -= dt; if (f.slowT <= 0) f.slowK = 1; }
       const spd = def.speed * (f.slowT > 0 ? f.slowK : 1);
@@ -808,7 +844,39 @@ export class World {
           if (along < bestAlong) { bestAlong = along; blocked = w; }
         }
 
+        // A bomber ignores the fire and goes for what you BUILT. It leaves
+        // the lane once something is in reach, which is what makes clustering
+        // your line a liability rather than a strength.
+        if (def.blast && f.fuseT <= 0) {
+          let tgt = null, td = 15;
+          for (const wd of this.wards) {
+            if (wd.dead) continue;
+            const d = Math.hypot(wd.x - f.x, wd.z - f.z);
+            if (d < td) { td = d; tgt = wd; }
+          }
+          if (tgt) {
+            f.blastTarget = tgt;
+            const bx = tgt.x - f.x, bz = tgt.z - f.z;
+            const bl = Math.hypot(bx, bz) || 1;
+            if (bl > def.radius + tgt.def.radius + 0.4) {
+              f.x += (bx / bl) * spd * dt;
+              f.z += (bz / bl) * spd * dt;
+              f.targetKind = null;
+            } else {
+              f.fuseT = def.blast.fuse;      // lit, and committed
+              this.emit({ type: 'fuse', x: f.x, z: f.z });
+            }
+            continue;                       // never falls through to the lane
+          }
+        }
+
         const atStone = f.dist >= f.lane.total - stoneStandoff(def);
+        if (def.blast && atStone && f.fuseT <= 0) {
+          f.fuseT = def.blast.fuse;
+          f.blastTarget = null;
+          this.emit({ type: 'fuse', x: f.x, z: f.z });
+          continue;
+        }
         if (chasing && !blocked) {
           // walk at the player directly, in world space, off the lane
           const cx = p.x - f.x, cz = p.z - f.z;
@@ -933,8 +1001,15 @@ export class World {
           // of levelled watchtowers won the whole game with the player stood
           // still, which is the exact failure the unit budget exists to
           // prevent. More arrows do not make hitting a darting light easier.
+          // Upgrades do NOT scale an aura, on the ground or in the air.
+          // Measured: the "air-heavy" build spends all 32 units on watchtowers
+          // ringing the fire, keeps NO walls at all, and still barely leaks
+          // ground foes — because a levelled, stacked aura at the one point
+          // every foe converges on is a meat grinder for everything, and it
+          // won the whole game with nobody playing. Upgrades scale wards that
+          // pick a target; area denial is bought with UNITS, which are capped.
           const flying = f.def.flying && def.airMul != null;
-          const power = flying ? 1 : w.power;
+          const power = 1;
           const airK = flying ? def.airMul : 1;
           const fo = World.AURA_FALLOFF;
           const stack = fo[Math.min(f._auraN || 0, fo.length - 1)];

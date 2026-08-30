@@ -138,6 +138,15 @@ const INVARIANTS = [
       ? `${w.caches.length} caches during a wave` : null;
   }],
 
+  ['a lit fuse is bounded and resolves', (w) => {
+    for (let i = 0; i < w.foes.length; i++) {
+      const f = w.foes[i];
+      if (!num(f.fuseT)) return `${f.kind} fuseT ${f.fuseT}`;
+      if (f.fuseT > 2) return `${f.kind} fuse burning ${f.fuseT}s`;
+    }
+    return null;
+  }],
+
   ['phase is a known value', (w) =>
     ['build', 'combat', 'won', 'lost'].includes(w.phase) ? null : `phase is ${w.phase}`],
 

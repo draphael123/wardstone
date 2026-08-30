@@ -361,6 +361,18 @@ function drainEvents() {
         if (s) s.play('build', 1, 0.8);
         toast(`${WARD_BY_ID[e.ward].name} — level ${e.level}`);
         break;
+      case 'fuse':
+        if (s) s.play('hover', 1, 0.5);
+        toast('<b>Powder goblin</b> &mdash; get clear');
+        break;
+      case 'blast':
+        r.addShake(0.8);
+        r.ringBurst(e.x, 0.5, e.z, 0xff9c3a, e.r, 30);
+        r.spark(e.x, 1.1, e.z, 0xffd070, 34, 12, 2.2);
+        flash(0.3);
+        state.hitstop = Math.max(state.hitstop, 0.11);
+        if (s) s.layer('snare', 'wardDown', 1.2, 0.7);
+        break;
       case 'cacheHit':
         r.spark(e.x, 0.8, e.z, 0xc9a978, 5, 4, 0.7);
         if (s) s.play('impact', 0.7, 1.2);

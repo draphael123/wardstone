@@ -201,6 +201,13 @@ export const WARDS = [
     // the sky is hard, so it lands 40% of its damage there and the body still
     // has to finish the job.
     airMul: 0.55,
+    // A dead zone directly overhead. An archer on a platform cannot shoot
+    // straight up, and structurally this is what stops a tight RING of towers
+    // around the fire from being a complete answer to the air: every wisp
+    // converges on the hearth, so towers hugging it were covering the one
+    // place they should not be able to. Catch them on the approach or not at
+    // all. Tuning the stacking falloff twice did not fix this; geometry does.
+    minAir: 4.0,
     blurb: 'Loose and steady at everything nearby. The only ward that can shoot upward.',
   },
   {
@@ -255,6 +262,18 @@ export const FOES = [
     damage: 10, playerDamage: 9, attackCd: 1.0, flying: true, height: 1.1, flyHeight: 4.2,
   },
   {
+    // The only foe that rewards killing BEFORE contact and punishes stacking.
+    // Everything else walks up and hits one thing; this runs at your line and
+    // takes several wards with it. Kill it early and it does nothing at all —
+    // it does not explode when killed, only when it arrives.
+    id: 'bomber', name: 'Powder Goblin',
+    hp: 70, speed: 5.4, radius: 0.5, bounty: 14,
+    damage: 0, playerDamage: 0, attackCd: 1.0, flying: false, height: 1.3,
+    // it ignores the fire entirely and goes for whatever you built
+    seeksWards: true,
+    blast: { radius: 4.2, ward: 520, player: 30, stone: 260, fuse: 0.55 },
+  },
+  {
     id: 'breaker', name: 'Breaker',
     hp: 1200, speed: 1.9, radius: 1.15, bounty: 40,
     damage: 320, playerDamage: 26, attackCd: 2.2, flying: false, height: 3.0,
@@ -291,6 +310,7 @@ export const WAVES = [
     groups: [
       { lane: 'north', foe: 'husk',   count: 8,  at: 0.0, gap: 1.1 },
       { lane: 'west',  foe: 'runner', count: 12, at: 1.5, gap: 0.6 },
+      { lane: 'east',  foe: 'bomber', count: 2,  at: 4.0, gap: 2.4 },
       { lane: 'north', foe: 'wisp',   count: 5,  at: 6.0, gap: 1.8 },
       { lane: 'east',  foe: 'wisp',   count: 5,  at: 10.0, gap: 1.8 },
     ],
@@ -301,6 +321,7 @@ export const WAVES = [
       { lane: 'east',  foe: 'husk',    count: 12, at: 0.0,  gap: 0.9 },
       { lane: 'west',  foe: 'runner',  count: 14, at: 1.0,  gap: 0.55 },
       { lane: 'north', foe: 'breaker', count: 1,  at: 4.0,  gap: 0 },
+      { lane: 'west',  foe: 'bomber',  count: 3,  at: 7.0,  gap: 1.8 },
       { lane: 'north', foe: 'husk',    count: 10, at: 5.0,  gap: 1.0 },
       { lane: 'east',  foe: 'wisp',    count: 6,  at: 11.0, gap: 1.4 },
       { lane: 'west',  foe: 'wisp',    count: 4,  at: 16.0, gap: 1.5 },
@@ -312,6 +333,7 @@ export const WAVES = [
       { lane: 'north', foe: 'runner',  count: 20, at: 0.0,  gap: 0.42 },
       { lane: 'west',  foe: 'breaker', count: 1,  at: 2.0,  gap: 0 },
       { lane: 'east',  foe: 'breaker', count: 1,  at: 9.0,  gap: 0 },
+      { lane: 'north', foe: 'bomber',  count: 4,  at: 5.0,  gap: 1.5 },
       { lane: 'east',  foe: 'husk',    count: 14, at: 3.0,  gap: 0.8 },
       { lane: 'west',  foe: 'husk',    count: 12, at: 6.0,  gap: 0.9 },
       { lane: 'north', foe: 'wisp',    count: 9,  at: 9.0,  gap: 1.1 },
@@ -331,6 +353,8 @@ export const WAVES = [
       { lane: 'west',  foe: 'breaker', count: 1,  at: 2.0,  gap: 0 },
       { lane: 'north', foe: 'breaker', count: 1,  at: 8.0,  gap: 0 },
       { lane: 'east',  foe: 'breaker', count: 1,  at: 15.0, gap: 0 },
+      { lane: 'west',  foe: 'bomber',  count: 5,  at: 4.0,  gap: 1.3 },
+      { lane: 'east',  foe: 'bomber',  count: 5,  at: 12.0, gap: 1.3 },
       { lane: 'east',  foe: 'husk',    count: 18, at: 5.0,  gap: 0.72 },
       { lane: 'west',  foe: 'husk',    count: 18, at: 6.0,  gap: 0.72 },
       { lane: 'west',  foe: 'wisp',    count: 6,  at: 10.0, gap: 1.2 },
