@@ -11,7 +11,7 @@ import { Sound, playEvent } from './audio.js';
 import { Minimap } from './minimap.js';
 import { Tutorial, STEPS } from './tutorial.js';
 import { WARDS, WARD_BY_ID, ECON, WAVES, PLAYER, ABILITY, waveByLane } from './defs.js';
-import { cellOf, cellCenter, isBuildableCell, ARENA } from './arena.js';
+import { cellOf, cellCenter, isBuildableCell, ARENA, LANES, laneDoor } from './arena.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -191,6 +191,37 @@ function syncHud() {
 }
 
 // short-lived line in the hint slot, for one-off confirmations
+// What that wave actually cost you, and what is coming. Without it a cleared
+// wave is a number changing in the corner.
+function showTally(e) {
+  const w = state.world;
+  const k = w.stats.kills, prev = state.tallyPrev || {};
+  const d = (id) => (k[id] || 0) - (prev[id] || 0);
+  state.tallyPrev = { ...k };
+  const bits = [];
+  for (const [id, label] of [['husk', 'goblins'], ['runner', 'scouts'],
+                             ['wisp', 'wisps'], ['breaker', 'trolls']]) {
+    if (d(id) > 0) bits.push(`<b>${d(id)}</b> ${label}`);
+  }
+  const lostNow = w.stats.wardLosses - (state.tallyWards || 0);
+  state.tallyWards = w.stats.wardLosses;
+  const rows = [
+    bits.length ? 'Slain — ' + bits.join(', ') : 'Nothing reached you',
+    `Fire at <b>${Math.round(100 * w.stone.hp / w.stone.maxHp)}%</b>` +
+      (lostNow ? ` &nbsp;·&nbsp; <b>${lostNow}</b> ward${lostNow > 1 ? 's' : ''} lost` : ''),
+    `Bounty <b>+${e.bonus}</b> mana`,
+  ];
+  $('tallyRows').innerHTML = rows.join('<br>');
+  const nxt = WAVES[w.waveIndex + 1];
+  $('tallyNext').innerHTML = nxt
+    ? `Next: <b>${nxt.name}</b> — ${waveByLane(nxt) && Object.values(waveByLane(nxt)).reduce((n, x) => n + x.total, 0)} coming`
+    : 'That was the last of them.';
+  const t = $('tally');
+  t.classList.remove('on');
+  void t.offsetWidth;
+  t.classList.add('on');
+}
+
 function toast(msg) {
   const h = $('hint');
   h.innerHTML = msg;
@@ -354,7 +385,7 @@ function drainEvents() {
         showHint(e.index);
         break;
       case 'waveClear':
-        banner('Wave held', `+${e.bonus} mana · muster`);
+        showTally(e);
         break;
       case 'won': endGame(true); break;
       case 'lost': endGame(false); break;
@@ -405,6 +436,62 @@ function stepDamageNumbers(dt) {
     const k = d.life / d.max;
     d.el.style.transform = `translate(${sx.toFixed(0)}px,${sy.toFixed(0)}px)`;
     d.el.style.opacity = (k > 0.7 ? (1 - k) / 0.3 : k / 0.7).toFixed(2);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// In-world markers over each gate during the muster. The minimap already says
+// what is coming per track; this puts it where you are LOOKING, so choosing
+// which door to reinforce does not require reading a corner of the screen.
+// ---------------------------------------------------------------------------
+const DOORS = new Map();
+const _dp = new THREE.Vector3();
+const FOE_TINT = { husk: '#a8ae9c', runner: '#8fbf6a', wisp: '#8fe6c0', breaker: '#8a6a4a' };
+
+function initDoors() {
+  const host = $('doors');
+  for (const lane of LANES) {
+    const el = document.createElement('div');
+    el.className = 'door';
+    el.innerHTML = '<div class="cnt"></div><div class="pips"></div><div class="nm"></div>';
+    host.appendChild(el);
+    DOORS.set(lane.id, { el, cnt: el.querySelector('.cnt'), pips: el.querySelector('.pips'),
+      nm: el.querySelector('.nm'), lane });
+  }
+}
+
+function stepDoors() {
+  const w = state.world, cam = state.rend.camera;
+  const show = w.phase === 'build' && w.waveIndex < WAVES.length;
+  const inc = show ? waveByLane(WAVES[w.waveIndex]) : null;
+  for (const [id, d] of DOORS) {
+    const info = inc && inc[id];
+    if (!info || !info.total) { d.el.classList.remove('on'); continue; }
+    const p = laneDoor(d.lane);
+    _dp.set(p.x, 6.5, p.z).project(cam);
+    if (_dp.z > 1) { d.el.classList.remove('on'); continue; }
+    d.el.classList.add('on');
+    // Clamp into the play area. A distant gate projects near the horizon and
+    // lands underneath the top HUD, where the marker is worse than useless.
+    const sx = (_dp.x * 0.5 + 0.5) * innerWidth;
+    const sy = (-_dp.y * 0.5 + 0.5) * innerHeight;
+    d.el.style.left = Math.max(56, Math.min(innerWidth - 56, sx)).toFixed(0) + 'px';
+    d.el.style.top = Math.max(118, Math.min(innerHeight - 190, sy)).toFixed(0) + 'px';
+    if (d.cnt.textContent !== String(info.total)) {
+      d.cnt.textContent = info.total;
+      d.nm.textContent = d.lane.name;
+      d.pips.innerHTML = '';
+      for (const k of ['husk', 'runner', 'wisp', 'breaker']) {
+        const n = info.kinds[k];
+        if (!n) continue;
+        for (let i = 0; i < Math.min(6, Math.ceil(n / 4)); i++) {
+          const pip = document.createElement('div');
+          pip.className = 'pip';
+          pip.style.background = FOE_TINT[k];
+          d.pips.appendChild(pip);
+        }
+      }
+    }
   }
 }
 
@@ -763,6 +850,10 @@ function applyInput(dt) {
     }
   }
 
+  // whatever ward you are next to (or pointing at) shows its reach
+  r._inspect = state.selected ? null
+    : (state.overhead ? wardUnderPointer() : w.wardNear(4.6));
+
   // ghost while building
   if (state.selected) {
     const c = (!isTouch && state.pointer.has ? pickCell(state.pointer.x, state.pointer.y) : null) || cellAhead();
@@ -788,6 +879,7 @@ function frame(now) {
   state.lastFrame = performance.now();
 
   stepDamageNumbers(dt);
+  if (state.running) stepDoors();
   if (flashT > 0) {
     flashT = Math.max(0, flashT - dt * 2.2);
     $('flash').style.opacity = flashT;
@@ -852,6 +944,7 @@ function boot() {
   state.map = new Minimap($('map'));
   buildBar();
   initDamageNumbers();
+  initDoors();
   bindInput();
   bindSettings();
   loadSettings();

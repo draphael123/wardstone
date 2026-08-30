@@ -266,6 +266,40 @@
   #flash{position:fixed;inset:0;z-index:40;pointer-events:none;background:#e0605a;
     opacity:0;transition:opacity .25s}
 
+  /* in-world markers over each track's gate during the muster */
+  #doors{position:fixed;inset:0;z-index:31;pointer-events:none;overflow:hidden}
+  .door{position:absolute;transform:translate(-50%,-100%);text-align:center;
+    opacity:0;transition:opacity .3s}
+  .door.on{opacity:1}
+  .door .cnt{display:inline-block;padding:3px 9px;border-radius:4px;
+    background:rgba(10,13,20,.82);border:1px solid rgba(255,179,71,.55);
+    color:#ffd89a;font-family:ui-monospace,Menlo,Consolas,monospace;
+    font-size:13px;font-weight:700;text-shadow:0 1px 3px #000}
+  .door .pips{margin-top:3px;display:flex;gap:3px;justify-content:center}
+  .door .pip{width:7px;height:7px;border-radius:2px;
+    box-shadow:0 1px 2px rgba(0,0,0,.7)}
+  .door .nm{margin-top:2px;font-size:9px;letter-spacing:.16em;
+    text-transform:uppercase;color:#b8c0d0;text-shadow:0 1px 3px #000}
+
+  /* between-wave summary */
+  #tally{position:fixed;left:50%;top:26%;transform:translateX(-50%);z-index:36;
+    width:min(360px,88vw);background:rgba(14,18,27,.94);border-radius:8px;
+    border:1px solid rgba(255,179,71,.34);padding:16px 20px;text-align:center;
+    backdrop-filter:blur(8px);pointer-events:none;opacity:0;
+    box-shadow:0 8px 32px rgba(0,0,0,.55)}
+  #tally.on{animation:tallyIn 4.2s ease forwards}
+  #tally h4{font-size:12px;letter-spacing:.24em;text-transform:uppercase;
+    color:#ffb347;font-weight:400;margin-bottom:9px}
+  #tally .rows{font-size:12.5px;color:#c8cedb;line-height:1.85}
+  #tally .rows b{color:#fff;font-weight:400}
+  #tally .next{margin-top:10px;padding-top:9px;font-size:11.5px;color:#98a1b3;
+    border-top:1px solid rgba(255,255,255,.1)}
+  @keyframes tallyIn{
+    0%{opacity:0;transform:translateX(-50%) translateY(10px)}
+    10%{opacity:1;transform:translateX(-50%) translateY(0)}
+    82%{opacity:1}100%{opacity:0}
+  }
+
   /* floating damage numbers */
   #dmg{position:fixed;inset:0;z-index:32;pointer-events:none;overflow:hidden}
   .dnum{position:absolute;font-family:ui-monospace,Menlo,Consolas,monospace;
@@ -511,7 +545,11 @@
   <button id="tutSkip">Skip tutorial</button>
 </div>
 
+<div id="tally"><h4>Wave held</h4><div class="rows" id="tallyRows"></div>
+  <div class="next" id="tallyNext"></div></div>
+
 <div id="banner"><div class="t" id="bannerT"></div><div class="s" id="bannerS"></div></div>
+<div id="doors"></div>
 <div id="dmg"></div>
 <div id="flash"></div>
 

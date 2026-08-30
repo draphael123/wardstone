@@ -1493,6 +1493,18 @@ export class Renderer {
       }));
     this.ring.visible = false;
     this.scene.add(this.ring);
+
+    // A second ring for a ward you are standing next to or pointing at, so
+    // "what does this actually cover?" is answerable without selling it and
+    // placing it again.
+    this.inspectRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.955, 1, 64).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({
+        color: 0x9fc8ff, transparent: true, opacity: 0.4,
+        side: THREE.DoubleSide, depthWrite: false,
+      }));
+    this.inspectRing.visible = false;
+    this.scene.add(this.inspectRing);
   }
 
   // ------------------------------------------------------------------- FX
@@ -2209,6 +2221,19 @@ export class Renderer {
       const puls = Math.sin(this.t * 2 + d.lane.length) * 0.06;
       d.sprite.material.opacity = d.base + Math.max(0, f) * 0.9 + puls;
       if (d.light) d.light.intensity = 42 + Math.max(0, f) * 70 + puls * 40;
+    }
+
+    // show the reach of whatever ward the player is attending to
+    const insp = world.player.repairing ||
+      (this._inspect && !this._inspect.dead ? this._inspect : null);
+    if (insp && insp.def.range) {
+      this.inspectRing.visible = true;
+      this.inspectRing.position.set(insp.x, 0.34, insp.z);
+      const rr = insp.def.range;
+      this.inspectRing.scale.set(rr, 1, rr);
+      this.inspectRing.material.opacity = 0.26 + Math.sin(this.t * 3) * 0.08;
+    } else {
+      this.inspectRing.visible = false;
     }
 
     this.syncWards(world, dt);
