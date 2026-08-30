@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "wardstone", "runtimeExecutable": "python", "runtimeArgs": ["serve.py", "5835"], "port": 5835 }
+  ]
+}

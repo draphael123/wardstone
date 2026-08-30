@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0a0d14">
+<meta name="description" content="WARDSTONE — your wards hold the lanes. You hold what the lanes don't cover.">
+<title>WARDSTONE</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%230a0d14'/><path d='M16 5l7 7-7 7-7-7z' fill='%23ffb347'/><path d='M6 27h20' stroke='%234a5162' stroke-width='2.5' stroke-linecap='round'/><path d='M11 27v-4M21 27v-4' stroke='%234a5162' stroke-width='2.5' stroke-linecap='round'/></svg>">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{
+    width:100%;height:100%;overflow:hidden;background:#0a0d14;color:#e9e6dd;
+    font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+    -webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;
+    user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-action:none;
+  }
+  #stage{position:fixed;inset:0;display:block;width:100%;height:100%;touch-action:none}
+  .mono{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
+
+  /* ================= boot ================= */
+  #boot{position:fixed;inset:0;z-index:100;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:18px;background:#0a0d14;
+    text-align:center;padding:24px;transition:opacity .7s ease}
+  #boot.gone{opacity:0;pointer-events:none}
+  #boot.hidden,#intro.hidden,#touch.hidden{display:none!important}
+  #boot h1{font-size:clamp(30px,8vw,58px);letter-spacing:.42em;font-weight:400;
+    color:#ffb347;text-indent:.42em}
+  #boot p{font-size:11px;letter-spacing:.24em;color:#6b7488;text-transform:uppercase}
+  #boot .err{color:#e0605a;letter-spacing:0;text-transform:none;max-width:70ch;
+    font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.7}
+  .spark{width:7px;height:7px;border-radius:50%;background:#ffb347;
+    animation:pulse 1.5s ease-in-out infinite;box-shadow:0 0 18px #ffb347}
+  @keyframes pulse{0%,100%{opacity:.15;transform:scale(.7)}50%{opacity:1;transform:scale(1.3)}}
+
+  /* ================= intro ================= */
+  #intro{position:fixed;inset:0;z-index:90;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;padding:28px 22px;
+    background:radial-gradient(ellipse at 50% 42%,#141b28 0%,#0a0d14 62%);
+    overflow-y:auto;transition:opacity .5s ease}
+  #intro.gone{opacity:0;pointer-events:none}
+  #intro .wrap{max-width:640px;width:100%;display:flex;flex-direction:column;
+    align-items:center;gap:22px;margin:auto}
+  #intro h1{font-size:clamp(34px,9vw,68px);letter-spacing:.4em;font-weight:400;
+    color:#ffb347;text-indent:.4em;line-height:1;
+    text-shadow:0 0 42px rgba(255,179,71,.4)}
+  #intro .prem{font-size:clamp(14px,3.4vw,18px);line-height:1.65;color:#c8cedb;
+    max-width:44ch;font-style:italic}
+  #intro .prem b{color:#ffb347;font-style:normal;font-weight:400}
+  #intro .rules{display:flex;flex-direction:column;gap:11px;width:100%;
+    max-width:460px;text-align:left}
+  .rule{display:flex;gap:13px;align-items:flex-start;font-size:13.5px;
+    line-height:1.55;color:#98a1b3}
+  .rule i{font-style:normal;flex:0 0 26px;height:26px;border-radius:6px;
+    display:grid;place-items:center;font-size:13px;margin-top:1px}
+  .rule b{color:#e9e6dd;font-weight:400}
+  .r1 i{background:rgba(107,74,47,.5);color:#c99a63}
+  .r2 i{background:rgba(99,230,255,.16);color:#63e6ff}
+  .r3 i{background:rgba(143,58,52,.4);color:#e08a80}
+  #begin{margin-top:6px;padding:15px 46px;font-size:14px;letter-spacing:.26em;
+    text-transform:uppercase;background:#ffb347;color:#12151d;border:0;border-radius:3px;
+    cursor:pointer;font-family:inherit;transition:transform .15s,box-shadow .15s;
+    box-shadow:0 0 34px rgba(255,179,71,.34)}
+  #begin:hover{transform:translateY(-2px);box-shadow:0 0 46px rgba(255,179,71,.55)}
+  #begin:active{transform:translateY(0)}
+  #intro .opts{display:flex;gap:9px;flex-wrap:wrap;justify-content:center}
+  .opt{padding:8px 15px;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
+    background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);
+    color:#8e97a8;border-radius:3px;cursor:pointer;font-family:inherit}
+  .opt.on{background:rgba(255,179,71,.16);border-color:rgba(255,179,71,.5);color:#ffb347}
+  #intro .foot{font-size:10.5px;color:#5961744;color:#5b6374;letter-spacing:.1em}
+  #intro .foot a{color:#7d8598}
+
+  /* ================= hud ================= */
+  #hud{position:fixed;inset:0;z-index:20;pointer-events:none;
+    padding:max(14px,env(safe-area-inset-top)) max(14px,env(safe-area-inset-right))
+            max(14px,env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left))}
+  #hud.hide{display:none}
+  #hud::before{content:'';position:absolute;inset:0 0 auto 0;height:150px;z-index:-1;
+    background:linear-gradient(180deg,rgba(6,9,15,.72),transparent);pointer-events:none}
+  #hud::after{content:'';position:absolute;inset:auto 0 0 0;height:190px;z-index:-1;
+    background:linear-gradient(0deg,rgba(6,9,15,.7),transparent);pointer-events:none}
+  .lbl{font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:#6f788b}
+  .num{font-size:21px;line-height:1.05;color:#e9e6dd}
+
+  #topL{position:absolute;top:max(14px,env(safe-area-inset-top));left:max(14px,env(safe-area-inset-left))}
+  #waveName{font-size:17px;color:#e9e6dd;margin-top:3px}
+  #phase{font-size:11.5px;color:#8e97a8;margin-top:5px;letter-spacing:.05em}
+  #phase b{color:#ffb347;font-weight:400}
+
+  #topR{position:absolute;top:max(14px,env(safe-area-inset-top));right:max(14px,env(safe-area-inset-right));
+    text-align:right;display:flex;gap:20px}
+  #topR .stat{min-width:60px}
+  #manaN{color:#9fe8ff}
+  #duN{color:#7fe08a}
+  #duN.full{color:#e0605a}
+
+  /* wardstone integrity — a thin ring of light under the top bar */
+  #stoneBar{position:absolute;top:max(14px,env(safe-area-inset-top));left:50%;
+    transform:translateX(-50%);width:min(300px,44vw);text-align:center}
+  #stoneTrack{height:5px;background:rgba(255,255,255,.09);border-radius:3px;overflow:hidden;margin-top:5px}
+  #stoneFill{height:100%;width:100%;background:linear-gradient(90deg,#ffb347,#ffd89a);
+    box-shadow:0 0 14px rgba(255,179,71,.75);transition:width .3s ease}
+  #stoneFill.low{background:linear-gradient(90deg,#e0605a,#ff9b6a);box-shadow:0 0 16px rgba(224,96,90,.8)}
+
+  /* health */
+  #hpWrap{position:absolute;left:max(14px,env(safe-area-inset-left));bottom:calc(max(14px,env(safe-area-inset-bottom)) + 108px);width:150px}
+  #hpTrack{height:5px;background:rgba(255,255,255,.09);border-radius:3px;overflow:hidden;margin-top:4px}
+  #hpFill{height:100%;width:100%;background:#c8d4e6;transition:width .18s}
+  #hpFill.low{background:#e0605a}
+
+  /* ward bar */
+  #bar{position:absolute;left:50%;transform:translateX(-50%);
+    bottom:max(14px,env(safe-area-inset-bottom));display:flex;gap:8px;pointer-events:auto}
+  .ward{width:78px;padding:9px 7px 8px;background:rgba(16,21,31,.86);
+    border:1px solid rgba(255,255,255,.11);border-radius:5px;cursor:pointer;
+    text-align:center;transition:.14s;position:relative;backdrop-filter:blur(7px)}
+  .ward:hover{border-color:rgba(255,255,255,.3);transform:translateY(-2px)}
+  .ward.sel{border-color:#ffb347;background:rgba(255,179,71,.15);transform:translateY(-3px)}
+  .ward.poor{opacity:.4}
+  .ward .k{position:absolute;top:3px;left:5px;font-size:9px;color:#6f788b}
+  .ward .ic{font-size:19px;line-height:1;margin:3px 0 4px}
+  .ward .nm{font-size:10px;letter-spacing:.06em;color:#c8cedb}
+  .ward .cost{font-size:10px;color:#9fe8ff;margin-top:3px}
+  .ward .cost s{color:#7fe08a;text-decoration:none;margin-left:5px}
+
+  #hint{position:absolute;left:50%;transform:translateX(-50%);
+    bottom:calc(max(14px,env(safe-area-inset-bottom)) + 96px);
+    font-size:12px;color:#98a1b3;text-align:center;line-height:1.5;
+    background:rgba(10,13,20,.6);padding:6px 14px;border-radius:4px;
+    backdrop-filter:blur(6px);max-width:90vw}
+  #hint b{color:#ffb347;font-weight:400}
+  #hint.gone{display:none}
+
+  #ready{position:absolute;right:max(14px,env(safe-area-inset-right));
+    bottom:calc(max(14px,env(safe-area-inset-bottom)) + 104px);
+    padding:12px 22px;font-size:11.5px;letter-spacing:.18em;text-transform:uppercase;
+    background:#ffb347;color:#12151d;border:0;border-radius:4px;cursor:pointer;
+    font-family:inherit;pointer-events:auto;box-shadow:0 0 26px rgba(255,179,71,.4)}
+  #ready.gone{display:none}
+
+  /* ================= touch controls ================= */
+  #touch{position:fixed;inset:0;z-index:25;pointer-events:none;display:none}
+  #touch.on{display:block}
+  #stick{position:absolute;left:max(20px,env(safe-area-inset-left));
+    bottom:calc(max(20px,env(safe-area-inset-bottom)) + 96px);
+    width:124px;height:124px;border-radius:50%;
+    background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.13);
+    pointer-events:auto;touch-action:none}
+  #knob{position:absolute;left:50%;top:50%;width:52px;height:52px;margin:-26px 0 0 -26px;
+    border-radius:50%;background:rgba(255,179,71,.5);border:1px solid rgba(255,179,71,.75)}
+  .tbtn{position:absolute;border-radius:50%;pointer-events:auto;touch-action:none;
+    display:grid;place-items:center;font-size:10px;letter-spacing:.1em;
+    text-transform:uppercase;color:#e9e6dd;border:1px solid rgba(255,255,255,.16);
+    background:rgba(20,26,38,.7);backdrop-filter:blur(6px)}
+  .tbtn:active,.tbtn.on{background:rgba(255,179,71,.35);border-color:#ffb347}
+  #bFire{right:max(20px,env(safe-area-inset-right));
+    bottom:calc(max(20px,env(safe-area-inset-bottom)) + 152px);width:92px;height:92px;font-size:12px}
+  #bMend{right:calc(max(20px,env(safe-area-inset-right)) + 100px);
+    bottom:calc(max(20px,env(safe-area-inset-bottom)) + 128px);width:66px;height:66px}
+  #bCam{right:max(20px,env(safe-area-inset-right));
+    bottom:calc(max(20px,env(safe-area-inset-bottom)) + 258px);width:56px;height:56px;font-size:9px}
+
+  /* ================= overlays ================= */
+  #over{position:fixed;inset:0;z-index:60;display:none;place-items:center;
+    background:rgba(6,9,15,.9);text-align:center;padding:24px}
+  #over.on{display:grid}
+  #over h2{font-size:clamp(26px,7vw,46px);letter-spacing:.3em;font-weight:400;
+    color:#ffb347;text-indent:.3em;margin-bottom:14px}
+  #over h2.bad{color:#e0605a}
+  #over p{font-size:14px;color:#98a1b3;line-height:1.7;max-width:46ch;margin:0 auto 22px}
+  #over .stats{font-size:12px;color:#7d8598;margin-bottom:22px;line-height:1.9}
+  #over .stats b{color:#c8cedb;font-weight:400}
+
+  #flash{position:fixed;inset:0;z-index:40;pointer-events:none;background:#e0605a;
+    opacity:0;transition:opacity .25s}
+
+  #banner{position:fixed;top:24%;left:50%;transform:translateX(-50%);z-index:35;
+    pointer-events:none;text-align:center;opacity:0}
+  #banner.show{animation:bannerIn 2.6s ease forwards}
+  #banner .t{font-size:clamp(20px,5vw,34px);letter-spacing:.28em;color:#ffb347;
+    text-indent:.28em;text-shadow:0 0 30px rgba(255,179,71,.6)}
+  #banner .s{font-size:11px;letter-spacing:.2em;color:#98a1b3;text-transform:uppercase;margin-top:7px}
+  @keyframes bannerIn{
+    0%{opacity:0;transform:translateX(-50%) translateY(14px)}
+    14%{opacity:1;transform:translateX(-50%) translateY(0)}
+    76%{opacity:1}
+    100%{opacity:0}
+  }
+  /* ===== portrait phones =====
+     Three separate top-anchored blocks cannot share a 375px row: the wave
+     name, the wardstone bar and the two counters all landed on top of each
+     other. Portrait gets a vertical stack at the top and every control at the
+     bottom, with nothing in the middle where the thumbs and the hint were
+     colliding. */
+  @media (max-width:620px), (orientation:portrait){
+    #stoneBar{top:max(8px,env(safe-area-inset-top));width:min(94vw,420px)}
+    #stoneBar .lbl{font-size:8px}
+    #topL{top:calc(max(8px,env(safe-area-inset-top)) + 30px);left:max(11px,env(safe-area-inset-left))}
+    #topL .lbl{font-size:8px}
+    #waveName{font-size:14px;margin-top:1px}
+    #phase{font-size:10.5px;margin-top:2px}
+    #topR{top:calc(max(8px,env(safe-area-inset-top)) + 30px);right:max(11px,env(safe-area-inset-right));gap:13px}
+    #topR .stat{min-width:auto}
+    #topR .lbl{font-size:8px}
+    .num{font-size:16px}
+
+    /* vigour moves up out of the thumb zone entirely */
+    #hpWrap{left:max(11px,env(safe-area-inset-left));
+      top:calc(max(8px,env(safe-area-inset-top)) + 84px);bottom:auto;width:104px}
+    #hpWrap .lbl{font-size:8px}
+
+    /* the hint band sits under the status stack, never under a thumb */
+    #hint{top:calc(max(8px,env(safe-area-inset-top)) + 118px);bottom:auto;
+      font-size:11.5px;line-height:1.45;max-width:84vw;padding:6px 11px}
+
+    #bar{gap:5px;bottom:max(9px,env(safe-area-inset-bottom))}
+    .ward{width:calc((100vw - 40px)/4);max-width:84px;padding:6px 3px 5px}
+    .ward .ic{font-size:15px;margin:2px 0 3px}
+    .ward .nm{font-size:9px}
+    .ward .cost{font-size:9px}
+    .ward .k{font-size:8px}
+
+    /* controls clear the ward bar */
+    #stick{width:108px;height:108px;bottom:calc(max(9px,env(safe-area-inset-bottom)) + 82px);
+      left:max(12px,env(safe-area-inset-left))}
+    #knob{width:46px;height:46px;margin:-23px 0 0 -23px}
+    #bFire{width:84px;height:84px;bottom:calc(max(9px,env(safe-area-inset-bottom)) + 88px);
+      right:max(12px,env(safe-area-inset-right))}
+    #bMend{width:60px;height:60px;bottom:calc(max(9px,env(safe-area-inset-bottom)) + 178px);
+      right:max(14px,env(safe-area-inset-right))}
+    #bCam{width:54px;height:54px;bottom:calc(max(9px,env(safe-area-inset-bottom)) + 248px);
+      right:max(16px,env(safe-area-inset-right))}
+    #ready{bottom:calc(max(9px,env(safe-area-inset-bottom)) + 92px);
+      right:auto;left:50%;transform:translateX(-50%);padding:10px 20px;font-size:11px}
+  }
+  /* landscape phone: keep the desktop arrangement but tighten it */
+  @media (max-height:480px) and (orientation:landscape){
+    #hpWrap{bottom:calc(max(10px,env(safe-area-inset-bottom)) + 82px);width:120px}
+    #hint{bottom:calc(max(10px,env(safe-area-inset-bottom)) + 78px);font-size:11px}
+    .ward{width:64px;padding:5px 3px 4px}
+    .ward .ic{font-size:14px;margin:1px 0 2px}
+    #stick{width:100px;height:100px}
+    #bFire{width:76px;height:76px}
+    #bMend{width:54px;height:54px}
+    #bCam{width:48px;height:48px}
+  }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+
+<div id="boot">
+  <h1>WARDSTONE</h1>
+  <div class="spark"></div>
+  <p id="bootMsg">lighting the crypt</p>
+</div>
+
+<div id="intro" class="gone">
+  <div class="wrap">
+    <h1>WARDSTONE</h1>
+    <div class="prem">Three doors. One light. <b>Your wards hold the lanes &mdash;
+      you hold what the lanes don't cover.</b></div>
+    <div class="rules">
+      <div class="rule r1"><i>&#9776;</i><div><b>Wards hold ground.</b> Wall a lane
+        and the dead stop and hack at the wall instead of walking past it. They
+        never find a way around &mdash; there isn't one.</div></div>
+      <div class="rule r2"><i>&#9679;</i><div><b>Wisps do not walk.</b> They fly
+        straight over every wall you own. One ward in four can even reach them,
+        and it is the weakest one. The rest is your bow.</div></div>
+      <div class="rule r3"><i>&#9632;</i><div><b>Breakers out-hit your hammer.</b>
+        You cannot mend a wall faster than a breaker ruins it. A wall buys you
+        time to kill it, and nothing more.</div></div>
+    </div>
+    <button id="begin">Light the stone</button>
+    <div class="opts">
+      <button class="opt on" id="optMusic">Music</button>
+      <button class="opt on" id="optSound">Sound</button>
+      <button class="opt" id="optLow">Low detail</button>
+    </div>
+    <div class="foot">Mana drops where things die and must be walked over.
+      Six waves. <span id="ctrlHint"></span></div>
+  </div>
+</div>
+
+<div id="hud" class="hide">
+  <div id="topL">
+    <div class="lbl">Wave <span id="waveNo" class="mono">1</span> of 6</div>
+    <div id="waveName">&mdash;</div>
+    <div id="phase">&mdash;</div>
+  </div>
+  <div id="stoneBar">
+    <div class="lbl">Wardstone</div>
+    <div id="stoneTrack"><div id="stoneFill"></div></div>
+  </div>
+  <div id="topR">
+    <div class="stat"><div class="lbl">Mana</div><div class="num mono" id="manaN">0</div></div>
+    <div class="stat"><div class="lbl">Units</div><div class="num mono" id="duN">0</div></div>
+  </div>
+  <div id="hpWrap">
+    <div class="lbl">Vigour</div>
+    <div id="hpTrack"><div id="hpFill"></div></div>
+  </div>
+  <div id="hint" class="gone"></div>
+  <button id="ready" class="gone">Ready</button>
+  <div id="bar"></div>
+</div>
+
+<div id="touch" class="hidden">
+  <div id="stick"><div id="knob"></div></div>
+  <div class="tbtn" id="bFire">Loose</div>
+  <div class="tbtn" id="bMend">Mend</div>
+  <div class="tbtn" id="bCam">Turn</div>
+</div>
+
+<div id="banner"><div class="t" id="bannerT"></div><div class="s" id="bannerS"></div></div>
+<div id="flash"></div>
+
+<div id="over">
+  <div>
+    <h2 id="overT">Held</h2>
+    <p id="overP"></p>
+    <div class="stats" id="overS"></div>
+    <button id="again" class="opt on" style="padding:13px 30px;font-size:12px">Again</button>
+  </div>
+</div>
+
+<script type="module">
+  // A boot watchdog. If the module graph fails to load — a syntax error, a bad
+  // path, a stale cache — the title screen would otherwise sit there forever
+  // looking like a slow connection. See [[cdn-importmap-dead-title-screen]].
+  window.__wsBooted = false;
+  const failBoot = (msg) => {
+    const b = document.getElementById('bootMsg');
+    b.className = 'err';
+    b.textContent = msg;
+    document.querySelector('.spark').style.display = 'none';
+  };
+  window.addEventListener('error', (e) => {
+    if (!window.__wsBooted) failBoot('Boot failed: ' + (e.message || e.type));
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    if (!window.__wsBooted) failBoot('Boot failed: ' + (e.reason && e.reason.message || e.reason));
+  });
+  setTimeout(() => {
+    if (!window.__wsBooted) failBoot('Still loading after 20s — the module graph did not resolve. Check the console.');
+  }, 20000);
+
+  import('./src/main.js').catch(err => failBoot('Boot failed: ' + err.message));
+</script>
+</body>
+</html>

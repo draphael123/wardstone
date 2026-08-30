@@ -1,0 +1,6 @@
+.DS_Store
+.dbg/
+.assetsrc/
+.vercel
+.vercel/
+node_modules/
