@@ -22,6 +22,9 @@ import { makeRng } from './rand.js';
 // the whole arena emptying your mana in one gesture.
 const RUN_MAX = 12;
 
+// How long a foe's weapon takes to come down and recover after the windup.
+const STRIKE_TIME = 0.26;
+
 // How close anything gets to the stone before it stops and strikes. One
 // rule for ground and air so a wisp and a husk hit from the same ring.
 function stoneStandoff(def) {
@@ -488,7 +491,7 @@ export class World {
       hp: hp, maxHp: hp,
       atkCd: this.rng.range(0, 0.4),
       target: null, targetKind: null, dead: false, hitT: 0,
-      aggroT: 0, windT: 0, stunT: 0, slowT: 0, slowK: 1,
+      aggroT: 0, windT: 0, stunT: 0, slowT: 0, slowK: 1, strikeT: 0, swingK: 0,
       fuseT: 0, blastTarget: null,
       // fliers cut the corner: they take the straight line to the stone
       fx: 0, fz: 0,
@@ -1073,10 +1076,16 @@ export class World {
         f.windAt = hitPlayer ? 'player' : f.targetKind;
         this.emit({ type: 'windup', x: f.x, y: f.y, z: f.z, foe: f.kind, at: f.windAt });
       }
+      if (f.strikeT > 0) f.strikeT -= dt;
+      f.swingK = World.swingPhase(f);   // published for the renderer
       if (f.windT > 0) {
         f.windT -= dt;
         if (f.windT > 0) continue;         // still winding up
         f.atkCd = 0;                       // the blow lands now
+        // The blow itself was instantaneous, so there was nothing to SEE: the
+        // windup ended and damage appeared. This is the follow-through the
+        // renderer swings the weapon through.
+        f.strikeT = STRIKE_TIME;
       }
       if (f.atkCd <= 0) {
         if (hitPlayer) {
@@ -1094,6 +1103,16 @@ export class World {
         }
       }
     }
+  }
+
+  // The whole swing as a single 0..1 number, so the renderer never has to
+  // re-derive it from three timers and get it subtly different.
+  //   0.00 - 0.45  winding up (the readable part)
+  //   0.45 - 1.00  the blow and its follow-through
+  static swingPhase(f) {
+    if (f.windT > 0) return (1 - f.windT / AGGRO.windup) * 0.45;
+    if (f.strikeT > 0) return 0.45 + (1 - f.strikeT / STRIKE_TIME) * 0.55;
+    return 0;
   }
 
   _pickTarget(w, near) {

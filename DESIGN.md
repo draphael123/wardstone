@@ -661,3 +661,53 @@ hovering it draws the ten metres it will reach — reusing the ward inspect ring
 because a player who has learned that a ring means "this is what it reaches"
 should not have to learn a second visual language — and the tutorial has a step
 that spawns three foes and asks you to use it.
+
+---
+
+# Goblins that actually swing
+
+Reported twice: "they kind of just bob up and down", then "the goblins actually
+need to swing their weapon to attack". The second report is the useful one,
+because it says the previous fix missed.
+
+## Why it was bobbing, exactly
+
+Foes are **instanced**, so they cannot have separate limb meshes — the gait is a
+vertex shader driven by one per-instance phase. That gait masks the arms by
+HEIGHT:
+
+```
+armMask = smoothstep(0.55, 1.05, position.y) * step(0.32, abs(position.x))
+```
+
+A goblin carries its blade at about **y = 0.32**. The weapon was below the mask
+entirely, so it never moved — the arms counter-swung, the body bobbed, and the
+sword hung in the air like a prop. Adding more animation to the arms could never
+have fixed it.
+
+The mask is now a **side**, not a height: everything at `position.x > 0.32` is
+the weapon side, which takes the arm and whatever it is holding together by
+construction.
+
+## The arc
+
+There was also nothing to animate. The sim ran a windup and then applied damage
+in a single frame — the blow itself had no duration at all. Foes now carry a
+`strikeT` follow-through, and the sim publishes the whole thing as one number:
+
+```
+0.00 – 0.45   winding up      (the readable half)
+0.45 – 1.00   the blow and its follow-through
+```
+
+Windup rocks the weapon **back** slowly, the strike drives it **forward** fast,
+and the body leans in behind it. The asymmetry is the point: the slow half is
+the half you get to react to.
+
+The phase is published as `f.swingK` by the sim rather than recomputed in the
+renderer, because `render.js` deliberately does not import `sim.js` and two
+copies of a timing rule drift.
+
+Measured: the arc runs 0 → 0.45 over 26 frames, → 0.98 over 16, back to 0 — and
+the value was confirmed arriving in the instanced GPU buffer, not merely in the
+sim.

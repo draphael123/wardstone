@@ -99,13 +99,37 @@ function glowTexture() {
 // identically: the body, and the back-faced hull drawn behind it. An outline
 // that does not walk with the legs peels off them.
 const WALK_CHUNK = [
+  // --- the walk
   'float legMask = 1.0 - smoothstep(0.10, 0.85, position.y);',
   'float sideSign = position.x < 0.0 ? 3.14159265 : 0.0;',
   'float sw = sin(aPhase + sideSign);',
   'transformed.z += sw * 0.36 * legMask;',
   'float armMask = smoothstep(0.55, 1.05, position.y) * step(0.32, abs(position.x));',
-  'transformed.z -= sw * 0.30 * armMask;',
   'transformed.y += abs(sin(aPhase)) * 0.055 * step(0.2, position.y);',
+  // --- the weapon arm.
+  // Everything on the +x side is the weapon side: the arm AND whatever it is
+  // holding. That distinction is the whole fix. The walk mask only moves
+  // geometry above y=0.55, and a goblin carries its blade at about y=0.32 — so
+  // the weapon never moved at all and every attack read as the body bobbing.
+  // Reported twice. A SIDE mask takes the weapon with the arm by construction.
+  'float wpnSide = step(0.32, position.x);',
+  'float swinging = step(0.001, aSwing);',
+  'float armSwing = armMask * (1.0 - swinging * wpnSide);',
+  'transformed.z -= sw * 0.30 * armSwing;',
+  // Windup rocks back slowly; the strike drives forward fast. The asymmetry is
+  // the point — the slow half is the half you get to react to.
+  'float k = aSwing;',
+  'float ang = k < 0.45',
+  '  ? -2.0 * (k / 0.45)',
+  '  : mix(-2.0, 1.9, pow((k - 0.45) / 0.55, 0.55));',
+  'ang *= swinging * wpnSide;',
+  // rotate about the shoulder in the YZ plane: an overhead chop
+  'vec3 piv = vec3(0.0, 1.02, 0.0);',
+  'vec3 rel = transformed - piv;',
+  'float ca = cos(ang), sa = sin(ang);',
+  'transformed = piv + vec3(rel.x, rel.y * ca - rel.z * sa, rel.y * sa + rel.z * ca);',
+  // and the body leans in behind it, so the blow has weight
+  'transformed.z += swinging * sin(k * 3.14159265) * 0.10 * step(0.2, position.y);',
 ].join('\n');
 
 // A back-faced hull pushed out along the normals. This is the single biggest
@@ -117,7 +141,7 @@ function outlineMat(width) {
     color: 0x0b0e14, side: THREE.BackSide, fog: true,
   });
   m.onBeforeCompile = (sh) => {
-    sh.vertexShader = 'attribute float aPhase;\n' + sh.vertexShader
+    sh.vertexShader = 'attribute float aPhase;\nattribute float aSwing;\n' + sh.vertexShader
       .replace('#include <begin_vertex>', [
         '#include <begin_vertex>',
         WALK_CHUNK,
@@ -130,7 +154,7 @@ function outlineMat(width) {
 function withInstanceFlash(mat) {
   mat.onBeforeCompile = (sh) => {
     sh.vertexShader =
-      'attribute float aFlash;\nattribute float aPhase;\nattribute float emis;\n' +
+      'attribute float aFlash;\nattribute float aPhase;\nattribute float aSwing;\nattribute float emis;\n' +
       'varying float vFlash;\nvarying float vEmis;\n' +
       sh.vertexShader
         .replace('void main() {', 'void main() {\n\tvFlash = aFlash;\n\tvEmis = emis;')
@@ -1450,7 +1474,10 @@ export class Renderer {
       const tele = new THREE.InstancedBufferAttribute(new Float32Array(n), 1);
       tele.setUsage(THREE.DynamicDrawUsage);
       geo.setAttribute('aTele', tele);
-      this.foeMeshes[def.id] = { mesh, outline, flash, phase, tele, cap: n };
+      const swing = new THREE.InstancedBufferAttribute(new Float32Array(n), 1);
+      swing.setUsage(THREE.DynamicDrawUsage);
+      geo.setAttribute('aSwing', swing);
+      this.foeMeshes[def.id] = { mesh, outline, flash, phase, tele, swing, cap: n };
       this.scene.add(mesh);
     }
 
@@ -2485,6 +2512,8 @@ export class Renderer {
       // capped well below 1: a full-white flash erases the silhouette colour
       slot.flash.array[i] = f.hitT > 0 ? Math.min(0.55, f.hitT * 5.5) : 0;
       slot.phase.array[i] = f.def.flying ? 0 : (f.gait || 0);
+      // the whole swing arc as one number, straight from the sim
+      slot.swing.array[i] = f.swingK || 0;
       // a lit fuse pushes the telegraph channel hard, so the one foe you
       // must deal with NOW is the brightest thing on the field
       slot.tele.array[i] = f.fuseT > 0
@@ -2504,6 +2533,7 @@ export class Renderer {
       slot.mesh.instanceMatrix.needsUpdate = true;
       slot.flash.needsUpdate = true;
       slot.phase.needsUpdate = true;
+      slot.swing.needsUpdate = true;
       slot.tele.needsUpdate = true;
     }
     this.wispGlow.count = wg;
