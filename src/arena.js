@@ -22,23 +22,44 @@ export const ARENA = {
 // position (the far end) and a bent one has three or four, which is the whole
 // reason to author them by hand.
 // ---------------------------------------------------------------------------
-const RAW_LANES = [
-  {
-    id: 'north', name: 'The Stair',
-    points: [[0, -34], [0, -24], [8, -18], [8, -9], [2, -3], [0, 0]],
-    width: 6,
+// Maps. Lane IDs are deliberately the SAME across maps (north/east/west) so
+// the wave table is untouched when the map changes — that isolates GEOMETRY as
+// the single variable when asking whether the unit budget generalises or is
+// merely fitted to the arena it was tuned in.
+export const MAPS = {
+  // The arena everything was balanced in: three lanes of comparable length,
+  // each bending twice.
+  crypt: {
+    name: 'The Crypt',
+    blurb: 'Three doors, three roughly equal roads.',
+    lanes: [
+      { id: 'north', name: 'The Stair',
+        points: [[0, -34], [0, -24], [8, -18], [8, -9], [2, -3], [0, 0]], width: 6 },
+      { id: 'east', name: 'The Undercroft',
+        points: [[34, 10], [24, 10], [17, 4], [9, 4], [3, 1.5], [0, 0]], width: 6 },
+      { id: 'west', name: 'The Sluice',
+        points: [[-34, -2], [-24, -2], [-16, -6], [-8, -6], [-3, -2], [0, 0]], width: 6 },
+    ],
   },
-  {
-    id: 'east', name: 'The Undercroft',
-    points: [[34, 10], [24, 10], [17, 4], [9, 4], [3, 1.5], [0, 0]],
-    width: 6,
+
+  // The asymmetric test: one long winding approach worth ~3x the walking time
+  // of the other two, which arrive almost straight. If 32 units still works
+  // here, the budget is a property of the design; if it does not, the budget
+  // is a property of the crypt and has to scale off lane length.
+  gauntlet: {
+    name: 'The Gauntlet',
+    blurb: 'One long road and two short ones. You cannot hold all three the same way.',
+    lanes: [
+      { id: 'north', name: 'The Long Way',
+        points: [[26, -28], [26, -16], [14, -12], [14, -2], [22, 6], [22, 14],
+                 [8, 18], [0, 12], [0, 0]], width: 5 },
+      { id: 'east', name: 'The Breach',
+        points: [[36, 4], [24, 4], [12, 2], [0, 0]], width: 7 },
+      { id: 'west', name: 'The Drain',
+        points: [[-36, -8], [-24, -6], [-12, -3], [0, 0]], width: 5 },
+    ],
   },
-  {
-    id: 'west', name: 'The Sluice',
-    points: [[-34, -2], [-24, -2], [-16, -6], [-8, -6], [-3, -2], [0, 0]],
-    width: 6,
-  },
-];
+};
 
 function buildLane(raw) {
   const pts = raw.points;
@@ -54,8 +75,20 @@ function buildLane(raw) {
   return { ...raw, segs, total };
 }
 
-export const LANES = RAW_LANES.map(buildLane);
-export const LANE_BY_ID = Object.fromEntries(LANES.map(l => [l.id, l]));
+// `let`, not `const`: ES module named exports are LIVE bindings, so importers
+// see the new lanes after setMap() without any of them holding a stale copy.
+export let MAP_ID = 'crypt';
+export let LANES = MAPS.crypt.lanes.map(buildLane);
+export let LANE_BY_ID = Object.fromEntries(LANES.map(l => [l.id, l]));
+
+export function setMap(id) {
+  const m = MAPS[id];
+  if (!m) throw new Error('no such map: ' + id);
+  MAP_ID = id;
+  LANES = m.lanes.map(buildLane);
+  LANE_BY_ID = Object.fromEntries(LANES.map(l => [l.id, l]));
+  return m;
+}
 
 // Position along a lane at arc-length `d`, with lateral offset `off`.
 // The offset tapers to zero over the last TAPER metres so that everything
