@@ -328,6 +328,76 @@ export class World {
     this.emit({ type: 'wave', index: this.waveIndex, name: wave.name });
   }
 
+  // -------------------------------------------------------------------------
+  // Save / resume.
+  //
+  // Only at the MUSTER, and that restriction is what makes this small enough to
+  // trust. Between waves there are no foes, no projectiles and no spawn queue in
+  // flight, so a save is just "which wave, what is standing, and what have I
+  // got" — no mid-flight simulation state to reconstruct and get subtly wrong.
+  // A run is six waves; the most a crash can cost is the wave you were in.
+  //
+  // Wards are stored by ward id + cell, NOT by object graph: `def` is a live
+  // reference into WARDS and `occupancy` holds the same objects the array does,
+  // so a naive JSON round-trip would produce wards the world could not see.
+  // Rebuilding through the same path the game uses means a restored ward cannot
+  // differ from a placed one.
+  // -------------------------------------------------------------------------
+  serialize() {
+    if (this.phase !== 'build') return null;
+    return {
+      v: 1,
+      map: currentMap().id,
+      difficulty: this.diff.id,
+      waveIndex: this.waveIndex,
+      phaseTimer: this.phaseTimer,
+      t: this.t,
+      mana: this.mana,
+      stone: this.stone.hp,
+      playerHp: this.player.hp,
+      granted: [...this.granted],
+      wards: this.wards.filter(w => !w.dead).map(w => ({
+        id: w.def.id, i: w.i, j: w.j, rot: w.rot,
+        hp: w.hp, level: w.level, power: w.power,
+      })),
+    };
+  }
+
+  // Returns false rather than throwing on anything it does not recognise: a
+  // stale save from an older build must degrade to "start a new run", never to
+  // a broken world.
+  restore(data) {
+    if (!data || data.v !== 1) return false;
+    if (!WAVES[data.waveIndex]) return false;
+
+    this.phase = 'build';
+    this.waveIndex = data.waveIndex;
+    this.phaseTimer = data.phaseTimer;
+    this.t = data.t || 0;
+    this.stone.hp = Math.min(this.stone.maxHp, Math.max(1, data.stone));
+    this.player.hp = Math.min(this.player.maxHp, Math.max(1, data.playerHp));
+    for (const g of data.granted || []) this.granted.add(g);
+
+    // Clear anything the fresh world put down, then rebuild through build().
+    for (const w of this.wards) this.occupancy.delete(cellKey(w.i, w.j));
+    this.wards.length = 0;
+    this.du = 0;
+
+    this.mana = 1e9;             // so build() cannot refuse on cost
+    for (const s of data.wards || []) {
+      const w = this.build(s.id, s.i, s.j, s.rot);
+      if (!w) continue;          // a ward that no longer fits is simply dropped
+      w.level = s.level;
+      w.power = s.power;
+      w.maxHp = Math.round(w.def.hp * w.power);
+      w.hp = Math.min(w.maxHp, Math.max(1, s.hp));
+    }
+    this.mana = data.mana;
+    this.events.length = 0;      // rebuilding is not news either
+    return true;
+  }
+
+
   // The world is built during boot so the clearing can render behind the intro
   // — which is BEFORE the player has picked a difficulty. Measured: choosing
   // Warden on the title screen had no effect whatsoever, because the curve had

@@ -839,6 +839,51 @@ export function runTests(log = console.log) {
   }
 
 
+  // ------------------------------------------------------------------- resume
+  // A save is only worth having if the run it restores is the SAME run. Compare
+  // the whole ward set — id, cell, rotation, level and hit points — not just a
+  // count, then play the restored world to the end to prove it is a live world
+  // and not just a matching set of numbers.
+  {
+    log('\n[save / resume]');
+    const a = new World({ seed: 42, difficulty: 'knight' });
+    const botA = new Bot(a, { build: true, fight: true });
+    while (!(a.phase === 'build' && a.waveIndex === 2) && a.t < 400) {
+      botA.tick(DT); a.step(DT);
+    }
+    const snap = a.serialize();
+    const b = new World({ seed: 42, difficulty: 'knight' });
+    const restored = snap && b.restore(snap);
+
+    const key = w => `${w.def.id}@${w.i},${w.j}r${w.rot}L${w.level}h${Math.round(w.hp)}`;
+    const setA = a.wards.filter(w => !w.dead).map(key).sort().join('|');
+    const setB = b.wards.map(key).sort().join('|');
+    const same = restored && setA === setB &&
+      a.du === b.du && Math.round(a.mana) === Math.round(b.mana) &&
+      Math.round(a.stone.hp) === Math.round(b.stone.hp) &&
+      Math.round(a.player.hp) === Math.round(b.player.hp) &&
+      a.waveIndex === b.waveIndex && a.occupancy.size === b.occupancy.size;
+
+    ok('T26 a saved muster restores the same run',
+      !!same,
+      same ? `wave ${snap.waveIndex + 1}, ${snap.wards.length} wards, ${a.du} units — ward set, mana, fire and occupancy all identical`
+           : 'restored world differs from the saved one');
+
+    const botB = new Bot(b, { build: true, fight: true });
+    while (b.phase !== 'won' && b.phase !== 'lost' && b.t < 900) { botB.tick(DT); b.step(DT); }
+    ok('T27 a restored run is playable to the end',
+      b.phase === 'won' || b.phase === 'lost',
+      `resumed at wave 3 and finished ${b.phase} at wave ${b.waveIndex + 1}`);
+
+    const mid = new World({ seed: 1 });
+    mid.phase = 'combat';
+    ok('T28 a save is refused mid-wave, and junk is refused on the way back',
+      mid.serialize() === null && b.restore({ v: 99 }) === false &&
+      b.restore(null) === false,
+      'no mid-combat save, and an unknown version degrades to a new run');
+  }
+
+
   log(`\n--- ${pass}/${pass + fail} passed ---\n`);
   return { pass, fail, results };
 }

@@ -81,6 +81,11 @@ function buildLane(raw) {
 
 // `let`, not `const`: ES module named exports are LIVE bindings, so importers
 // see the new lanes after setMap() without any of them holding a stale copy.
+// Stamp each map with its own key so anything holding a map object can name it
+// — a save file has to record which map it belongs to, and passing the object
+// around otherwise loses that.
+for (const [k, m] of Object.entries(MAPS)) m.id = k;
+
 export let MAP_ID = 'glade';
 export let LANES = MAPS.glade.lanes.map(buildLane);
 export let LANE_BY_ID = Object.fromEntries(LANES.map(l => [l.id, l]));

@@ -406,3 +406,38 @@ Music and sound get real 0–100 sliders rather than on/off. Music also *ducks*
 rather than stopping while paused, so a pause reads as a held breath. The sound
 slider plays a click as you drag it, because a volume control you cannot hear
 while setting is a guess.
+
+---
+
+# Save and resume
+
+A run is six waves and about ten minutes. Losing one to a closed tab was the
+single cheapest thing left to fix.
+
+**It only saves at the muster, and that restriction is the whole design.**
+Between waves there are no foes in flight, no projectiles, no spawn queue and
+no half-finished construction, so a save is just *which wave, what is standing,
+and what have I got*. There is no mid-simulation state to reconstruct and get
+subtly wrong. The most a crash can cost is the wave you were in.
+
+Wards are stored as **ward id + cell + rotation + level + hit points**, not as
+an object graph: `def` is a live reference into `WARDS` and `occupancy` holds
+the same objects the array does, so a naive JSON round-trip would produce wards
+the world could not see. Restoring replays them through `build()` — the same
+path the game uses — so a restored ward cannot differ from a placed one.
+
+Three assertions, because a save that silently drifts is worse than none:
+
+- **T26** — a saved muster restores the *same run*. The whole ward set is
+  compared (id, cell, rotation, level, hp), plus units, mana, fire, player
+  health and occupancy — not just a count.
+- **T27** — the restored world is *live*, not merely equal: the bot resumes it
+  at wave 3 and plays it through to a finish.
+- **T28** — no save mid-wave, and an unknown save version degrades to "start a
+  new run" rather than to a broken world.
+
+Verified in the browser too: the button names what it will restore ("The Glade ·
+Warden · before wave 3 of 6 · 4 wards standing"), the run comes back with the
+right wave, wards, units, mana and difficulty, the tutorial is correctly skipped
+on a resume, and a finished run clears its save so you cannot resume into a game
+that is already over.

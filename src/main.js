@@ -13,7 +13,9 @@ import { Tutorial, STEPS } from './tutorial.js';
 import {
   WARDS, WARD_BY_ID, ECON, WAVES, PLAYER, ABILITY, waveByLane, DIFFICULTY,
 } from './defs.js';
-import { cellOf, cellCenter, isBuildableCell, ARENA, LANES, laneDoor } from './arena.js';
+import {
+  cellOf, cellCenter, isBuildableCell, ARENA, LANES, laneDoor, MAPS, currentMap,
+} from './arena.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -401,6 +403,7 @@ function drainEvents() {
         break;
       case 'waveClear':
         showTally(e);
+        writeSave();     // the muster has begun; this is the checkpoint
         break;
       case 'won': endGame(true); break;
       case 'lost': endGame(false); break;
@@ -519,6 +522,7 @@ function flash(a) {
 // ---------------------------------------------------------------------------
 function endGame(won) {
   state.running = false;
+  clearSave();     // a finished run is not something to resume into
   const w = state.world;
   $('overT').textContent = won ? 'Held' : 'The light is out';
   $('overT').className = won ? '' : 'bad';
@@ -967,6 +971,7 @@ function boot() {
   bindSettings();
   loadSettings();
   syncSettingsPanel();   // so the intro's difficulty buttons show what is stored
+  syncResume();          // and the resume button only if there is a run to resume
   resize();
   addEventListener('resize', resize);
   addEventListener('orientationchange', () => setTimeout(resize, 250));
@@ -1000,16 +1005,28 @@ function boot() {
 }
 
 addEventListener('blur', () => { if (state.running) setPaused(true); });
+addEventListener('pagehide', writeSave);
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden && state.running) setPaused(true);
+  if (document.hidden && state.running) { setPaused(true); writeSave(); }
 });
 
-$('begin').addEventListener('click', async () => {
+// Both entry points come through here. `snap` is a save to restore, or null
+// for a fresh run — everything else about starting is identical, and keeping it
+// that way is why resume cannot drift out of sync with a new game.
+async function startRun(snap) {
   hideOverlay($('intro'), 520);
   $('hud').classList.remove('hide');
   if (isTouch) $('touch').classList.remove('hidden');
   if (state.map) state.map.resize();   // HUD is visible now, so it can measure
-  state.world.setDifficulty(state.difficulty);
+
+  let resumed = false;
+  if (snap) {
+    state.world.setDifficulty(snap.difficulty);
+    resumed = state.world.restore(snap);
+    if (resumed) state.difficulty = snap.difficulty;
+  }
+  if (!resumed) state.world.setDifficulty(state.difficulty);
+
   syncHud();
   state.running = true;
   try {
@@ -1019,7 +1036,11 @@ $('begin').addEventListener('click', async () => {
     state.snd.setPhase(state.world.phase);
   } catch (e) { /* muted is survivable; a crash is not */ }
   applySettings();
-  if (state.tutorial) {
+
+  if (resumed) {
+    // No tutorial on a resumed run — you have already played these lessons.
+    banner('Muster', `Wave ${state.world.waveIndex + 1} of ${WAVES.length} next`);
+  } else if (state.tutorial) {
     state.tut = new Tutorial(state.world);
     showTutStep();
   } else {
@@ -1027,7 +1048,10 @@ $('begin').addEventListener('click', async () => {
     showHint(0);
   }
   syncHud();
-});
+}
+
+$('begin').addEventListener('click', () => { clearSave(); startRun(null); });
+$('resume').addEventListener('click', () => startRun(readSave()));
 
 
 // ---------------------------------------------------------------------------
@@ -1098,6 +1122,52 @@ window.WARDSTONE_CAP = {
     return r.status;
   },
 };
+
+// ---------------------------------------------------------------------------
+// Save / resume. The world only serialises at the muster, so this writes at the
+// start of every build phase and on the way out of the tab. A run is six waves;
+// the worst a crash can cost is the wave you were in.
+// ---------------------------------------------------------------------------
+const SAVE_KEY = 'wardstone.save';
+
+function writeSave() {
+  if (!state.running || !state.world) return;
+  const snap = state.world.serialize();      // null unless we are at a muster
+  if (!snap) return;
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify(snap));
+  } catch (e) { /* a browser that refuses storage just does not get resume */ }
+}
+
+function readSave() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+
+function clearSave() {
+  try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* fine */ }
+}
+
+// The resume button only appears when there is something to resume, and it
+// says WHAT it will resume — a button that silently drops you into a run you
+// do not remember is worse than no button.
+function syncResume() {
+  const snap = readSave();
+  const btn = $('resume');
+  if (!btn) return;
+  if (!snap || !WAVES[snap.waveIndex] || snap.map !== currentMap().id) {
+    btn.classList.add('gone');
+    return;
+  }
+  btn.classList.remove('gone');
+  const map = MAPS[snap.map] ? MAPS[snap.map].name : snap.map;
+  const tier = DIFFICULTY[snap.difficulty] ? DIFFICULTY[snap.difficulty].name : '';
+  $('resumeSub').textContent =
+    `${map} · ${tier} · before wave ${snap.waveIndex + 1} of ${WAVES.length} · ` +
+    `${snap.wards.length} ward${snap.wards.length === 1 ? '' : 's'} standing`;
+}
 
 // ---------------------------------------------------------------------------
 // Settings. Persisted per browser, wrapped so a private window or blocked
