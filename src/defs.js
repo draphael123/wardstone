@@ -287,9 +287,25 @@ export const WARD_BY_ID = Object.fromEntries(WARDS.map(w => [w.id, w]));
 //   wisp    — ignores lanes AND blockades entirely      (the player's job)
 //   breaker — out-damages repair, so a wall only buys time (the player's job)
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// The goblins.
+//
+// The rule this list is built on: a new foe must demand a DEFENSIVE VERB that
+// nothing else demands. Variety for its own sake makes a longer list, not a
+// harder game. See [[enemy-design-fill-gaps-not-variety]].
+//
+//   Cutter    the baseline. Walks up and hits the nearest thing.
+//   Runner    fast, cheap, arrives in a clump  -> intercept early
+//   Wisp      flies over every wall you own    -> YOUR job, not a ward's
+//   Maul      wrecks blockades specifically    -> do not defend with walls alone
+//   Slinger   stops short and SHOOTS           -> go and kill it yourself
+//   Powder    detonates on your line           -> kill before contact, don't cluster
+//   Bruiser   one enormous, slow, readable blow-> interrupt it or get out of the way
+//   Breaker   out-damages your hammer          -> a wall only buys time
+// ---------------------------------------------------------------------------
 export const FOES = [
   {
-    id: 'husk', name: 'Husk',
+    id: 'husk', name: 'Cutter',
     hp: 120, speed: 3.0, radius: 0.55, bounty: 8,
     damage: 22, playerDamage: 12, attackCd: 1.2, flying: false, height: 1.7,
   },
@@ -304,16 +320,51 @@ export const FOES = [
     damage: 10, playerDamage: 9, attackCd: 1.0, flying: true, height: 1.1, flyHeight: 4.2,
   },
   {
-    // The only foe that rewards killing BEFORE contact and punishes stacking.
-    // Everything else walks up and hits one thing; this runs at your line and
-    // takes several wards with it. Kill it early and it does nothing at all —
-    // it does not explode when killed, only when it arrives.
+    // The answer to "I will just wall the lane". A maul does ordinary damage to
+    // you and MORE THAN TRIPLE to a blockade, so a line of palisades with
+    // nothing behind it is a delaying action rather than a defence. It is
+    // deliberately fragile: the counter is to kill it, not to out-build it.
+    id: 'maul', name: 'Maul Goblin',
+    hp: 150, speed: 2.5, radius: 0.62, bounty: 11,
+    damage: 34, playerDamage: 15, attackCd: 1.7, flying: false, height: 1.8,
+    siegeMul: 3.4,          // multiplier applied ONLY against blockades
+  },
+  {
+    // The genuinely new SHAPE. Everything else has to reach a thing to hurt it,
+    // which is what makes a wall a wall. A slinger stops short and shoots over
+    // it — so a blockade stops its MOVEMENT and not its DAMAGE, and the lane
+    // holds while the wall dies anyway.
+    //
+    // The counter is the premise stated as a foe: go and kill it yourself, or
+    // put something behind the wall that outranges it. The ballista reaches
+    // 30m precisely so it can answer this; the slinger reaches 11.
+    // Tuned down hard from where it started. Swept over 21 seeds: its stand-off
+    // RANGE barely moves the result (11m to 6.5m was 3/10 to 4/10) but its
+    // damage moves it enormously, because a slinger never spends time walking
+    // into reach and never dies to a ward on the way in — it simply fires,
+    // forever, at full uptime. Damage per second is the whole dial.
+    id: 'slinger', name: 'Slinger',
+    hp: 80, speed: 3.4, radius: 0.48, bounty: 13,
+    damage: 18, playerDamage: 11, attackCd: 2.1, flying: false, height: 1.6,
+    ranged: { range: 7, speed: 22, radius: 0.42 },
+  },
+  {
     id: 'bomber', name: 'Powder Goblin',
     hp: 70, speed: 5.4, radius: 0.5, bounty: 14,
     damage: 0, playerDamage: 0, attackCd: 1.0, flying: false, height: 1.3,
     // it ignores the fire entirely and goes for whatever you built
     seeksWards: true,
     blast: { radius: 4.2, ward: 520, player: 30, stone: 260, fuse: 0.55 },
+  },
+  {
+    // A two-handed blow with a windup twice as long as anything else. It hits
+    // hard enough to matter and slowly enough to answer, which is the point:
+    // it is the foe Rally and the dodge roll exist for. Kill it, stagger it, or
+    // step out of the arc — but do not stand in front of it and trade.
+    id: 'bruiser', name: 'Bruiser',
+    hp: 340, speed: 2.2, radius: 0.8, bounty: 22,
+    damage: 60, playerDamage: 42, attackCd: 2.6, flying: false, height: 2.3,
+    windup: 0.95,           // overrides AGGRO.windup — the tell is the defence
   },
   {
     id: 'breaker', name: 'Breaker',
@@ -339,12 +390,14 @@ export const WAVES = [
       { lane: 'east',  foe: 'husk', count: 6, at: 3.0, gap: 1.4 },
     ],
   },
-  { // 2 — all three lanes open; runners add volume.
+  { // 2 — all three lanes open; runners add volume; the first MAUL, which is
+    // the wave that says a wall on its own is a delaying action.
     name: 'Three Doors',
     groups: [
       { lane: 'north', foe: 'husk',   count: 8,  at: 0.0, gap: 1.2 },
       { lane: 'east',  foe: 'runner', count: 10, at: 2.0, gap: 0.7 },
-      { lane: 'west',  foe: 'husk',   count: 8,  at: 1.0, gap: 1.2 },
+      { lane: 'west',  foe: 'husk',   count: 6,  at: 1.0, gap: 1.2 },
+      { lane: 'west',  foe: 'maul',   count: 2,  at: 6.0, gap: 2.2 },
     ],
   },
   { // 3 — WISPS. For part of this wave the lanes stop meaning anything.
@@ -353,6 +406,7 @@ export const WAVES = [
       { lane: 'north', foe: 'husk',   count: 8,  at: 0.0, gap: 1.1 },
       { lane: 'west',  foe: 'runner', count: 12, at: 1.5, gap: 0.6 },
       { lane: 'east',  foe: 'bomber', count: 2,  at: 4.0, gap: 2.4 },
+      { lane: 'north', foe: 'slinger', count: 3, at: 8.0, gap: 2.0 },
       { lane: 'north', foe: 'wisp',   count: 5,  at: 6.0, gap: 1.8 },
       { lane: 'east',  foe: 'wisp',   count: 5,  at: 10.0, gap: 1.8 },
     ],
@@ -363,6 +417,8 @@ export const WAVES = [
       { lane: 'east',  foe: 'husk',    count: 12, at: 0.0,  gap: 0.9 },
       { lane: 'west',  foe: 'runner',  count: 14, at: 1.0,  gap: 0.55 },
       { lane: 'north', foe: 'breaker', count: 1,  at: 4.0,  gap: 0 },
+      { lane: 'east',  foe: 'maul',    count: 3,  at: 6.0,  gap: 1.8 },
+      { lane: 'north', foe: 'slinger', count: 4,  at: 8.0,  gap: 1.6 },
       { lane: 'west',  foe: 'bomber',  count: 3,  at: 7.0,  gap: 1.8 },
       { lane: 'north', foe: 'husk',    count: 10, at: 5.0,  gap: 1.0 },
       { lane: 'east',  foe: 'wisp',    count: 6,  at: 11.0, gap: 1.4 },
@@ -376,6 +432,8 @@ export const WAVES = [
       { lane: 'west',  foe: 'breaker', count: 1,  at: 2.0,  gap: 0 },
       { lane: 'east',  foe: 'breaker', count: 1,  at: 9.0,  gap: 0 },
       { lane: 'north', foe: 'bomber',  count: 4,  at: 5.0,  gap: 1.5 },
+      { lane: 'east',  foe: 'bruiser', count: 2,  at: 4.0,  gap: 3.0 },
+      { lane: 'west',  foe: 'slinger', count: 4,  at: 7.0,  gap: 1.5 },
       { lane: 'east',  foe: 'husk',    count: 14, at: 3.0,  gap: 0.8 },
       { lane: 'west',  foe: 'husk',    count: 12, at: 6.0,  gap: 0.9 },
       { lane: 'north', foe: 'wisp',    count: 9,  at: 9.0,  gap: 1.1 },
@@ -397,8 +455,11 @@ export const WAVES = [
       { lane: 'east',  foe: 'breaker', count: 1,  at: 15.0, gap: 0 },
       { lane: 'west',  foe: 'bomber',  count: 5,  at: 4.0,  gap: 1.3 },
       { lane: 'east',  foe: 'bomber',  count: 5,  at: 12.0, gap: 1.3 },
-      { lane: 'east',  foe: 'husk',    count: 18, at: 5.0,  gap: 0.72 },
-      { lane: 'west',  foe: 'husk',    count: 18, at: 6.0,  gap: 0.72 },
+      { lane: 'east',  foe: 'husk',    count: 14, at: 5.0,  gap: 0.72 },
+      { lane: 'west',  foe: 'husk',    count: 14, at: 6.0,  gap: 0.72 },
+      { lane: 'north', foe: 'maul',    count: 4,  at: 7.0,  gap: 1.6 },
+      { lane: 'west',  foe: 'slinger', count: 5,  at: 9.0,  gap: 1.4 },
+      { lane: 'east',  foe: 'bruiser', count: 3,  at: 11.0, gap: 2.6 },
       { lane: 'west',  foe: 'wisp',    count: 6,  at: 10.0, gap: 1.2 },
       { lane: 'north', foe: 'wisp',    count: 6,  at: 15.0, gap: 1.2 },
       { lane: 'east',  foe: 'wisp',    count: 6,  at: 20.0, gap: 1.2 },

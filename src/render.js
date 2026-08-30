@@ -459,6 +459,107 @@ function bomberGeo() {
 // Roles are fixed; bodies are per theme. Nothing in sim.js knows any of this
 // exists — a husk is a husk whether it is a dead thing in a crypt or a goblin
 // in a wood.
+// The goblin line. Same rule as the wards: SILHOUETTE BY ROLE, so what a thing
+// does is legible before you can read a health bar. Cutter is the yardstick;
+// each of the others is unmistakable against it from above.
+//
+//   Cutter   upright, a short blade         — the baseline
+//   Maul     hunched and BROAD, huge head   — it is here for your walls
+//   Slinger  lean and empty-handed-looking  — a bow reads as "no melee threat"
+//   Bruiser  head and shoulders TALLER      — the one you must not stand in front of
+//
+// Every weapon sits at x > 0.32, which is the side the swing shader rotates.
+// A weapon placed anywhere else does not move when the goblin attacks — that
+// was the original bug and it is a placement rule now, not a coincidence.
+function maulGeo() {
+  const skin = 0x6f8f3e, limb = 0x5e7c33, rag = 0x6b5a38, iron = 0x767d8a;
+  return assemble([
+    // hunched: the torso pitches forward and the shoulders are wide
+    { g: box(0.86, 0.60, 0.54), y: 0.60, rx: 0.34, c: skin },
+    { g: box(0.98, 0.22, 0.60), y: 0.90, rx: 0.2, c: limb },
+    { g: box(0.46, 0.40, 0.42), y: 1.10, z: 0.20, c: skin },
+    { g: box(0.26, 0.13, 0.12), y: 1.02, z: 0.40, c: limb },
+    EYE(0.11, 1.16, 0.38, 0.11, 0xffb03a),
+    EYE(-0.11, 1.16, 0.38, 0.11, 0xffb03a),
+    { g: box(0.24, 0.16, 0.06), x: 0.32, y: 1.20, rz: 0.5, c: skin },
+    { g: box(0.24, 0.16, 0.06), x: -0.32, y: 1.20, rz: -0.5, c: skin },
+    // a slab of iron on the back, so it reads as armoured from the chase camera
+    { g: box(0.70, 0.44, 0.10), y: 0.72, z: -0.30, c: iron },
+    { g: box(0.22, 0.58, 0.22), x: 0.50, y: 0.62, rz: 0.3, c: limb },
+    { g: box(0.22, 0.58, 0.22), x: -0.50, y: 0.62, rz: -0.3, c: limb },
+    { g: box(0.26, 0.42, 0.26), x: 0.20, y: 0.17, c: limb },
+    { g: box(0.26, 0.42, 0.26), x: -0.20, y: 0.17, c: limb },
+    { g: box(0.52, 0.28, 0.44), y: 0.34, c: rag },
+    // the maul itself: a long haft and a head far too big for it
+    { g: box(0.14, 0.14, 0.92), x: 0.56, y: 0.52, z: 0.26, rx: 0.45, c: 0x4a3a2c },
+    { g: box(0.44, 0.46, 0.46), x: 0.56, y: 0.30, z: 0.86, c: iron },
+    { g: box(0.50, 0.14, 0.50), x: 0.56, y: 0.30, z: 0.86, c: 0x9aa2b0 },
+  ]);
+}
+
+function slingerGeo() {
+  const skin = 0x86a352, limb = 0x71904a, rag = 0x6a5f42;
+  return assemble([
+    // lean and upright — nothing about it says "melee"
+    { g: box(0.46, 0.66, 0.34), y: 0.66, c: skin },
+    { g: box(0.54, 0.16, 0.38), y: 0.98, c: limb },
+    { g: box(0.40, 0.40, 0.38), y: 1.22, z: 0.06, c: skin },
+    { g: box(0.24, 0.12, 0.12), y: 1.14, z: 0.26, c: limb },
+    EYE(0.10, 1.30, 0.22, 0.10, 0x9be04a),
+    EYE(-0.10, 1.30, 0.22, 0.10, 0x9be04a),
+    { g: box(0.26, 0.18, 0.06), x: 0.30, y: 1.32, rz: 0.55, c: skin },
+    { g: box(0.26, 0.18, 0.06), x: -0.30, y: 1.32, rz: -0.55, c: skin },
+    // a hood, which is most of what separates it from a cutter at a glance
+    { g: box(0.46, 0.20, 0.44), y: 1.40, c: rag },
+    { g: box(0.34, 0.24, 0.16), y: 1.30, z: -0.20, c: rag },
+    { g: box(0.14, 0.50, 0.14), x: 0.34, y: 0.70, rz: 0.2, c: limb },
+    { g: box(0.14, 0.50, 0.14), x: -0.34, y: 0.70, rz: -0.2, c: limb },
+    { g: box(0.18, 0.42, 0.18), x: 0.14, y: 0.18, c: limb },
+    { g: box(0.18, 0.42, 0.18), x: -0.14, y: 0.18, c: limb },
+    // quiver on the off side, arrows showing
+    { g: box(0.16, 0.44, 0.16), x: -0.30, y: 0.82, z: -0.22, rx: -0.3, c: 0x5a4530 },
+    { g: box(0.04, 0.22, 0.04), x: -0.30, y: 1.10, z: -0.28, c: 0xd8cdb0 },
+    { g: box(0.04, 0.22, 0.04), x: -0.24, y: 1.10, z: -0.28, c: 0xd8cdb0 },
+    // the bow: a stave with a string, held out on the weapon side
+    { g: box(0.06, 0.86, 0.10), x: 0.44, y: 0.78, z: 0.26, rz: 0.1, c: 0x6b4a2c },
+    { g: box(0.06, 0.26, 0.08), x: 0.44, y: 1.16, z: 0.20, rx: 0.5, c: 0x6b4a2c },
+    { g: box(0.06, 0.26, 0.08), x: 0.44, y: 0.40, z: 0.20, rx: -0.5, c: 0x6b4a2c },
+    { g: box(0.03, 0.76, 0.03), x: 0.44, y: 0.78, z: 0.12, c: 0x2a2a2a },
+  ]);
+}
+
+function bruiserGeo() {
+  const skin = 0x5f7f3c, limb = 0x506d31, iron = 0x6d7480, rag = 0x5a4a30;
+  return assemble([
+    // head and shoulders above everything else on the field
+    { g: box(1.06, 0.86, 0.66), y: 1.10, c: skin },
+    { g: box(1.22, 0.26, 0.74), y: 1.56, c: limb },
+    { g: box(0.56, 0.50, 0.52), y: 1.86, z: 0.06, c: skin },
+    { g: box(0.32, 0.16, 0.14), y: 1.76, z: 0.30, c: limb },
+    { g: box(0.24, 0.06, 0.06), y: 1.68, z: 0.34, c: 0xf2ecd6 },
+    EYE(0.15, 1.96, 0.28, 0.13, 0xff7a3a),
+    EYE(-0.15, 1.96, 0.28, 0.13, 0xff7a3a),
+    // tusks — a heavy reads as heavier with something sticking out of its face
+    { g: box(0.07, 0.20, 0.07), x: 0.16, y: 1.68, z: 0.30, rx: 0.2, c: 0xe8e0c8 },
+    { g: box(0.07, 0.20, 0.07), x: -0.16, y: 1.68, z: 0.30, rx: 0.2, c: 0xe8e0c8 },
+    { g: box(0.34, 0.24, 0.08), x: 0.44, y: 2.00, rz: 0.5, c: skin },
+    { g: box(0.34, 0.24, 0.08), x: -0.44, y: 2.00, rz: -0.5, c: skin },
+    // pauldrons, which is where the mass reads from above
+    { g: box(0.42, 0.30, 0.52), x: 0.58, y: 1.52, c: iron },
+    { g: box(0.42, 0.30, 0.52), x: -0.58, y: 1.52, c: iron },
+    { g: box(0.28, 0.72, 0.28), x: 0.62, y: 1.06, rz: 0.22, c: limb },
+    { g: box(0.28, 0.72, 0.28), x: -0.62, y: 1.06, rz: -0.22, c: limb },
+    { g: box(0.34, 0.62, 0.34), x: 0.26, y: 0.31, c: limb },
+    { g: box(0.34, 0.62, 0.34), x: -0.26, y: 0.31, c: limb },
+    { g: box(0.78, 0.34, 0.62), y: 0.66, c: rag },
+    // a two-handed axe, carried high so the overhead chop has somewhere to go
+    { g: box(0.16, 0.16, 1.30), x: 0.72, y: 1.16, z: 0.30, rx: 0.4, c: 0x46372a },
+    { g: box(0.20, 0.86, 0.30), x: 0.72, y: 0.90, z: 0.92, rx: 0.4, c: iron },
+    { g: box(0.22, 0.94, 0.12), x: 0.72, y: 0.90, z: 1.02, rx: 0.4, c: 0xa8b0bd },
+    { g: box(0.20, 0.22, 0.22), x: 0.72, y: 1.52, z: -0.02, c: 0x8a7a52 },
+  ]);
+}
+
 const SKINS = {
   crypt: {
     husk:    { geo: huskGeo,    name: 'Husk' },
@@ -466,6 +567,9 @@ const SKINS = {
     runner:  { geo: runnerGeo,  name: 'Runner' },
     wisp:    { geo: wispGeo,    name: 'Wisp' },
     breaker: { geo: breakerGeo, name: 'Breaker' },
+    maul:    { geo: maulGeo,    name: 'Maul Wight' },
+    slinger: { geo: slingerGeo, name: 'Bone Archer' },
+    bruiser: { geo: bruiserGeo, name: 'Bruiser' },
   },
   forest: {
     husk:    { geo: goblinGeo, name: 'Goblin' },
@@ -473,10 +577,16 @@ const SKINS = {
     runner:  { geo: scoutGeo,  name: 'Scout' },
     wisp:    { geo: wispGeo,   name: 'Will-o-wisp' },
     breaker: { geo: trollGeo,  name: 'Troll' },
+    maul:    { geo: maulGeo,    name: 'Maul Goblin' },
+    slinger: { geo: slingerGeo, name: 'Slinger' },
+    bruiser: { geo: bruiserGeo, name: 'Bruiser' },
   },
 };
 
-const FOE_CAP = { husk: 90, runner: 110, wisp: 40, breaker: 8, bomber: 24 };
+const FOE_CAP = {
+  husk: 90, runner: 110, wisp: 40, breaker: 8, bomber: 24,
+  maul: 20, slinger: 24, bruiser: 12,
+};
 
 // ---------------------------------------------------------------------------
 export class Renderer {

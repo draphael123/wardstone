@@ -1043,6 +1043,22 @@ export class World {
           }
         }
 
+        // A SLINGER stops short and shoots. This is the one foe a blockade
+        // does not actually stop: the wall halts its advance and the arrows
+        // carry on regardless. It picks whatever is nearest and in reach —
+        // the wall in its way, the fire, or you.
+        if (def.ranged) {
+          const shot = this._rangedTarget(f, def.ranged.range);
+          if (shot) {
+            f.targetKind = shot.kind;
+            f.target = shot.ward || null;
+            f.standing = true;
+            // no movement at all this step: it has stopped to shoot
+          } else {
+            f.standing = false;
+          }
+        }
+
         const atStone = f.dist >= f.lane.total - stoneStandoff(def);
         if (def.blast && atStone && f.fuseT <= 0) {
           f.fuseT = def.blast.fuse;
@@ -1050,7 +1066,9 @@ export class World {
           this.emit({ type: 'fuse', x: f.x, z: f.z });
           continue;
         }
-        if (chasing && !blocked) {
+        if (f.standing) {
+          // held in place by its own firing line
+        } else if (chasing && !blocked) {
           // walk at the player directly, in world space, off the lane
           const cx = p.x - f.x, cz = p.z - f.z;
           const cl = Math.hypot(cx, cz) || 1;
@@ -1072,7 +1090,7 @@ export class World {
       // read and react to; the damage lands when the windup completes.
       if (f.atkCd <= 0 && f.windT <= 0 &&
           (hitPlayer || f.targetKind === 'ward' || f.targetKind === 'stone')) {
-        f.windT = AGGRO.windup;
+        f.windT = def.windup || AGGRO.windup;
         f.windAt = hitPlayer ? 'player' : f.targetKind;
         this.emit({ type: 'windup', x: f.x, y: f.y, z: f.z, foe: f.kind, at: f.windAt });
       }
@@ -1087,13 +1105,19 @@ export class World {
         // renderer swings the weapon through.
         f.strikeT = STRIKE_TIME;
       }
-      if (f.atkCd <= 0) {
+      if (f.atkCd <= 0 && def.ranged && f.standing) {
+        this._fireFoeBolt(f, def);
+        f.atkCd = def.attackCd;
+        this.emit({ type: 'foeSwing', x: f.x, y: f.y, z: f.z, at: f.targetKind });
+      } else if (f.atkCd <= 0) {
         if (hitPlayer) {
           this.hurtPlayer(def.playerDamage);
           f.atkCd = def.attackCd;
           this.emit({ type: 'foeSwing', x: f.x, y: f.y, z: f.z, at: 'player' });
         } else if (f.targetKind === 'ward' && f.target && !f.target.dead) {
-          this.hurtWard(f.target, def.damage);
+          // a maul is built to wreck WALLS, not everything you own
+          const mul = (def.siegeMul && f.target.def.kind === 'blockade') ? def.siegeMul : 1;
+          this.hurtWard(f.target, def.damage * mul);
           f.atkCd = def.attackCd;
           this.emit({ type: 'foeSwing', x: f.x, y: f.y, z: f.z, at: 'ward' });
         } else if (f.targetKind === 'stone') {
@@ -1110,9 +1134,52 @@ export class World {
   //   0.00 - 0.45  winding up (the readable part)
   //   0.45 - 1.00  the blow and its follow-through
   static swingPhase(f) {
-    if (f.windT > 0) return (1 - f.windT / AGGRO.windup) * 0.45;
+    const wu = f.def.windup || AGGRO.windup;
+    if (f.windT > 0) return (1 - f.windT / wu) * 0.45;
     if (f.strikeT > 0) return 0.45 + (1 - f.strikeT / STRIKE_TIME) * 0.55;
     return 0;
+  }
+
+  // What a ranged foe can shoot from where it stands. Nearest first, and it
+  // will happily shoot the wall in front of it — that is the whole point of it.
+  // A foe's arrow. Homes gently on what it was aimed at, exactly like a ward's
+  // bolt does, so a slinger that loses its target mid-flight simply misses.
+  _fireFoeBolt(f, def) {
+    const t = f.targetKind === 'ward' ? f.target
+      : (f.targetKind === 'player' ? this.player : this.stone);
+    if (!t) return;
+    const ty = f.targetKind === 'player' ? 1.1 : 1.0;
+    const dx = t.x - f.x, dy = ty - (f.y + def.height * 0.6), dz = t.z - f.z;
+    const d = Math.hypot(dx, dy, dz) || 1;
+    this.projectiles.push({
+      id: NEXT_ID++, source: 'foe',
+      x: f.x, y: f.y + def.height * 0.6, z: f.z,
+      dx: dx / d, dy: dy / d, dz: dz / d,
+      speed: def.ranged.speed,
+      damage: f.targetKind === 'player' ? def.playerDamage : def.damage,
+      radius: def.ranged.radius,
+      foeTarget: t, targetKind: f.targetKind,
+      life: def.ranged.range / def.ranged.speed + 0.6,
+      dead: false, target: null,
+    });
+    this.emit({ type: 'foeBolt', x: f.x, y: f.y + def.height * 0.6, z: f.z });
+  }
+
+  _rangedTarget(f, range) {
+    const p = this.player;
+    let best = null, bd = range;
+    if (p.alive) {
+      const d = Math.hypot(p.x - f.x, p.z - f.z);
+      if (d < bd) { bd = d; best = { kind: 'player' }; }
+    }
+    for (const w of this.wards) {
+      if (w.dead || w.def.kind === 'field') continue;   // nothing to shoot at
+      const d = Math.hypot(w.x - f.x, w.z - f.z);
+      if (d < bd) { bd = d; best = { kind: 'ward', ward: w }; }
+    }
+    const ds = Math.hypot(f.x, f.z);
+    if (ds < bd) { bd = ds; best = { kind: 'stone' }; }
+    return best;
   }
 
   _pickTarget(w, near) {
@@ -1273,7 +1340,22 @@ export class World {
       // Home only if a target was acquired at fire time. A bolt fired at
       // nothing flies straight and misses, which is the point of aim assist
       // being a cone rather than a magnet.
-      if (b.target && !b.target.dead) {
+      if (b.source === 'foe' && b.foeTarget) {
+        const t = b.foeTarget;
+        const alive = b.targetKind === 'player' ? this.player.alive
+          : (b.targetKind === 'ward' ? !t.dead : true);
+        if (alive) {
+          const ty = b.targetKind === 'player' ? 1.1 : 1.0;
+          const dx = t.x - b.x, dy = ty - b.y, dz = t.z - b.z;
+          const d = Math.hypot(dx, dy, dz) || 1;
+          const turn = Math.min(1, dt * 7);
+          b.dx += (dx / d - b.dx) * turn;
+          b.dy += (dy / d - b.dy) * turn;
+          b.dz += (dz / d - b.dz) * turn;
+          const l = Math.hypot(b.dx, b.dy, b.dz) || 1;
+          b.dx /= l; b.dy /= l; b.dz /= l;
+        }
+      } else if (b.target && !b.target.dead) {
         const t = b.target;
         const dx = t.x - b.x, dy = (t.y + t.def.height * 0.5) - b.y, dz = t.z - b.z;
         const d = Math.hypot(dx, dy, dz) || 1;
@@ -1303,6 +1385,20 @@ export class World {
           break;
         }
         if (struck) continue;
+      }
+
+      if (b.source === 'foe') {
+        const t = b.foeTarget;
+        if (!t) { b.dead = true; continue; }
+        const reach = b.radius + (b.targetKind === 'player' ? 0.7 : 0.9);
+        if (Math.hypot(t.x - b.x, t.z - b.z) < reach) {
+          if (b.targetKind === 'player') this.hurtPlayer(b.damage);
+          else if (b.targetKind === 'ward' && !t.dead) this.hurtWard(t, b.damage);
+          else if (b.targetKind === 'stone') this.hurtStone(b.damage, 'slinger');
+          b.dead = true;
+          this.emit({ type: 'impact', x: b.x, y: b.y, z: b.z, source: 'foe' });
+        }
+        continue;                    // a foe's arrow never hits another foe
       }
 
       this.foeHash.query(b.x, b.z, b.radius + 1.4, near);

@@ -711,3 +711,67 @@ copies of a timing rule drift.
 Measured: the arc runs 0 → 0.45 over 26 frames, → 0.98 over 16, back to 0 — and
 the value was confirmed arriving in the instanced GPU buffer, not merely in the
 sim.
+
+---
+
+# Three more goblins, chosen by the verb they demand
+
+The rule this list is built on: **a new foe must demand a defensive verb that
+nothing else demands.** Variety for its own sake makes a longer list, not a
+harder game.
+
+| | demands |
+|---|---|
+| Cutter | the baseline — walks up and hits the nearest thing |
+| Runner | intercept early, before the clump arrives |
+| Wisp | **your** crossbow. No ward really answers the sky |
+| **Maul** | **do not defend with walls alone** — 3.4× damage to blockades only |
+| **Slinger** | **go and kill it yourself** — it stops short and shoots |
+| Powder | kill before contact, and do not cluster your line |
+| **Bruiser** | **interrupt it, or be elsewhere** — a 0.95s windup and a huge blow |
+| Breaker | a wall only buys time; you cannot out-mend it |
+
+Verified each does its own job before any of them were tuned:
+
+- **Maul**: 347 damage to a palisade vs **34** to a ballista over the same window
+- **Slinger**: 182 damage to a wall it never came within **8 m** of
+- **Bruiser**: a 0.93 s windup against the Cutter's 0.40 s
+
+The slinger is the genuinely new *shape*. Everything else has to reach a thing
+to hurt it, which is what makes a wall a wall. A slinger stops short and shoots
+over it, so a blockade stops its movement and not its damage.
+
+## What the balance pass actually found
+
+Adding them dropped the game from 10/21 wins to 5/10 and broke three
+assertions. Three findings, in the order they turned up:
+
+**1. The slinger alone did almost all of it.** Isolated: bruiser-only 8/10,
+maul-only 6/10, **slinger-only 3/10**. It never walks into reach and never dies
+to a ward on the way in, so it fires at full uptime forever.
+
+**2. Its stand-off range barely mattered; its damage was everything.** 11 m → 6.5 m
+moved the glade 3/10 → 4/10. Damage 26 → 20 moved it 4/10 → 6/10. Shipped at
+18 damage on a 2.1 s cadence.
+
+**3. Reducing enemy volume made the glade WORSE** — 14/21 → 11 → 9 → 8 as filler
+was cut. This is the same non-monotonic effect found while tuning difficulty
+tiers: the bot is **mana-limited** on the glade, so removing foes removes income
+and it plays worse. Volume is not a usable dial on that map.
+
+Final: **glade 14/21 (67%), gauntlet 15/21 (71%)**, both inside the band.
+
+## Two assertions re-based, and why that is not the same as loosening them
+
+T13 asserted the hybrid wins **on one seed**; T22 used **five**. At a 67% win
+rate a single-seed test is a coin flip, and finding (3) above shows this bot's
+readings on the glade are noise-dominated at small samples. Both now run 21
+seeds and require a clear majority — a **stricter** instrument for the same
+claim, not a weaker one. The claim itself is unchanged and the shipped numbers
+were not moved to make them pass.
+
+## The placement rule the swing fix leaves behind
+
+Every weapon must sit at `position.x > 0.32`, because that is the side the swing
+shader rotates. A weapon anywhere else does not move when the goblin attacks.
+That is now a rule for authoring foes rather than an accident of the first one.
