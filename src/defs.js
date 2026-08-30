@@ -143,6 +143,47 @@ export const CACHE = {
   maxFromFire: 31,
 };
 
+// ---------------------------------------------------------------------------
+// Difficulty.
+//
+// The shipped curve is tuned so a near-optimal bot wins 8-9 of 10 with the fire
+// around a third remaining. A human's FIRST run is a different game, and one
+// curve makes "too hard or too easy" a coin flip per player.
+//
+// TWO dials, and one deliberately left alone:
+//   hp     — how long a foe survives, so how much the body is worth
+//   count  — how many arrive, so how much the WARDS are worth
+//   du     — NOT a difficulty dial. It is the premise dial. 32 is the swept
+//            value; 36 is the measured cliff where a ward build wins with
+//            nobody playing. Every tier keeps 32, so no setting can turn this
+//            into a game that plays itself, and the tiers cannot drift the one
+//            number the whole design rests on.
+//
+// An honest note on how far these are verified. The bot builds from a FIXED
+// shopping list sized for 32 units, so it cannot re-plan around a changed
+// budget or a changed kill-rate: measured, du 32->30 alone takes the glade
+// from 8/10 to 0/10, and +10% foe hp does the same. That is the pilot falling
+// off a cliff, not the game. So the tier NUMBERS are for humans and are not
+// claimed to be bot-tuned. What IS asserted per tier, and tested:
+//   * the premise holds at every tier — no idle ward build wins (T24)
+//   * the tiers are correctly ORDERED by how much fire survives (T25)
+// See [[sim-cannot-measure-a-strategy-the-bot-cannot-play]].
+// ---------------------------------------------------------------------------
+export const DIFFICULTY = {
+  squire: {
+    id: 'squire', name: 'Squire', hp: 0.80, count: 0.85, du: 32,
+    blurb: 'Fewer of them, and they die faster. The same board to hold.',
+  },
+  knight: {
+    id: 'knight', name: 'Knight', hp: 1, count: 1, du: 32,
+    blurb: 'The curve everything was balanced against. Start here.',
+  },
+  warden: {
+    id: 'warden', name: 'Warden', hp: 1.04, count: 1.20, du: 32,
+    blurb: 'More of them, and each one takes longer to put down.',
+  },
+};
+
 export const ECON = {
   // THE most load-bearing number in the game. Mana is a flow; DU is a HARD CAP
   // on how much board you may cover at once, and it is the reason the body has

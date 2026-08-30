@@ -331,3 +331,78 @@ maps, and the player's win rate did not move (8/10 and 9/10 before and after).
 The lesson, which is the same one as the previous three times: when the premise
 breaks, the cause is a way of *converting a resource into coverage* that the cap
 does not see. It is never the number I reach for first.
+
+---
+
+# Difficulty, pause, volume — and a dial I refused to move
+
+## Three tiers, two dials
+
+Squire / Knight / Warden, picked on the title screen and remembered.
+
+They move **foe hp** and **foe count**. They deliberately do NOT move the
+defence-unit budget. DU is the premise dial: 32 is the swept value and 36 is the
+measured cliff where a ward build wins with nobody playing. Letting a difficulty
+setting touch it would mean an "easy" mode that quietly plays itself — which is
+the exact failure this whole project was scoped to disprove. Every tier is 32.
+
+## What the bot can and cannot tell us here
+
+Sweeping the dials produced two results that look like bugs and are not:
+
+| change from Knight | glade | gauntlet |
+|---|---|---|
+| baseline | 8/10 | 9/10 |
+| DU 32 → 30 | **0/10** | 9/10 |
+| foe hp +10% | **0/10** | 3/10 |
+| foe count +10% | 8/10 | 5/10 |
+
+Two units off the budget takes the glade from 8/10 to nothing. That is not the
+game being fragile — the bot builds from a **fixed shopping list** sized for
+exactly 32 units, so a smaller budget leaves it with a hole it never re-plans
+around. Same for +10% hp: its kill-rate is tuned, and several fights tip past a
+threshold at once. And more foes make the glade *easier*, because that bot is
+mana-limited and extra kills are extra mana.
+
+All three measure the pilot, not the game
+([[sim-cannot-measure-a-strategy-the-bot-cannot-play]]). So the tier numbers are
+stated as being **for humans, and not bot-tuned** — and only what survives the
+pilot's rigidity is asserted:
+
+- **T24** — no tier lets a ward build win unattended. 18 idle runs, 3 plans × 3
+  tiers × 2 maps, all lost.
+- **T25** — the tiers are ordered by how much fire survives:
+  glade 1640 > 1324 > 0, gauntlet 1770 > 730 > 0.
+
+Warden sits at hp ×1.04 / count ×1.20, where the bot still wins sometimes rather
+than never — a bot that cannot re-plan is a floor, not a ceiling.
+
+## A bug the browser found that the suite could not
+
+The difficulty picker **did nothing**. The world is constructed during boot so
+the clearing can render behind the title screen — which is before the player has
+chosen anything — so the curve was always resolved as Knight. Verified in the
+page: picking Warden left `world.diff.id === 'knight'`.
+
+`World.setDifficulty()` now applies the choice when the fire is lit, and refuses
+outright once time has passed, a wave has started, or anything has been built —
+a run can never change curve underneath itself.
+
+## Pause
+
+Esc pauses; a second Esc resumes; the gear still opens settings, and opening
+settings pauses too. Losing window focus pauses as well, which also sidesteps
+a throttled background tab.
+
+The sim stops being stepped while the renderer keeps running, so the world sits
+there behind the overlay instead of being a frozen image. The fixed-timestep
+accumulator is **cleared** on resume — otherwise the first frame back would try
+to catch up on the entire pause. Verified in the page: 3 seconds paused advanced
+the sim by 0.00s, and resuming ran 0.5s real → 0.5s sim with no burst.
+
+## Volume
+
+Music and sound get real 0–100 sliders rather than on/off. Music also *ducks*
+rather than stopping while paused, so a pause reads as a held breath. The sound
+slider plays a click as you drag it, because a volume control you cannot hear
+while setting is a guess.

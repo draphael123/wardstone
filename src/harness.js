@@ -379,7 +379,10 @@ export class Bot {
 // the defence. That is the arm that asks the honest question: not "can a poor
 // player lose?" but "does a COMPLETE ward set still need a body?".
 export function playRun(opts = {}) {
-  const w = new World({ seed: opts.seed == null ? 7 : opts.seed });
+  const w = new World({
+    seed: opts.seed == null ? 7 : opts.seed,
+    difficulty: opts.difficulty,
+  });
   if (opts.rich) w.grantAll();
   const bot = new Bot(w, opts);
   const maxT = opts.maxT || 1200;
@@ -790,6 +793,51 @@ export function runTests(log = console.log) {
       Object.values(cliffs).every(v => v == null || v > SHIPPED_DU),
       `shipped ${SHIPPED_DU}; cliff at ${margins}`);
   }
+
+  // -------------------------------------------------------------------- tiers
+  // Two claims, and deliberately only two. The tier NUMBERS are for humans —
+  // the bot builds from a fixed shopping list and cannot re-plan around a
+  // different curve, so its win rate per tier measures the pilot as much as the
+  // game. What must hold regardless of the pilot is that no tier hands the game
+  // to the wards, and that the tiers point the right way.
+  {
+    log('\n[difficulty]');
+    const TIERS = ['squire', 'knight', 'warden'];
+    const meds = {};
+    let anyIdleWon = null;
+    for (const map of ['glade', 'gauntlet']) {
+      setMap(map);
+      for (const d of TIERS) {
+        for (const plan of ['balanced', 'airheavy', 'groundheavy']) {
+          const r = playRun({
+            seed: 7, build: true, fight: false, rich: true, plan,
+            maxT: 600, difficulty: d,
+          });
+          if (r.phase === 'won') anyIdleWon = `${map}/${d}/${plan}`;
+        }
+        const st = [1, 2, 3, 5, 8, 13, 21, 34, 55, 89]
+          .map(sd => Math.max(0, Math.round(
+            playRun({ seed: sd, build: true, fight: true, difficulty: d }).stone.hp)))
+          .sort((a, b) => a - b);
+        meds[`${map}.${d}`] = st[5];
+      }
+    }
+    setMap('glade');
+
+    ok('T24 no difficulty tier lets a ward build win unattended',
+      anyIdleWon === null,
+      anyIdleWon ? `${anyIdleWon} won with nobody playing`
+        : '18 idle runs — 3 plans x 3 tiers x 2 maps — all lost');
+
+    const ordered = ['glade', 'gauntlet'].every(m =>
+      meds[`${m}.squire`] > meds[`${m}.knight`] &&
+      meds[`${m}.knight`] > meds[`${m}.warden`]);
+    ok('T25 the tiers are ordered — each leaves less fire standing',
+      ordered,
+      ['glade', 'gauntlet'].map(m =>
+        `${m} ${meds[`${m}.squire`]}>${meds[`${m}.knight`]}>${meds[`${m}.warden`]}`).join(', '));
+  }
+
 
   log(`\n--- ${pass}/${pass + fail} passed ---\n`);
   return { pass, fail, results };

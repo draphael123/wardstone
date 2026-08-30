@@ -180,6 +180,31 @@ export class Sound {
     }
   }
 
+  // Volume, as opposed to on/off. The master gain is the SFX bus; music is a
+  // pair of <audio> elements, so only the one currently playing needs setting
+  // — the other is at zero and gets its level from the next fade anyway.
+  setSfxVolume(v) {
+    this.sfxVol = v;
+    if (this.master && !this.muted) this.master.gain.value = v;
+  }
+
+  setMusicVolume(v) {
+    this.musicVol = v;
+    if (!this.musicOn || !this.current) return;
+    const el = this.music[this.current];
+    if (el) el.volume = v;
+  }
+
+  // Music drops rather than stops while paused, so the pause reads as a
+  // held breath instead of a crash.
+  duck(on) {
+    this._ducked = on;
+    if (this.master && !this.muted) this.master.gain.value = on ? this.sfxVol * 0.25 : this.sfxVol;
+    if (!this.current) return;
+    const el = this.music[this.current];
+    if (el) el.volume = this.musicOn ? this.musicVol * (on ? 0.3 : 1) : 0;
+  }
+
   setMuted(m) {
     this.muted = m;
     if (this.master) this.master.gain.value = m ? 0 : this.sfxVol;

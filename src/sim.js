@@ -9,7 +9,7 @@
 // repair, ready) is a command the caller issues between steps.
 
 import {
-  PLAYER, WARDSTONE, ECON, WARDS, WARD_BY_ID, FOE_BY_ID, WAVES, AGGRO, UPGRADE, ABILITY, HEARTH, CACHE,
+  PLAYER, WARDSTONE, ECON, WARDS, WARD_BY_ID, FOE_BY_ID, WAVES, AGGRO, UPGRADE, ABILITY, HEARTH, CACHE, DIFFICULTY,
 } from './defs.js';
 import {
   LANES, LANE_BY_ID, laneAt, cellOf, cellCenter, cellKey,
@@ -86,7 +86,12 @@ export class World {
     this.waveIndex = 0;          // index of the wave about to run / running
     this.phaseTimer = ECON.buildPhase;
     this.mana = ECON.startMana;
-    this.du = 0;                 // spent Defence Units, capped at ECON.duBudget
+    // Difficulty is resolved ONCE, here, and everything downstream reads
+    // this.diff — so a run cannot change curve halfway through and the harness
+    // can drive any tier by passing opts.difficulty.
+    this.diff = DIFFICULTY[opts.difficulty] || DIFFICULTY.knight;
+    this.duBudget = this.diff.du;
+    this.du = 0;                 // spent Defence Units, capped at this.duBudget
 
     this.stone = { hp: WARDSTONE.hp, maxHp: WARDSTONE.hp, x: 0, z: 0 };
 
@@ -154,7 +159,7 @@ export class World {
     if (!this.isUnlocked(wardId)) return { ok: false, why: 'not unlocked yet' };
     if (!isBuildableCell(i, j)) return { ok: false, why: 'not buildable ground' };
     if (this.occupancy.has(cellKey(i, j))) return { ok: false, why: 'occupied' };
-    if (this.du + def.du > ECON.duBudget) return { ok: false, why: 'no defence units' };
+    if (this.du + def.du > this.duBudget) return { ok: false, why: 'no defence units' };
     if (this.mana < def.cost) return { ok: false, why: 'not enough mana' };
     return { ok: true, def };
   }
@@ -308,11 +313,11 @@ export class World {
     const wave = WAVES[this.waveIndex];
     if (!wave) { this.phase = 'won'; return; }
     this.spawnQueue.length = 0;
-    const mod = (currentMap() && currentMap().waveMod) || null;
     for (const g of wave.groups) {
-      const count = mod && mod[g.foe]
-        ? Math.round(g.count * mod[g.foe])
-        : g.count;
+      // At least one of anything the wave asked for: rounding a group of 1 down
+      // to 0 on Squire would silently delete a foe TYPE from the run, which is
+      // a different game rather than an easier one.
+      const count = Math.max(1, Math.round(g.count * this.diff.count));
       for (let n = 0; n < count; n++) {
         this.spawnQueue.push({ t: this.t + g.at + n * g.gap, lane: g.lane, foe: g.foe });
       }
@@ -323,16 +328,29 @@ export class World {
     this.emit({ type: 'wave', index: this.waveIndex, name: wave.name });
   }
 
+  // The world is built during boot so the clearing can render behind the intro
+  // — which is BEFORE the player has picked a difficulty. Measured: choosing
+  // Warden on the title screen had no effect whatsoever, because the curve had
+  // already been resolved. Refused outright once anything has happened, so a
+  // run can never change curve underneath itself.
+  setDifficulty(id) {
+    if (this.t > 0 || this.waveIndex > 0 || this.wards.length) return false;
+    this.diff = DIFFICULTY[id] || DIFFICULTY.knight;
+    this.duBudget = this.diff.du;
+    return true;
+  }
+
   _spawn(laneId, foeId) {
     const lane = LANE_BY_ID[laneId];
     const def = FOE_BY_ID[foeId];
     if (!lane || !def) return;
     const half = lane.width / 2 - def.radius - 0.2;
+    const hp = Math.round(def.hp * this.diff.hp);
     const f = {
       id: NEXT_ID++, def, kind: foeId,
       lane, dist: 0, off: this.rng.range(-half, half),
       x: 0, z: 0, y: def.flying ? def.flyHeight : 0,
-      hp: def.hp, maxHp: def.hp,
+      hp: hp, maxHp: hp,
       atkCd: this.rng.range(0, 0.4),
       target: null, targetKind: null, dead: false, hitT: 0,
       aggroT: 0, windT: 0, stunT: 0, slowT: 0, slowK: 1,
@@ -1166,7 +1184,7 @@ export class World {
       timer: this.phaseTimer, mana: Math.floor(this.mana),
       stone: this.stone.hp, stoneMax: this.stone.maxHp,
       foes: this.foes.length, wards: this.wards.length,
-      du: this.du, duMax: ECON.duBudget,
+      du: this.du, duMax: this.duBudget,
       hp: this.player.hp, alive: this.player.alive,
     };
   }

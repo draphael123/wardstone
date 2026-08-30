@@ -64,6 +64,23 @@
   #begin:hover{transform:translateY(-2px);box-shadow:0 0 46px rgba(255,179,71,.55)}
   #begin:active{transform:translateY(0)}
   #intro .opts{display:flex;gap:9px;flex-wrap:wrap;justify-content:center}
+  .diffs{display:flex;gap:9px;flex-wrap:wrap;justify-content:center;margin:2px 0 4px}
+  .dif{width:172px;padding:11px 13px;text-align:left;background:rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.12);border-radius:4px;cursor:pointer;
+    font-family:inherit;color:#8e97a8;transition:border-color .14s,background .14s}
+  .dif b{display:block;font-size:11.5px;letter-spacing:.2em;text-transform:uppercase;
+    color:#c3ccdd;margin-bottom:4px}
+  .dif span{display:block;font-size:10px;line-height:1.45;color:#6f7889}
+  .dif:hover{border-color:rgba(255,255,255,.26)}
+  .dif.on{background:rgba(255,179,71,.13);border-color:rgba(255,179,71,.5)}
+  .dif.on b{color:#ffb347}
+  .dif.on span{color:#9aa2b3}
+  #paused{position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:10px;background:rgba(8,10,15,.72);
+    backdrop-filter:blur(3px);pointer-events:none}
+  #paused div{font-size:21px;letter-spacing:.44em;color:#e6ecf7;text-indent:.44em}
+  #paused span{font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:#6f7889}
+  #paused.hidden{display:none}
   .opt{padding:8px 15px;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
     background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);
     color:#8e97a8;border-radius:3px;cursor:pointer;font-family:inherit}
@@ -227,7 +244,7 @@
     border-radius:50%;background:#6f788b;transition:.16s}
   .tgl.on{background:rgba(255,179,71,.28);border-color:rgba(255,179,71,.6)}
   .tgl.on::after{left:22px;background:#ffb347}
-  #setCam{width:130px;accent-color:#ffb347}
+  #setCam,#setMusVol,#setSfxVol{width:130px;accent-color:#ffb347}
   .skeys{font-size:11px;color:#8e97a8;line-height:1.9;margin:16px 0 18px;
     padding-top:14px;border-top:1px solid rgba(255,255,255,.08)}
   .skeys b{color:#e9e6dd;font-weight:400}
@@ -464,6 +481,11 @@
         You cannot mend a wall faster than a troll ruins it. A wall buys you
         time to kill it, and nothing more.</div></div>
     </div>
+    <div class="diffs" id="diffs">
+      <button class="dif" data-diff="squire"><b>Squire</b><span>Fewer of them, and they die faster.</span></button>
+      <button class="dif on" data-diff="knight"><b>Knight</b><span>The curve everything was balanced against.</span></button>
+      <button class="dif" data-diff="warden"><b>Warden</b><span>More of them, and each takes longer to put down.</span></button>
+    </div>
     <button id="begin">Light the fire</button>
     <div class="opts">
       <button class="opt on" id="optTut">Guided tutorial</button>
@@ -522,6 +544,10 @@
     <h3>Settings</h3>
     <div class="srow"><span>Music</span><button class="tgl on" data-set="musicOn"></button></div>
     <div class="srow"><span>Sound effects</span><button class="tgl on" data-set="soundOn"></button></div>
+    <div class="srow"><span>Music volume</span>
+      <input type="range" id="setMusVol" min="0" max="100" step="5" value="34"></div>
+    <div class="srow"><span>Sound volume</span>
+      <input type="range" id="setSfxVol" min="0" max="100" step="5" value="90"></div>
     <div class="srow"><span>Damage numbers</span><button class="tgl" data-set="dmgNums"></button></div>
     <div class="srow"><span>Enemy health bars</span><button class="tgl on" data-set="hpBars"></button></div>
     <div class="srow"><span>Screen shake</span><button class="tgl on" data-set="shake"></button></div>
@@ -537,6 +563,8 @@
     <button class="opt on" id="closeSet" style="padding:11px 26px;font-size:11px">Close</button>
   </div>
 </div>
+
+<div id="paused" class="hidden"><div>PAUSED</div><span>Esc to resume</span></div>
 
 <div id="tut" class="hidden">
   <div class="tstep" id="tutStep">1 / 10</div>

@@ -10,7 +10,9 @@ import { Renderer, PAL } from './render.js';
 import { Sound, playEvent } from './audio.js';
 import { Minimap } from './minimap.js';
 import { Tutorial, STEPS } from './tutorial.js';
-import { WARDS, WARD_BY_ID, ECON, WAVES, PLAYER, ABILITY, waveByLane } from './defs.js';
+import {
+  WARDS, WARD_BY_ID, ECON, WAVES, PLAYER, ABILITY, waveByLane, DIFFICULTY,
+} from './defs.js';
 import { cellOf, cellCenter, isBuildableCell, ARENA, LANES, laneDoor } from './arena.js';
 
 const $ = (id) => document.getElementById(id);
@@ -48,6 +50,7 @@ const state = {
   hintShown: new Set(),
   low: isTouch,
   musicOn: true, soundOn: true, dmgNums: false,
+  musVol: 0.34, sfxVol: 0.9, difficulty: 'knight', paused: false,
   hpBars: true, shake: true, tutorial: true, tut: null,
 };
 
@@ -897,7 +900,7 @@ function frame(now) {
     $('flash').style.opacity = flashT;
   }
 
-  if (state.running) {
+  if (state.running && !state.paused) {
     applyInput(dt);
     // Fixed timestep so the sim is identical to the one the harness measured.
     // Hitstop: the sim slows to a crawl for a few frames on a meaty connect
@@ -950,7 +953,10 @@ function resize() {
 // Boot
 // ---------------------------------------------------------------------------
 function boot() {
-  state.world = new World({ seed: (Math.random() * 1e9) | 0 });
+  state.world = new World({
+    seed: (Math.random() * 1e9) | 0,
+    difficulty: state.difficulty,
+  });
   state.rend = new Renderer($('stage'), { low: state.low });
   state.snd = new Sound();
   state.map = new Minimap($('map'));
@@ -960,6 +966,7 @@ function boot() {
   bindInput();
   bindSettings();
   loadSettings();
+  syncSettingsPanel();   // so the intro's difficulty buttons show what is stored
   resize();
   addEventListener('resize', resize);
   addEventListener('orientationchange', () => setTimeout(resize, 250));
@@ -992,11 +999,18 @@ function boot() {
   }, 1000);
 }
 
+addEventListener('blur', () => { if (state.running) setPaused(true); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && state.running) setPaused(true);
+});
+
 $('begin').addEventListener('click', async () => {
   hideOverlay($('intro'), 520);
   $('hud').classList.remove('hide');
   if (isTouch) $('touch').classList.remove('hidden');
   if (state.map) state.map.resize();   // HUD is visible now, so it can measure
+  state.world.setDifficulty(state.difficulty);
+  syncHud();
   state.running = true;
   try {
     await state.snd.unlock();
@@ -1090,6 +1104,7 @@ window.WARDSTONE_CAP = {
 // site data cannot break boot.
 // ---------------------------------------------------------------------------
 const SET_KEYS = ['musicOn', 'soundOn', 'dmgNums', 'hpBars', 'shake', 'low', 'tutorial'];
+const SET_NUMS = ['camDist', 'musVol', 'sfxVol'];
 function loadSettings() {
   try {
     const raw = localStorage.getItem('wardstone.settings');
@@ -1097,11 +1112,17 @@ function loadSettings() {
     const o = JSON.parse(raw);
     for (const k of SET_KEYS) if (typeof o[k] === 'boolean') state[k] = o[k];
     if (typeof o.camDist === 'number') state.camDist = o.camDist;
+    for (const k of ['musVol', 'sfxVol'])
+      if (typeof o[k] === 'number') state[k] = o[k];
+    if (DIFFICULTY[o.difficulty]) state.difficulty = o.difficulty;
   } catch (e) { /* no stored settings is the normal case */ }
 }
 function saveSettings() {
   try {
-    const o = { camDist: state.rend ? state.rend.camDist : 11 };
+    const o = {
+      camDist: state.rend ? state.rend.camDist : 11,
+      musVol: state.musVol, sfxVol: state.sfxVol, difficulty: state.difficulty,
+    };
     for (const k of SET_KEYS) o[k] = state[k];
     localStorage.setItem('wardstone.settings', JSON.stringify(o));
   } catch (e) { /* nothing to do about a browser that refuses */ }
@@ -1109,6 +1130,8 @@ function saveSettings() {
 
 function applySettings() {
   if (state.snd) {
+    state.snd.setSfxVolume(state.sfxVol);
+    state.snd.setMusicVolume(state.musVol);
     state.snd.setMuted(!state.soundOn);
     state.snd.setMusicEnabled(state.musicOn);
     if (state.musicOn && state.running) state.snd.setPhase(state.world.phase);
@@ -1129,13 +1152,33 @@ function syncSettingsPanel() {
   }
   const c = $('setCam');
   if (c && state.rend) c.value = Math.round(state.rend.camDist);
+  $('setMusVol').value = Math.round(state.musVol * 100);
+  $('setSfxVol').value = Math.round(state.sfxVol * 100);
+  for (const b of document.querySelectorAll('.dif'))
+    b.classList.toggle('on', b.dataset.diff === state.difficulty);
+}
+
+// Pause. The sim simply stops being stepped while the renderer keeps running,
+// so the world is still there behind the overlay rather than a frozen image —
+// and crucially the accumulator is CLEARED on resume, or the first frame back
+// would try to catch up on however long the pause lasted.
+function setPaused(on) {
+  if (state.paused === on) return;
+  state.paused = on;
+  $('paused').classList.toggle('hidden', !on || !state.running);
+  if (!on) { state.acc = 0; state.last = performance.now(); }
+  if (state.snd) state.snd.duck(on);
 }
 
 function openSettings() {
   syncSettingsPanel();
   $('settings').classList.remove('hidden');
+  setPaused(true);
 }
-function closeSettings() { $('settings').classList.add('hidden'); }
+function closeSettings() {
+  $('settings').classList.add('hidden');
+  setPaused(false);
+}
 
 function bindSettings() {
   for (const b of document.querySelectorAll('.tgl')) {
@@ -1152,6 +1195,27 @@ function bindSettings() {
     state.rend.camHeight = 2.2 + state.rend.camDist * 0.48;
     saveSettings();
   });
+  $('setMusVol').addEventListener('input', (e) => {
+    state.musVol = +e.target.value / 100;
+    if (state.snd) state.snd.setMusicVolume(state.musVol);
+    saveSettings();
+  });
+  $('setSfxVol').addEventListener('input', (e) => {
+    state.sfxVol = +e.target.value / 100;
+    if (state.snd) {
+      state.snd.setSfxVolume(state.sfxVol);
+      state.snd.play('select', 0.6);     // so the slider is audible while dragged
+    }
+    saveSettings();
+  });
+  for (const b of document.querySelectorAll('.dif')) {
+    b.addEventListener('click', () => {
+      state.difficulty = b.dataset.diff;
+      for (const o of document.querySelectorAll('.dif')) o.classList.toggle('on', o === b);
+      saveSettings();
+      if (state.snd) state.snd.play('select', 0.6);
+    });
+  }
   $('openSet').addEventListener('click', openSettings);
   $('closeSet').addEventListener('click', closeSettings);
   $('gearBtn').addEventListener('click', openSettings);
@@ -1161,9 +1225,12 @@ function bindSettings() {
     saveSettings();
   });
   addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      $('settings').classList.contains('hidden') ? openSettings() : closeSettings();
-    }
+    if (e.key !== 'Escape') return;
+    if (!$('settings').classList.contains('hidden')) { closeSettings(); return; }
+    // Esc used to open settings with the wave still running underneath. Now it
+    // pauses first; a second Esc resumes, and the gear opens settings.
+    if (state.running) setPaused(!state.paused);
+    else openSettings();
   });
   $('tutSkip').addEventListener('click', () => {
     if (state.tut) state.tut.done = true;
