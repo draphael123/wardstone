@@ -53,6 +53,8 @@ const state = {
   low: isTouch,
   musicOn: true, soundOn: true, dmgNums: false,
   musVol: 0.34, sfxVol: 0.9, difficulty: 'knight', paused: false,
+  shakeAmt: 1, sens: 1, fov: 62, minimap: true, calm: false,
+  autoPause: true, fps: false,
   hpBars: true, shake: true, tutorial: true, tut: null,
 };
 
@@ -290,6 +292,10 @@ function drainEvents() {
           state.hitstop = Math.max(state.hitstop, 0.05 + Math.min(0.05, e.hits * 0.02));
           r.addShake(0.10 + Math.min(0.2, e.hits * 0.05));
           r.spark(e.x + e.dx * 1.9, 1.0, e.z + e.dz * 1.9, 0xfff0c8, 8 + e.hits * 3, 7, 1.0, -3);
+          // stood UP on its edge, so a sword hit reads across the target's body
+          // rather than as a puddle on the floor under it
+          r.shock(e.x + e.dx * 1.9, 1.0, e.z + e.dz * 1.9, 0xfff0c8,
+            0.6, 2.2 + e.hits * 0.5, 0.3, Math.PI / 2);
         }
         break;
       case 'swap':
@@ -308,6 +314,7 @@ function drainEvents() {
         break;
       case 'dodge':
         r.ringBurst(e.x, 0.25, e.z, 0xbcd2f5, 1.5, 12);
+        r.shock(e.x, 0.14, e.z, 0x9fc0f0, 0.5, 2.6, 0.34);   // dust off the push
         if (s) s.play('foeSwing', 0.5, 1.5);
         break;
       case 'kill': {
@@ -318,6 +325,7 @@ function drainEvents() {
         if (big) {
           r.addShake(0.65);
           r.ringBurst(e.x, 0.4, e.z, 0xff8060, 3.4, 20);
+          r.shock(e.x, 0.16, e.z, 0xff9a70, 1.2, 7.5, 0.6);
           state.hitstop = Math.max(state.hitstop, 0.13);   // a troll dying lands
           flash(0.14);
         } else if (e.by === 'player') {
@@ -330,6 +338,7 @@ function drainEvents() {
         break;
       case 'wardDown':
         r.spark(e.x, 1, e.z, 0x8a7a5a, 20, 6, 1.5);
+        r.shock(e.x, 0.18, e.z, 0xc8a878, 0.8, 5, 0.5);
         r.addShake(0.25);
         break;
       case 'caltrops':
@@ -339,6 +348,8 @@ function drainEvents() {
       case 'stoneHit':
         r.addShake(Math.min(0.7, e.amount / 130));
         r.spark(0, 3.3, 0, 0xffb347, 4, 4, 1.2);
+        // the fire recoils: a ring off the hearth scaled by how hard it was hit
+        r.shock(0, 0.2, 0, 0xffb347, 1.4, 4 + Math.min(9, e.amount / 26), 0.5);
         flash(Math.min(0.4, e.amount / 500));
         break;
       case 'playerHurt':
@@ -515,8 +526,35 @@ function stepDoors() {
 
 let flashT = 0;
 function flash(a) {
-  flashT = Math.max(flashT, a);
+  // "Reduce flashes" damps rather than removes: the flash carries information
+  // (you were hit, the fire was hit) and deleting it outright would cost the
+  // player a signal rather than sparing them one.
+  flashT = Math.max(flashT, state.calm ? a * 0.3 : a);
   $('flash').style.opacity = flashT;
+}
+
+// The low-health edge. Driven every frame rather than by an event, because it
+// is a STATE — being nearly dead — not a moment.
+let vigT = 0;
+function stepVignette(dt) {
+  const p = state.world && state.world.player;
+  const frac = state.running && p && p.alive ? p.hp / p.maxHp : 1;
+  // nothing at all above a third health, then it climbs steeply
+  const want = frac > 0.34 ? 0 : (1 - frac / 0.34);
+  vigT += (want - vigT) * Math.min(1, dt * 3.4);
+  if (vigT < 0.004) { $('vig').style.opacity = 0; return; }
+  const pulse = 0.72 + Math.sin(state.world.t * 4.4) * 0.28;
+  $('vig').style.opacity = vigT * pulse * (state.calm ? 0.55 : 1);
+}
+
+// FPS, averaged over half a second so the number is readable rather than a blur.
+let fpsAcc = 0, fpsN = 0, fpsT = 0;
+function stepFps(dt) {
+  if (!state.fps) return;
+  fpsAcc += dt; fpsN++; fpsT += dt;
+  if (fpsT < 0.5) return;
+  $('fps').textContent = `${Math.round(fpsN / fpsAcc)} FPS · ${state.rend.renderer.info.render.calls} calls`;
+  fpsAcc = 0; fpsN = 0; fpsT = 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -600,7 +638,7 @@ function bindInput() {
     // a tap is reserved for placing, which is decided on pointerup by
     // distance travelled, so the two never fight.
     if (dragBtn === 2 || isTouch) {
-      state.rend.camYaw -= (e.clientX - lastX) * 0.0055;
+      state.rend.camYaw -= (e.clientX - lastX) * 0.0055 * state.sens;
       lastX = e.clientX;
     }
   });
@@ -684,7 +722,7 @@ function bindInput() {
   });
   cam.addEventListener('pointermove', (e) => {
     if (e.pointerId !== camId) return;
-    state.rend.camYaw -= (e.clientX - camX) * 0.012;
+    state.rend.camYaw -= (e.clientX - camX) * 0.012 * state.sens;
     camX = e.clientX;
   });
   const camEnd = () => { camId = null; cam.classList.remove('on'); };
@@ -898,6 +936,8 @@ function frame(now) {
   state.lastFrame = performance.now();
 
   stepDamageNumbers(dt);
+  stepVignette(dt);
+  stepFps(dt);
   if (state.running) stepDoors();
   if (flashT > 0) {
     flashT = Math.max(0, flashT - dt * 2.2);
@@ -950,7 +990,11 @@ function resize() {
   // and this game is about watching three lanes at once. Widen the lens as the
   // viewport gets taller than it is wide.
   const aspect = w / h;
-  state.rend.camera.fov = aspect < 0.72 ? 78 : (aspect < 1.05 ? 70 : 62);
+  // The aspect rules still apply — a portrait phone sees far less of the board
+  // at a fixed lens — but they now offset the player's chosen field of view
+  // instead of overriding it.
+  const widen = aspect < 0.72 ? 16 : (aspect < 1.05 ? 8 : 0);
+  state.rend.camera.fov = Math.min(96, state.fov + widen);
   state.rend.lookAhead = aspect < 0.72 ? 4.5 : (aspect < 1.05 ? 4 : 3);
   state.rend.resize(w, h, dpr);
   if (state.map) state.map.resize();
@@ -1007,10 +1051,15 @@ function boot() {
   }, 1000);
 }
 
-addEventListener('blur', () => { if (state.running) setPaused(true); });
+addEventListener('blur', () => {
+  if (state.running && state.autoPause) setPaused(true);
+});
 addEventListener('pagehide', writeSave);
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden && state.running) { setPaused(true); writeSave(); }
+  if (document.hidden && state.running) {
+    if (state.autoPause) setPaused(true);
+    writeSave();     // saved regardless: leaving the tab is when it matters most
+  }
 });
 
 // Both entry points come through here. `snap` is a save to restore, or null
@@ -1117,6 +1166,24 @@ window.WARDSTONE_CAP = {
   filmstrip(opts = {}) {
     return captureFrames(opts).toDataURL('image/jpeg', opts.q || 0.72);
   },
+  // Drive N whole frames explicitly — sim, HUD overlays and renderer — so the
+  // per-frame features (vignette, FPS, trails) can be exercised in a pane where
+  // requestAnimationFrame is throttled to nothing.
+  // See [[preview-panel-raf-blackscreen]].
+  tick(n = 1, dt = 0.016) {
+    for (let i = 0; i < n; i++) {
+      stepDamageNumbers(dt);
+      stepVignette(dt);
+      stepFps(dt);
+      if (state.running && !state.paused) {
+        state.acc += dt;
+        let g = 0;
+        while (state.acc >= STEP && g++ < 5) { state.world.step(STEP); state.acc -= STEP; }
+        drainEvents();
+      }
+      state.rend.update(state.world, dt, { moving: false });
+    }
+  },
   // POST a data URL to the local collector; text/plain avoids a CORS preflight
   async post(url, dataUrl, name) {
     const r = await fetch(`${url}?name=${encodeURIComponent(name)}`, {
@@ -1176,7 +1243,8 @@ function syncResume() {
 // Settings. Persisted per browser, wrapped so a private window or blocked
 // site data cannot break boot.
 // ---------------------------------------------------------------------------
-const SET_KEYS = ['musicOn', 'soundOn', 'dmgNums', 'hpBars', 'shake', 'low', 'tutorial'];
+const SET_KEYS = ['musicOn', 'soundOn', 'dmgNums', 'hpBars', 'shake', 'low', 'tutorial',
+  'minimap', 'calm', 'autoPause', 'fps'];
 const SET_NUMS = ['camDist', 'musVol', 'sfxVol'];
 function loadSettings() {
   try {
@@ -1185,7 +1253,7 @@ function loadSettings() {
     const o = JSON.parse(raw);
     for (const k of SET_KEYS) if (typeof o[k] === 'boolean') state[k] = o[k];
     if (typeof o.camDist === 'number') state.camDist = o.camDist;
-    for (const k of ['musVol', 'sfxVol'])
+    for (const k of ['musVol', 'sfxVol', 'shakeAmt', 'sens', 'fov'])
       if (typeof o[k] === 'number') state[k] = o[k];
     if (DIFFICULTY[o.difficulty]) state.difficulty = o.difficulty;
   } catch (e) { /* no stored settings is the normal case */ }
@@ -1195,6 +1263,7 @@ function saveSettings() {
     const o = {
       camDist: state.rend ? state.rend.camDist : 11,
       musVol: state.musVol, sfxVol: state.sfxVol, difficulty: state.difficulty,
+      shakeAmt: state.shakeAmt, sens: state.sens, fov: state.fov,
     };
     for (const k of SET_KEYS) o[k] = state[k];
     localStorage.setItem('wardstone.settings', JSON.stringify(o));
@@ -1213,8 +1282,14 @@ function applySettings() {
     state.rend.low = state.low;
     state.rend.renderer.shadowMap.enabled = !state.low;
     state.rend.showHpBars = state.hpBars;
-    state.rend.allowShake = state.shake;
+    // Shake is a DIAL now, not a switch: 0 is off, and the old toggle is the
+    // 0/1 ends of the same control.
+    state.rend.allowShake = state.shakeAmt > 0;
+    state.rend.shakeScale = state.shakeAmt;
+    state.rend.calm = state.calm;
   }
+  $('map').style.display = state.minimap ? '' : 'none';
+  $('fps').classList.toggle('hidden', !state.fps);
   resize();
   saveSettings();
 }
@@ -1227,6 +1302,9 @@ function syncSettingsPanel() {
   if (c && state.rend) c.value = Math.round(state.rend.camDist);
   $('setMusVol').value = Math.round(state.musVol * 100);
   $('setSfxVol').value = Math.round(state.sfxVol * 100);
+  $('setShake').value = Math.round(state.shakeAmt * 100);
+  $('setSens').value = Math.round(state.sens * 100);
+  $('setFov').value = Math.round(state.fov);
   for (const b of document.querySelectorAll('.dif'))
     b.classList.toggle('on', b.dataset.diff === state.difficulty);
 }
@@ -1289,6 +1367,14 @@ function bindSettings() {
       if (state.snd) state.snd.play('select', 0.6);
     });
   }
+  const slider = (id, apply) => $(id).addEventListener('input', (e) => {
+    apply(+e.target.value);
+    applySettings();
+  });
+  slider('setShake', v => { state.shakeAmt = v / 100; });
+  slider('setSens', v => { state.sens = v / 100; });
+  slider('setFov', v => { state.fov = v; });
+
   $('openHow').addEventListener('click', () => {
     $('how').classList.remove('hidden');
     if (state.snd) state.snd.play('select', 0.6);

@@ -521,6 +521,8 @@ export class Renderer {
     else { this._buildArena(); this._buildStone(); }
     this._buildUnits();
     this._buildPools();
+    this._buildShocks();
+    this._buildTrail();
 
     this.wardViews = new Map();   // world ward id -> Object3D
     this.laneFlash = new Map();   // lane id -> seconds remaining
@@ -1812,7 +1814,132 @@ export class Renderer {
     }
   }
 
-  addShake(v) { if (this.allowShake) this.shake = Math.min(1.5, this.shake + v); }
+  // `shakeScale` is the player's dial; `calm` is the accessibility switch that
+  // takes the top off everything sudden. Both land here so no call site has to
+  // know about either.
+  addShake(v) {
+    if (!this.allowShake) return;
+    const k = (this.shakeScale == null ? 1 : this.shakeScale) * (this.calm ? 0.35 : 1);
+    this.shake = Math.min(1.5, this.shake + v * k);
+  }
+
+  // ------------------------------------------------------------------ juice
+  // Shockwaves. A flat expanding ring on the ground reads as force in a way a
+  // particle spray does not — the spray says "something broke", the ring says
+  // "something LANDED". Pooled and reused, because allocating a mesh on a hit
+  // is how a game stutters exactly when it should feel best.
+  //
+  // They do not depth-test. Behind a chase camera the contact point is often
+  // behind the player's own body, and a ring you cannot see is a ring that did
+  // not happen. See [[impact-fx-must-not-depth-test]].
+  _buildShocks() {
+    this.shocks = [];
+    const geo = new THREE.RingGeometry(0.87, 1, 40).rotateX(-Math.PI / 2);
+    for (let i = 0; i < 14; i++) {
+      const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+        color: 0xffffff, transparent: true, opacity: 0,
+        depthWrite: false, depthTest: false,
+        blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+      }));
+      m.visible = false;
+      m.renderOrder = 12;
+      this.scene.add(m);
+      this.shocks.push({ mesh: m, life: 0, max: 1, r0: 1, r1: 4, tilt: 0 });
+    }
+    this._shockN = 0;
+  }
+
+  // r0 -> r1 over `dur`, fading as it goes. `tilt` lets a wall impact stand the
+  // ring up so it reads on a vertical surface instead of sinking into the floor.
+  shock(x, y, z, color, r0, r1, dur, tilt) {
+    const s = this.shocks[this._shockN];
+    this._shockN = (this._shockN + 1) % this.shocks.length;
+    s.life = s.max = dur || 0.42;
+    s.r0 = r0; s.r1 = r1;
+    s.mesh.position.set(x, y, z);
+    s.mesh.rotation.set(tilt || 0, Math.random() * 3, 0);
+    s.mesh.material.color.setHex(color);
+    s.mesh.visible = true;
+  }
+
+  _stepShocks(dt) {
+    for (const s of this.shocks) {
+      if (s.life <= 0) continue;
+      s.life -= dt;
+      if (s.life <= 0) { s.mesh.visible = false; s.mesh.material.opacity = 0; continue; }
+      const k = 1 - s.life / s.max;
+      // ease-out: fast at the front, so it snaps rather than inflates
+      const e = 1 - Math.pow(1 - k, 2.6);
+      const r = s.r0 + (s.r1 - s.r0) * e;
+      s.mesh.scale.set(r, 1, r);
+      s.mesh.material.opacity = (1 - k) * 0.52;
+    }
+  }
+
+  // The sword's arc. A ribbon swept through the swing rather than a static
+  // crescent: frame data says where the blade IS, and the trail is the record
+  // of where it has BEEN, which is the part the eye reads as speed.
+  _buildTrail() {
+    const N = 14;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * 2 * 3), 3));
+    const idx = [];
+    for (let i = 0; i < N - 1; i++) {
+      const a = i * 2;
+      idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+    g.setIndex(idx);
+    this.trail = new THREE.Mesh(g, new THREE.MeshBasicMaterial({
+      color: 0xfff2cc, transparent: true, opacity: 0, side: THREE.DoubleSide,
+      depthWrite: false, blending: THREE.AdditiveBlending,
+    }));
+    this.trail.frustumCulled = false;
+    this.trail.renderOrder = 11;
+    this.scene.add(this.trail);
+    this._trailPts = [];
+    this._trailN = N;
+  }
+
+  // Called each frame while a swing is live. `k` is 0..1 through the arc.
+  pushTrail(x, y, z, yaw, k, reach) {
+    this._trailLive = true;
+    const sweep = -1.15 + k * 2.3;                 // the arc the blade travels
+    const a = yaw + sweep;
+    this._trailPts.unshift({
+      ix: x + Math.sin(a) * reach * 0.42, iy: y + 0.15,
+      iz: z + Math.cos(a) * reach * 0.42,
+      ox: x + Math.sin(a) * reach, oy: y + 0.5, oz: z + Math.cos(a) * reach,
+    });
+    if (this._trailPts.length > this._trailN) this._trailPts.length = this._trailN;
+  }
+
+  _stepTrail(dt) {
+    const pts = this._trailPts;
+    if (!pts.length) {
+      this.trail.material.opacity = Math.max(0, this.trail.material.opacity - dt * 6);
+      if (this.trail.material.opacity <= 0) this.trail.visible = false;
+      return;
+    }
+    this.trail.visible = true;
+    this.trail.material.opacity = 0.62;
+    const pos = this.trail.geometry.attributes.position;
+    for (let i = 0; i < this._trailN; i++) {
+      const p = pts[Math.min(i, pts.length - 1)];
+      // taper the ribbon toward the tail so it reads as a wake, not a blade
+      const t = 1 - i / this._trailN;
+      pos.setXYZ(i * 2, p.ix, p.iy, p.iz);
+      pos.setXYZ(i * 2 + 1,
+        p.ix + (p.ox - p.ix) * t, p.iy + (p.oy - p.iy) * t, p.iz + (p.oz - p.iz) * t);
+    }
+    pos.needsUpdate = true;
+    // The tail only retires once the swing is OVER. Draining every frame — as
+    // this first did — cancelled the push and the ribbon never grew past one
+    // segment, so the effect existed and was invisible.
+    if (!this._trailLive) pts.pop();
+    this._trailLive = false;
+  }
+
+
 
   // --------------------------------------------------------------- wards
   // ONE RULE: silhouette by role, so two wards can never be confused at a
@@ -2238,6 +2365,9 @@ export class Renderer {
         const sc = 0.7 + k * 0.55;
         this.arc.scale.set(sc, 1, sc);
         this.arc.material.opacity = 0.34 * (1 - k) + 0.05;
+        // and the ribbon records where the blade has BEEN, which is the part
+        // the eye reads as speed. Only while a sword is actually out.
+        if (p.weapon === 'sword') this.pushTrail(p.x, 1.0, p.z, p.yaw, k, 2.8);
       } else {
         this.arc.visible = false;
       }
@@ -2563,6 +2693,8 @@ export class Renderer {
     }
 
     this._stepFireflies();
+    this._stepShocks(dt);
+    this._stepTrail(dt);
     this.syncWards(world, dt);
     this.renderer.render(this.scene, this.camera);
   }

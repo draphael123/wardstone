@@ -492,3 +492,67 @@ over a background — it is a **camera in the world with a menu beside it**.
   right.
 - The three rules moved out of the front page into a **How to play** panel, so
   the opening is a menu rather than an essay.
+
+---
+
+# Juice, and the settings to turn it down
+
+## What was added
+
+**Shockwaves.** A flat expanding ring on the ground, pooled and reused. A
+particle spray says "something broke"; a ring says "something *landed*". They
+fire on a troll dying, a ward collapsing, a dodge push-off, a hit on the fire
+scaled by how hard it was hit, and — stood up on its edge — on a sword connect,
+so the hit reads across the target's body rather than as a puddle under it.
+
+They do not depth-test, because behind a chase camera the contact point is
+frequently behind the player's own torso, and a ring you cannot see is a ring
+that did not happen ([[impact-fx-must-not-depth-test]]).
+
+First pass was wrong in a way only looking could catch: the ring was 38% of its
+own radius thick and read as a *donut*. A shockwave is an edge — 13% now, and
+half the opacity.
+
+**The sword's arc trail.** Frame data says where the blade *is*; the ribbon is
+the record of where it has *been*, which is the part the eye reads as speed.
+
+This shipped broken and the browser caught it. `pushTrail` added a point per
+frame and `_stepTrail` popped one per frame, so the two cancelled and the ribbon
+never grew past a single segment — the effect existed, ran, allocated nothing,
+and was invisible. Measured at **0 points** during a live swing; **10** after
+the tail was made to retire only once the swing is over.
+
+**A low-health edge.** A pulsing red vignette from about a third health down.
+Driven every frame rather than by an event, because it is a *state* — being
+nearly dead — not a moment. It stays at the edges so the middle of the screen,
+where the fighting is, stays readable.
+
+## Settings, from seven to fourteen
+
+Music, sound, music volume, sound volume, damage numbers, enemy health bars,
+**screen shake (0–150%)**, **look sensitivity**, **field of view**, **minimap**,
+**reduce flashes**, **pause when unfocused**, **show FPS**, low detail, guided
+tutorial, camera distance.
+
+Three notes on the ones that are not just toggles:
+
+- **Screen shake became a dial.** The old on/off is now the two ends of the
+  same control, and it lands in `addShake()` so no call site knows about it.
+- **Field of view** is a preference the aspect rules *offset* rather than
+  override — a portrait phone still gets a wider lens, it is just wider than
+  whatever you chose instead of a fixed number.
+- **Reduce flashes damps rather than deletes.** The flash carries information —
+  you were hit, the fire was hit — so removing it outright would cost the player
+  a signal rather than sparing them one. Measured: shake at 35%, flashes at 30%.
+
+## A test hook the throttled pane forced
+
+Verifying any of this in the embedded browser kept failing because
+`requestAnimationFrame` is throttled to a few frames per second in a pane that
+is not focused, and the tab's own auto-pause was firing on top of it — so every
+per-frame feature measured as zero and one screenshot was a **stale composite**
+of an overlay that was already `display:none`.
+
+`WARDSTONE_CAP.tick(n, dt)` now drives whole frames explicitly — sim, overlays
+and renderer — which is what made the trail bug visible at all
+([[preview-panel-raf-blackscreen]], [[css-transition-stalls-when-unfocused]]).

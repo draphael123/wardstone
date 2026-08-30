@@ -288,7 +288,10 @@
     border-radius:50%;background:#6f788b;transition:.16s}
   .tgl.on{background:rgba(255,179,71,.28);border-color:rgba(255,179,71,.6)}
   .tgl.on::after{left:22px;background:#ffb347}
-  #setCam,#setMusVol,#setSfxVol{width:130px;accent-color:#ffb347}
+  #setCam,#setMusVol,#setSfxVol,#setShake,#setSens,#setFov{width:130px;accent-color:#ffb347}
+  #fps{position:fixed;top:6px;left:8px;z-index:45;font-size:10px;letter-spacing:.1em;
+    color:#7fd4c0;pointer-events:none;font-variant-numeric:tabular-nums}
+  #fps.hidden{display:none}
   .skeys{font-size:11px;color:#8e97a8;line-height:1.9;margin:16px 0 18px;
     padding-top:14px;border-top:1px solid rgba(255,255,255,.08)}
   .skeys b{color:#e9e6dd;font-weight:400}
@@ -324,6 +327,10 @@
   #tut.pop{animation:tpop .4s ease}
   @keyframes tpop{0%{transform:translateX(-50%) scale(.96)}60%{transform:translateX(-50%) scale(1.02)}100%{transform:translateX(-50%) scale(1)}}
 
+  /* Low health. A pulsing edge rather than a full-screen tint, so the middle
+     of the screen — where the fighting is — stays readable. */
+  #vig{position:fixed;inset:0;z-index:39;pointer-events:none;opacity:0;
+    background:radial-gradient(ellipse at 50% 50%,transparent 34%,rgba(164,22,22,.78) 100%)}
   #flash{position:fixed;inset:0;z-index:40;pointer-events:none;background:#e0605a;
     opacity:0;transition:opacity .25s}
 
@@ -615,7 +622,16 @@
       <input type="range" id="setSfxVol" min="0" max="100" step="5" value="90"></div>
     <div class="srow"><span>Damage numbers</span><button class="tgl" data-set="dmgNums"></button></div>
     <div class="srow"><span>Enemy health bars</span><button class="tgl on" data-set="hpBars"></button></div>
-    <div class="srow"><span>Screen shake</span><button class="tgl on" data-set="shake"></button></div>
+    <div class="srow"><span>Screen shake</span>
+      <input type="range" id="setShake" min="0" max="150" step="10" value="100"></div>
+    <div class="srow"><span>Look sensitivity</span>
+      <input type="range" id="setSens" min="30" max="220" step="10" value="100"></div>
+    <div class="srow"><span>Field of view</span>
+      <input type="range" id="setFov" min="52" max="86" step="2" value="62"></div>
+    <div class="srow"><span>Minimap</span><button class="tgl on" data-set="minimap"></button></div>
+    <div class="srow"><span>Reduce flashes</span><button class="tgl" data-set="calm"></button></div>
+    <div class="srow"><span>Pause when unfocused</span><button class="tgl on" data-set="autoPause"></button></div>
+    <div class="srow"><span>Show FPS</span><button class="tgl" data-set="fps"></button></div>
     <div class="srow"><span>Low detail</span><button class="tgl" data-set="low"></button></div>
     <div class="srow"><span>Guided tutorial</span><button class="tgl on" data-set="tutorial"></button></div>
     <div class="srow"><span>Camera distance</span>
@@ -644,6 +660,8 @@
 <div id="banner"><div class="t" id="bannerT"></div><div class="s" id="bannerS"></div></div>
 <div id="doors"></div>
 <div id="dmg"></div>
+<div id="fps" class="hidden"></div>
+<div id="vig"></div>
 <div id="flash"></div>
 
 <div id="over">
