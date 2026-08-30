@@ -556,3 +556,51 @@ of an overlay that was already `display:none`.
 `WARDSTONE_CAP.tick(n, dt)` now drives whole frames explicitly — sim, overlays
 and renderer — which is what made the trail bug visible at all
 ([[preview-panel-raf-blackscreen]], [[css-transition-stalls-when-unfocused]]).
+
+---
+
+# The ward panel, and dragging out a wall
+
+## "I still don't see a way to upgrade or rotate"
+
+Both existed from the first build. `F` upgraded the ward you were standing near
+(or pointing at in build view); `R` rotated the thing you were holding. Neither
+had any on-screen presence, both were context-dependent, and `F` was **also
+bound to fire** — so pressing it with a ward selected shot the crossbow instead
+of upgrading. A feature can be complete, tested, and effectively absent.
+
+Clicking a built ward now opens a panel: name, level, health bar, units, reach,
+and **Upgrade / Rotate / Sell** with live costs and a reason when upgrading is
+refused. The keys still work. Nothing is only on a key any more.
+
+`rotateWard()` is new and free at any time — a wall facing the wrong way is a
+mistake you should be able to correct without paying to demolish and rebuild.
+
+## Dragging a wall
+
+Press and drag with a Palisade in hand and it lays a straight run in one
+gesture, previewing exactly what will be built.
+
+Two decisions worth recording:
+
+**It is restricted to `kind: 'blockade'`.** Dragging out eight ballistae is not
+a wall, it is an accident with your entire mana bar. Every other ward keeps
+single placement, and `planRun` returns a single cell for them so there is only
+one code path.
+
+**The run stops at the first cell it cannot afford — it does not skip and carry
+on.** A wall with a hole in it is worse than a shorter wall, and a silently
+skipped cell is exactly the sort of thing you would not notice until something
+walked through it. The preview draws the true plan, so what you see is what
+appears. Capped at 12 cells per gesture, which is a guard against a stray drag
+across the arena, not a balance number — the unit budget is what actually limits
+walls.
+
+## Two bugs the browser found, again
+
+- **The panel could never hide.** The per-frame sync was guarded on
+  `state.inspect` being truthy, so clearing the selection left the panel on
+  screen permanently. It now always runs and hides itself.
+- **`CAP.tick` did not drive `applyInput`**, so the build ghost and the wall-run
+  preview — both of which live there — were never exercised by any test I could
+  run in a throttled pane. Measured 0 preview markers; 12 after.

@@ -292,6 +292,35 @@
   #fps{position:fixed;top:6px;left:8px;z-index:45;font-size:10px;letter-spacing:.1em;
     color:#7fd4c0;pointer-events:none;font-variant-numeric:tabular-nums}
   #fps.hidden{display:none}
+
+  /* The ward panel. Anchored bottom-centre-left so it never sits under the
+     ward bar or the minimap, and never over the middle of the fight. */
+  #wardPanel{position:absolute;left:max(14px,env(safe-area-inset-left));
+    bottom:calc(max(14px,env(safe-area-inset-bottom)) + 300px);
+    width:212px;background:rgba(14,18,27,.94);border:1px solid rgba(255,255,255,.14);
+    border-left:2px solid #ffb347;border-radius:6px;padding:11px 12px;
+    pointer-events:auto;box-shadow:0 4px 22px rgba(0,0,0,.5)}
+  #wardPanel.hidden{display:none}
+  .wpHead{display:flex;justify-content:space-between;align-items:baseline;
+    font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#dbe2ee}
+  .wpHead b{color:#ffb347;font-weight:400;font-size:11px;letter-spacing:.2em}
+  .wpBar{height:4px;border-radius:2px;background:rgba(255,255,255,.1);margin:8px 0 7px;
+    overflow:hidden}
+  .wpBar i{display:block;height:100%;background:#7fd4c0;width:100%}
+  .wpStat{font-size:10px;line-height:1.6;color:#7b8496;margin-bottom:9px}
+  .wpBtns{display:flex;gap:5px}
+  .wpBtns button{flex:1;padding:7px 4px;border-radius:4px;cursor:pointer;
+    font-family:inherit;background:rgba(255,255,255,.06);
+    border:1px solid rgba(255,255,255,.14);display:flex;flex-direction:column;gap:2px}
+  .wpBtns button em{font-style:normal;font-size:9.5px;letter-spacing:.1em;
+    text-transform:uppercase;color:#dbe2ee}
+  .wpBtns button span{font-size:9px;color:#7b8496}
+  .wpBtns button:hover:not(:disabled){border-color:rgba(255,179,71,.5);
+    background:rgba(255,179,71,.14)}
+  .wpBtns button:disabled{opacity:.36;cursor:default}
+  #wpSell:hover:not(:disabled){border-color:rgba(224,138,128,.55);
+    background:rgba(224,138,128,.14)}
+  .wpHint{font-size:9.5px;color:#e08a80;margin-top:7px;min-height:12px}
   .skeys{font-size:11px;color:#8e97a8;line-height:1.9;margin:16px 0 18px;
     padding-top:14px;border-top:1px solid rgba(255,255,255,.08)}
   .skeys b{color:#e9e6dd;font-weight:400}
@@ -660,6 +689,18 @@
 <div id="banner"><div class="t" id="bannerT"></div><div class="s" id="bannerS"></div></div>
 <div id="doors"></div>
 <div id="dmg"></div>
+<div id="wardPanel" class="hidden">
+  <div class="wpHead"><span id="wpName">Palisade</span><b id="wpLvl">I</b></div>
+  <div class="wpBar"><i id="wpHp"></i></div>
+  <div class="wpStat" id="wpStat"></div>
+  <div class="wpBtns">
+    <button id="wpUp"><em>Upgrade</em><span id="wpUpCost">60</span></button>
+    <button id="wpRot"><em>Rotate</em><span>free</span></button>
+    <button id="wpSell"><em>Sell</em><span id="wpSellBack">+21</span></button>
+  </div>
+  <div class="wpHint" id="wpHint"></div>
+</div>
+
 <div id="fps" class="hidden"></div>
 <div id="vig"></div>
 <div id="flash"></div>

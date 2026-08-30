@@ -11,7 +11,7 @@ import { Sound, playEvent } from './audio.js';
 import { Minimap } from './minimap.js';
 import { Tutorial, STEPS } from './tutorial.js';
 import {
-  WARDS, WARD_BY_ID, ECON, WAVES, PLAYER, ABILITY, waveByLane, DIFFICULTY,
+  WARDS, WARD_BY_ID, ECON, WAVES, PLAYER, ABILITY, waveByLane, DIFFICULTY, UPGRADE,
 } from './defs.js';
 import {
   cellOf, cellCenter, isBuildableCell, ARENA, LANES, laneDoor, MAPS, currentMap,
@@ -47,6 +47,7 @@ const state = {
   firing: false, mending: false, wantDodge: false, blocking: false,
   pointer: { x: 0, y: 0, has: false },
   ghostCell: null, ghostRot: null, overhead: false,
+  inspect: null, runFrom: null,
   acc: 0, last: 0, lastFrame: 0, hitstop: 0,
   vel: { x: 0, z: 0 },
   hintShown: new Set(),
@@ -592,11 +593,17 @@ function bindInput() {
       if (wd && state.world.isUnlocked(wd.id)) select(wd.id);
       else if (wd) state.snd.play('hover', 0.6, 0.7);
     }
-    if (k === 'escape' || k === '0') { state.selected = null; select(null); }
+    if (k === 'escape' || k === '0') {
+      if (state.inspect) { inspectWard(null); return; }
+      state.selected = null; select(null);
+    }
     if (k === 'r') {
       // contextual: R rotates the thing you are holding, or readies the wave
       if (state.selected) {
         state.ghostRot = (state.ghostRot == null ? 0 : state.ghostRot) + Math.PI / 4;
+        state.snd.play('hover', 0.7);
+      } else if (state.inspect) {
+        state.world.rotateWard(state.inspect);
         state.snd.play('hover', 0.7);
       } else if (state.world.ready()) {
         state.snd.play('click');
@@ -608,6 +615,7 @@ function bindInput() {
     if (k === 'v') state.world.rally();
     if (k === 'x' && state.selected === null) sellUnderPointer();
     if (k === 'f' && state.selected === null) {
+      if (state.inspect) { upgradeInspected(); return; }
       const w = state.world;
       const near = state.overhead ? wardUnderPointer() : w.wardNear(4.2);
       const r = w.canUpgrade(near);
@@ -629,6 +637,13 @@ function bindInput() {
     lastX = downX = e.clientX; downY = e.clientY; downT = performance.now();
     state.pointer.x = e.clientX; state.pointer.y = e.clientY; state.pointer.has = true;
     if (e.button === 0 && !isTouch && !state.selected) state.firing = true;
+    // Holding a blockade and pressing down on the field starts a WALL RUN:
+    // the drag lays a straight line of them in one gesture. Anchored here so
+    // the run is measured from where the gesture began, not where it ended.
+    if (e.button === 0 && state.selected &&
+        WARD_BY_ID[state.selected] && WARD_BY_ID[state.selected].kind === 'blockade') {
+      state.runFrom = pickCell(e.clientX, e.clientY);
+    }
   });
 
   cv.addEventListener('pointermove', (e) => {
@@ -638,6 +653,9 @@ function bindInput() {
     // a tap is reserved for placing, which is decided on pointerup by
     // distance travelled, so the two never fight.
     if (dragBtn === 2 || isTouch) {
+      // A wall run owns the drag: turning the camera mid-drag would swing the
+      // line out from under the pointer.
+      if (state.runFrom) return;
       state.rend.camYaw -= (e.clientX - lastX) * 0.0055 * state.sens;
       lastX = e.clientX;
     }
@@ -646,15 +664,44 @@ function bindInput() {
   const up = (e) => {
     const moved = Math.hypot(e.clientX - downX, e.clientY - downY);
     const quick = performance.now() - downT < 400;
+
+    // --- a wall run, if the drag went anywhere
+    if (state.runFrom && dragBtn === 0) {
+      const to = pickCell(e.clientX, e.clientY);
+      const a = state.runFrom;
+      state.runFrom = null;
+      state.rend.hideRun();
+      if (to && (to.i !== a.i || to.j !== a.j)) {
+        const rot = state.ghostRot;
+        const built = state.world.buildRun(state.selected, a.i, a.j, to.i, to.j, rot);
+        if (built.length) {
+          if (state.snd) state.snd.play('build');
+          toast(`${built.length} palisades raised`);
+        } else {
+          const plan = state.world.planRun(state.selected, a.i, a.j, to.i, to.j);
+          if (plan.stoppedBy) toast(plan.stoppedBy);
+        }
+        dragging = false; state.firing = false;
+        return;                      // a run is not also a single placement
+      }
+    }
+
     if (dragging && dragBtn === 0 && moved < 12 && quick) {
       if (state.selected) tryBuild(e.clientX, e.clientY);
-      else if (isTouch) { /* touch fires from the button, not the field */ }
+      else if (!isTouch) {
+        // Nothing in hand: a click on a built ward opens its panel, and a
+        // click on bare ground closes it.
+        inspectWard(wardUnderPointer());
+      }
     }
     dragging = false;
     state.firing = false;
   };
   cv.addEventListener('pointerup', up);
-  cv.addEventListener('pointercancel', () => { dragging = false; state.firing = false; });
+  cv.addEventListener('pointercancel', () => {
+    dragging = false; state.firing = false;
+    state.runFrom = null; state.rend.hideRun();
+  });
 
   cv.addEventListener('wheel', (e) => {
     e.preventDefault();
@@ -780,6 +827,68 @@ function tryBuild(px, py) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// The ward panel.
+//
+// Upgrade and rotate both existed from the start and neither had any on-screen
+// presence — they were F and R, context-dependent, and F was ALSO an alternate
+// fire key, so it shot instead of upgrading whenever a ward was selected.
+// Measured by a player: "I still don't see a way to upgrade or rotate".
+//
+// Clicking a ward now selects it and says what can be done to it, with live
+// costs. The keys still work for anyone who learns them, but nothing is only
+// on a key any more.
+// ---------------------------------------------------------------------------
+function inspectWard(w) {
+  state.inspect = w && !w.dead ? w : null;
+  syncWardPanel();
+  if (state.inspect && state.snd) state.snd.play('hover', 0.7);
+}
+
+function syncWardPanel() {
+  const el = $('wardPanel');
+  const w = state.inspect;
+  if (!w || w.dead || !state.running) { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+
+  const world = state.world;
+  const ROMAN = ['I', 'II', 'III', 'IV'];
+  $('wpName').textContent = w.def.name;
+  $('wpLvl').textContent = ROMAN[w.level - 1] || w.level;
+  const frac = Math.max(0, w.hp / w.maxHp);
+  $('wpHp').style.width = `${frac * 100}%`;
+  $('wpHp').style.background = frac > 0.6 ? '#7fd4c0' : (frac > 0.3 ? '#e0b25c' : '#e08a80');
+
+  const bits = [`${Math.round(w.hp)} / ${w.maxHp} hp`, `${w.def.du} units`];
+  if (w.def.range) bits.push(`${w.def.range}m reach`);
+  if (w.buildT > 0) bits.push('under construction');
+  $('wpStat').textContent = bits.join('  ·  ');
+
+  const up = world.canUpgrade(w);
+  const atMax = w.level >= UPGRADE.maxLevel;
+  $('wpUp').disabled = !up.ok;
+  $('wpUpCost').textContent = atMax ? 'max' : `${world.upgradeCost(w)} mana`;
+  $('wpSellBack').textContent = `+${Math.floor(w.def.cost * 0.6)}`;
+  // Only say why it CANNOT be upgraded, and only when that is the interesting
+  // fact — "already at full strength" is not a complaint, it is a state.
+  $('wpHint').textContent = (!up.ok && !atMax) ? up.why : '';
+}
+
+function upgradeInspected() {
+  const w = state.inspect;
+  if (!w) return;
+  const r = state.world.canUpgrade(w);
+  if (r.ok) {
+    state.world.upgrade(w);
+    if (state.snd) state.snd.play('build');
+    state.rend.shock(w.x, 0.2, w.z, 0x7fe08a, 0.8, 3.2, 0.4);
+  } else if (state.snd) {
+    state.snd.play('hover', 0.6, 0.7);
+  }
+  syncWardPanel();
+}
+
+
 function wardUnderPointer() {
   const w = state.world;
   const c = state.pointer.has ? pickCell(state.pointer.x, state.pointer.y) : cellAhead();
@@ -886,7 +995,7 @@ function applyInput(dt) {
   }
 
   // attacking — the weapon decides whether that is a sweep or a bolt
-  if ((state.firing || state.keys.has('f')) && p.atkCd <= 0 && !state.selected) {
+  if (state.firing && p.atkCd <= 0 && !state.selected) {
     let ax = fx, az = fz, ay = 0;
     if (!isTouch && state.pointer.has) {
       const c = pickCell(state.pointer.x, state.pointer.y);
@@ -909,7 +1018,21 @@ function applyInput(dt) {
 
   // whatever ward you are next to (or pointing at) shows its reach
   r._inspect = state.selected ? null
-    : (state.overhead ? wardUnderPointer() : w.wardNear(4.6));
+    : (state.inspect || (state.overhead ? wardUnderPointer() : w.wardNear(4.6)));
+
+  // A wall run in progress replaces the single-cell ghost with the whole line.
+  if (state.runFrom && state.pointer.has) {
+    const to = pickCell(state.pointer.x, state.pointer.y);
+    if (to) {
+      const a = state.runFrom;
+      const plan = w.planRun(state.selected, a.i, a.j, to.i, to.j);
+      r.hideGhost();
+      r.showBuildGrid(w, state.selected, p.x, p.z, 17);
+      r.showRun(plan.cells, state.ghostRot || 0, !plan.stoppedBy);
+      return;
+    }
+  }
+  r.hideRun();
 
   // ghost while building
   if (state.selected) {
@@ -936,6 +1059,7 @@ function frame(now) {
   state.lastFrame = performance.now();
 
   stepDamageNumbers(dt);
+  syncWardPanel();
   stepVignette(dt);
   stepFps(dt);
   if (state.running) stepDoors();
@@ -1173,9 +1297,11 @@ window.WARDSTONE_CAP = {
   tick(n = 1, dt = 0.016) {
     for (let i = 0; i < n; i++) {
       stepDamageNumbers(dt);
+      syncWardPanel();
       stepVignette(dt);
       stepFps(dt);
       if (state.running && !state.paused) {
+        applyInput(dt);
         state.acc += dt;
         let g = 0;
         while (state.acc >= STEP && g++ < 5) { state.world.step(STEP); state.acc -= STEP; }
@@ -1374,6 +1500,22 @@ function bindSettings() {
   slider('setShake', v => { state.shakeAmt = v / 100; });
   slider('setSens', v => { state.sens = v / 100; });
   slider('setFov', v => { state.fov = v; });
+
+  $('wpUp').addEventListener('click', upgradeInspected);
+  $('wpRot').addEventListener('click', () => {
+    if (!state.inspect) return;
+    state.world.rotateWard(state.inspect);
+    if (state.snd) state.snd.play('hover', 0.7);
+  });
+  $('wpSell').addEventListener('click', () => {
+    const w = state.inspect;
+    if (!w) return;
+    const back = state.world.sell(w);
+    if (state.snd) state.snd.play('select', 0.8);
+    state.rend.shock(w.x, 0.2, w.z, 0xe0b25c, 0.6, 2.6, 0.36);
+    toast(`Sold &mdash; <b>${back}</b> mana back`);
+    inspectWard(null);
+  });
 
   $('openHow').addEventListener('click', () => {
     $('how').classList.remove('hidden');

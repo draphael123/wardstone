@@ -2773,6 +2773,41 @@ export class Renderer {
     this.ring.visible = false;
   }
 
+  // The wall-run preview: one marker per cell the drag will actually build.
+  // Pooled, and it shows the TRUE plan — the sim stops the run at the first
+  // cell it cannot pay for, so what is drawn is exactly what will appear.
+  _ensureRunPool(n) {
+    if (!this.runMarks) { this.runMarks = []; }
+    while (this.runMarks.length < n) {
+      const m = new THREE.Mesh(
+        new THREE.BoxGeometry(1.5, 2.2, 0.5),
+        new THREE.MeshBasicMaterial({
+          color: 0x7fe08a, transparent: true, opacity: 0.34, depthWrite: false,
+        }));
+      m.visible = false;
+      this.scene.add(m);
+      this.runMarks.push(m);
+    }
+  }
+
+  showRun(cells, rot, ok) {
+    this._ensureRunPool(cells.length);
+    for (let k = 0; k < this.runMarks.length; k++) {
+      const m = this.runMarks[k];
+      if (k >= cells.length) { m.visible = false; continue; }
+      const c = cellCenter(cells[k].i, cells[k].j);
+      m.visible = true;
+      m.position.set(c.x, 1.1, c.z);
+      m.rotation.y = rot || 0;
+      m.material.color.setHex(ok ? 0x7fe08a : 0xe0605a);
+    }
+  }
+
+  hideRun() {
+    if (!this.runMarks) return;
+    for (const m of this.runMarks) m.visible = false;
+  }
+
   resize(w, h, dpr) {
     this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(w, h, false);

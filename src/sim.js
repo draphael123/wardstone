@@ -17,6 +17,11 @@ import {
 } from './arena.js';
 import { makeRng } from './rand.js';
 
+// The longest wall one drag may lay. Not a balance number — the unit budget
+// is what actually limits walls — just a guard against a stray drag across
+// the whole arena emptying your mana in one gesture.
+const RUN_MAX = 12;
+
 // How close anything gets to the stone before it stops and strikes. One
 // rule for ground and air so a wisp and a husk hit from the same ring.
 function stoneStandoff(def) {
@@ -228,6 +233,66 @@ export class World {
   }
 
   // The ward the player is standing next to, for upgrading or selling.
+  // Rotating something already standing. Free, and allowed at any time — a
+  // wall facing the wrong way is a mistake you should be able to correct
+  // without paying to tear it down and rebuild it.
+  rotateWard(w, step) {
+    if (!w || w.dead) return false;
+    w.rot = (w.rot + (step == null ? Math.PI / 4 : step)) % (Math.PI * 2);
+    return true;
+  }
+
+  // A RUN of blockades in one gesture, which is how a wall actually gets built.
+  // Deliberately restricted to `blockade`: dragging out eight ballistae is not
+  // a wall, it is an accident with your entire mana bar.
+  //
+  // Walks the line one cell at a time and stops at the first cell it cannot
+  // pay for or does not have units for, rather than skipping it and carrying
+  // on — a wall with a hole in it is worse than a shorter wall, and silently
+  // leaving the gap is exactly the kind of thing a player would not notice
+  // until something walked through it.
+  planRun(wardId, i0, j0, i1, j1) {
+    const def = WARD_BY_ID[wardId];
+    const out = { cells: [], cost: 0, du: 0, stoppedBy: null };
+    if (!def || def.kind !== 'blockade') {
+      if (def) out.cells.push({ i: i1, j: j1 });   // everything else is single
+      return out;
+    }
+    const di = i1 - i0, dj = j1 - j0;
+    // snap to whichever axis the drag committed to, so a wall is straight
+    const horiz = Math.abs(di) >= Math.abs(dj);
+    const n = Math.min(RUN_MAX, (horiz ? Math.abs(di) : Math.abs(dj)) + 1);
+    const si = horiz ? Math.sign(di) : 0;
+    const sj = horiz ? 0 : Math.sign(dj);
+
+    let mana = this.mana, du = this.du;
+    for (let k = 0; k < n; k++) {
+      const i = i0 + si * k, j = j0 + sj * k;
+      const c = this.canBuild(wardId, i, j);
+      if (!c.ok) {
+        // an occupied or unbuildable cell just breaks the run there
+        out.stoppedBy = c.why;
+        break;
+      }
+      if (mana < def.cost) { out.stoppedBy = 'not enough mana'; break; }
+      if (du + def.du > this.duBudget) { out.stoppedBy = 'no defence units'; break; }
+      mana -= def.cost; du += def.du;
+      out.cells.push({ i, j });
+      out.cost += def.cost; out.du += def.du;
+    }
+    return out;
+  }
+
+  buildRun(wardId, i0, j0, i1, j1, rot) {
+    const plan = this.planRun(wardId, i0, j0, i1, j1);
+    const built = [];
+    for (const c of plan.cells) {
+      const w = this.build(wardId, c.i, c.j, rot);
+      if (w) built.push(w);
+    }
+    return built;
+  }
+
   wardNear(range) {
     const p = this.player;
     let best = null, bd = range || PLAYER.repairRange;
