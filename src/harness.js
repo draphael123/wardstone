@@ -331,6 +331,15 @@ export class Bot {
       // them out to the rim one at a time, and lost while its own guns sat idle.
       if (f.def.offLane) score = 4000 - toStone * 6;
       else if (f.kind === 'breaker') score = 3000 - toStone * 4;
+      // NOT a special case for shooters. Tried, measured, removed: ranking an
+      // archer at 2200 put it above everything except Wall Goblins and Giants,
+      // so the bot abandoned the line to chase three or four archers a wave and
+      // the glade fell from 17/21 to 9/21. It did not even reduce the bot's
+      // deaths (2.5 a run against 3.1 at baseline) — dying is normal for it and
+      // was never what was losing the runs.
+      //
+      // Whether a HUMAN should peel off for the back rank is a real question,
+      // and this bot is not the thing that can answer it.
       else score = 200 - toStone * 2 - d * 0.5;
       if (score > bestScore) { bestScore = score; best = f; }
     }

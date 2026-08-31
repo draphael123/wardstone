@@ -161,7 +161,7 @@ export let LANE_BY_ID = Object.fromEntries(LANES.map(l => [l.id, l]));
 
 export function currentMap() { return MAPS[MAP_ID]; }
 
-export function rebuildProps() { PROPS = buildProps(); }
+export function rebuildProps() { PROPS = buildProps(); PROP_CELLS = null; }
 
 export function setMap(id) {
   const m = MAPS[id];
@@ -170,6 +170,7 @@ export function setMap(id) {
   LANES = m.lanes.map(buildLane);
   LANE_BY_ID = Object.fromEntries(LANES.map(l => [l.id, l]));
   PROPS = null;                  // lanes moved; re-laid on next use
+  PROP_CELLS = null;
   MOUNDS = null;
   return m;
 }
@@ -408,28 +409,80 @@ function buildProps() {
   const rng = makeRng(90210);
   const out = [];
   const H = ARENA.half;
-  const tryPut = (x, z, r) => {
-    if (Math.hypot(x, z) < 12) return;               // keep the hearth clear
-    if (nearestLane(x, z).dist < 4.5 + r) return;    // never narrows a lane
-    const c = cellOf(x, z);
-    if (isBuildableCell(c.i, c.j)) return;           // never eats a build square
+  const tryPut = (x, z, r, kind) => {
+    if (Math.hypot(x, z) < 12) return false;          // keep the hearth clear
+    if (nearestLane(x, z).dist < 3.6 + r) return false; // never narrows a lane
+    if (Math.abs(x) > H - 1 || Math.abs(z) > H - 1) return false;
     for (const p of out) {
-      if (Math.hypot(p.x - x, p.z - z) < p.r + r + 0.4) return;
+      if (Math.hypot(p.x - x, p.z - z) < p.r + r + 0.5) return false;
     }
-    out.push({ x, z, r });
+    out.push({ x, z, r, kind });
+    return true;
   };
-  // boulders and cairns in the open ground between lanes
-  for (let i = 0; i < 90; i++) {
-    const a = rng() * Math.PI * 2, d = 13 + rng() * (H - 16);
-    tryPut(Math.cos(a) * d, Math.sin(a) * d, 0.7 + rng() * 0.8);
+
+  // --- COPSES AND CAIRNS, in the open ground you actually fight in.
+  //
+  // This is the fix to "we need collision with objects like trees". The player
+  // and the wards always collided with this list — but the list was empty
+  // inside the arena. Every candidate was thrown out by a guard that refused
+  // any buildable cell, and buildable cells cover nearly all of it: 49
+  // colliders existed and 0 of them were in the clearing. Everything you could
+  // see and walk through was scattered separately by the renderer.
+  //
+  // They are allowed to take build cells now, and isBuildableCell() refuses
+  // those squares. A tree standing on ground you cannot wall is the honest
+  // version of this: the scenery constrains where a defence can go, which is
+  // what makes it terrain instead of decoration.
+  //
+  // CLUSTERED, not scattered. A copse is a landmark you can navigate by and
+  // fight around; twenty evenly-spread trunks are just noise with collision on.
+  const CLUSTERS = 7;
+  for (let c = 0; c < CLUSTERS; c++) {
+    const a = (c / CLUSTERS) * Math.PI * 2 + rng() * 0.7;
+    const d = 15 + rng() * 13;
+    const cx = Math.cos(a) * d, cz = Math.sin(a) * d;
+    const treeish = rng() < 0.55;
+    const n = 3 + ((rng() * 4) | 0);
+    for (let k = 0; k < n; k++) {
+      const ka = rng() * Math.PI * 2, kd = rng() * 3.4;
+      tryPut(
+        cx + Math.cos(ka) * kd, cz + Math.sin(ka) * kd,
+        treeish ? 1.1 + rng() * 0.5 : 0.6 + rng() * 0.4,
+        treeish ? 'tree' : 'rock',
+      );
+    }
+  }
+  // a few loners between the copses, so the clearing is not "clumps and void"
+  for (let i = 0; i < 26; i++) {
+    const a = rng() * Math.PI * 2, d = 13 + rng() * (H - 18);
+    tryPut(Math.cos(a) * d, Math.sin(a) * d, 0.6 + rng() * 0.7, rng() < 0.4 ? 'tree' : 'rock');
   }
   // the treeline itself is solid, which is what stops you leaving the clearing
   for (let i = 0; i < 150; i++) {
     const a = (i / 150) * Math.PI * 2 + rng() * 0.04;
     const d = H - 2 + rng() * 5;
-    tryPut(Math.cos(a) * d, Math.sin(a) * d, 0.85 + rng() * 0.5);
+    tryPut(Math.cos(a) * d, Math.sin(a) * d, 0.85 + rng() * 0.5, 'tree');
   }
   return out;
+}
+
+// Which build cells a solid prop sits on. Built once alongside the props.
+let PROP_CELLS = null;
+function propCells() {
+  if (PROP_CELLS === null) {
+    PROP_CELLS = new Set();
+    for (const p of solidProps()) {
+      const reach = p.r + 0.35;
+      for (let x = p.x - reach; x <= p.x + reach + 1e-6; x += 0.5) {
+        for (let z = p.z - reach; z <= p.z + reach + 1e-6; z += 0.5) {
+          if (Math.hypot(x - p.x, z - p.z) > reach) continue;
+          const c = cellOf(x, z);
+          PROP_CELLS.add(cellKey(c.i, c.j));
+        }
+      }
+    }
+  }
+  return PROP_CELLS;
 }
 
 // ---------------------------------------------------------------------------
@@ -463,6 +516,9 @@ export function isBuildableCell(i, j) {
   if (Math.abs(c.x) > ARENA.buildInset || Math.abs(c.z) > ARENA.buildInset) return false;
   // Nothing inside the plinth. +1.6 keeps a ward from clipping the stone mesh.
   if (Math.hypot(c.x, c.z) < WARDSTONE.radius + 1.6) return false;
+  // Nor on top of a tree or a boulder. This is what makes the scenery terrain:
+  // it takes ground away from your defence as well as from your feet.
+  if (propCells().has(cellKey(i, j))) return false;
   return true;
 }
 

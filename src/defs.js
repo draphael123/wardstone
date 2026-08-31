@@ -314,8 +314,8 @@ export const CACHE = {
 // ---------------------------------------------------------------------------
 export const DIFFICULTY = {
   squire: {
-    id: 'squire', name: 'Squire', hp: 0.70, count: 0.72, du: 32, mana: 3.0,
-    blurb: 'Fewer of them, and they die faster. The same board to hold.',
+    id: 'squire', name: 'Squire', hp: 0.85, count: 0.88, du: 32, mana: 2.2,
+    blurb: 'Fewer of them, they die faster, and mana comes quicker.',
   },
   knight: {
     id: 'knight', name: 'Knight', hp: 1, count: 1, du: 32, mana: 1,
@@ -493,10 +493,46 @@ export const FOES = [
     // damage moves it enormously, because a slinger never spends time walking
     // into reach and never dies to a ward on the way in — it simply fires,
     // forever, at full uptime. Damage per second is the whole dial.
-    id: 'slinger', name: 'Slinger',
-    hp: 80, speed: 3.4, radius: 0.48, bounty: 13,
-    damage: 18, playerDamage: 11, attackCd: 2.1, flying: false, height: 1.6,
-    ranged: { range: 7, speed: 22, radius: 0.42 },
+    // GOBLIN ARCHER — the back rank.
+    //
+    // This existed as the "Slinger" and nobody ever noticed it, because its
+    // range was 7m. That is barely past sword reach, so it walked to the wall
+    // with everything else, stopped a body-length short, and read as one more
+    // melee goblin that happened to throw something.
+    //
+    // At 12m it stops well behind the line and shoots over it, which is the
+    // whole idea: the melee goblins become a SCREEN protecting the archers, and
+    // getting at them means breaking through or going round. It backs away when
+    // you close, so reaching them costs you the time you are not spending on
+    // the screen.
+    //
+    // Its arrows hurt YOU far more than they hurt what you built. An archer
+    // that melts palisades from 12m is not a back rank, it is a siege engine
+    // that happens to walk, and it deletes the defence from somewhere the
+    // defence cannot answer.
+    id: 'archer', name: 'Goblin Archer',
+    hp: 74, speed: 3.6, radius: 0.48, bounty: 14,
+    damage: 8, playerDamage: 11, attackCd: 2.1, flying: false, height: 1.6,
+    ranged: { range: 12, speed: 26, radius: 0.42, keepAway: 6.5 },
+  },
+  {
+    // SHIELD GOBLIN — the foe you cannot simply hit.
+    //
+    // Everything else in the roster is answered by hitting it enough times.
+    // This one is not: its shield eats 70% of anything arriving through a
+    // 92-degree front arc, and it walks facing the way it is going, so that arc
+    // points at exactly where a defender stands.
+    //
+    // It has TWO answers and the player already owns both: get to its flank, or
+    // charge a HEAVY, which goes through a shield the same way it goes through
+    // poise. A shield bash opens it too, which is the one place that ability
+    // stops being a panic button and becomes a setup tool.
+    //
+    // Slow and not very dangerous alone. It is a lock, not a threat.
+    id: 'shieldman', name: 'Shield Goblin',
+    hp: 150, speed: 2.6, radius: 0.55, bounty: 18,
+    damage: 20, playerDamage: 13, attackCd: 1.5, flying: false, height: 1.75,
+    shield: { arc: 1.6, reduce: 0.30 },
   },
   {
     // The wisp's job, brought down to the ground.
@@ -590,11 +626,12 @@ export const WAVES = [
     name: 'Nothing Walks',
     groups: [
       { lane: 'north', foe: 'husk',   count: 8,  at: 0.0, gap: 1.1 },
-      { lane: 'west',  foe: 'runner', count: 12, at: 1.5, gap: 0.6 },
+      { lane: 'west',  foe: 'runner', count: 11, at: 1.5, gap: 0.6 },
       { lane: 'east',  foe: 'bomber', count: 2,  at: 4.0, gap: 2.4 },
-      { lane: 'north', foe: 'slinger', count: 3, at: 8.0, gap: 2.0 },
-      { lane: 'north', foe: 'climber', count: 7, at: 6.0, gap: 1.8 },
-      { lane: 'east',  foe: 'climber', count: 7, at: 10.0, gap: 1.8 },
+      { lane: 'north', foe: 'archer', count: 4, at: 8.0, gap: 1.8 },
+      { lane: 'east',  foe: 'shieldman', count: 2, at: 6.0, gap: 3.0 },
+      { lane: 'north', foe: 'climber', count: 6, at: 6.0, gap: 1.8 },
+      { lane: 'east',  foe: 'climber', count: 6, at: 10.0, gap: 1.8 },
     ],
   },
   { // 4 — the first BREAKER. A wall stops buying safety and starts buying time.
@@ -604,9 +641,10 @@ export const WAVES = [
       { lane: 'west',  foe: 'runner',  count: 14, at: 1.0,  gap: 0.55 },
       { lane: 'north', foe: 'breaker', count: 1,  at: 4.0,  gap: 0 },
       { lane: 'east',  foe: 'maul',    count: 3,  at: 6.0,  gap: 1.8 },
-      { lane: 'east',  foe: 'climber', count: 12,  at: 11.0, gap: 1.4 },
-      { lane: 'west',  foe: 'climber', count: 7,  at: 16.0, gap: 1.5 },
-      { lane: 'north', foe: 'slinger', count: 4,  at: 8.0,  gap: 1.6 },
+      { lane: 'east',  foe: 'climber', count: 11,  at: 11.0, gap: 1.4 },
+      { lane: 'west',  foe: 'climber', count: 6,  at: 16.0, gap: 1.5 },
+      { lane: 'north', foe: 'archer', count: 4,  at: 8.0,  gap: 1.6 },
+      { lane: 'east',  foe: 'shieldman', count: 3, at: 5.0, gap: 2.4 },
       { lane: 'west',  foe: 'bomber',  count: 3,  at: 7.0,  gap: 1.8 },
       { lane: 'north', foe: 'husk',    count: 10, at: 5.0,  gap: 1.0 },
     ],
@@ -619,9 +657,10 @@ export const WAVES = [
       { lane: 'east',  foe: 'breaker', count: 1,  at: 9.0,  gap: 0 },
       { lane: 'north', foe: 'bomber',  count: 4,  at: 5.0,  gap: 1.5 },
       { lane: 'east',  foe: 'bruiser', count: 2,  at: 4.0,  gap: 3.0 },
-      { lane: 'north', foe: 'climber', count: 18,  at: 9.0,  gap: 1.1 },
-      { lane: 'east',  foe: 'climber', count: 7,  at: 15.0, gap: 1.3 },
-      { lane: 'west',  foe: 'slinger', count: 4,  at: 7.0,  gap: 1.5 },
+      { lane: 'north', foe: 'climber', count: 17,  at: 9.0,  gap: 1.1 },
+      { lane: 'east',  foe: 'climber', count: 6,  at: 15.0, gap: 1.3 },
+      { lane: 'west',  foe: 'archer', count: 4,  at: 7.0,  gap: 1.5 },
+      { lane: 'north', foe: 'shieldman', count: 4, at: 6.0, gap: 2.2 },
       { lane: 'east',  foe: 'husk',    count: 14, at: 3.0,  gap: 0.8 },
       { lane: 'west',  foe: 'husk',    count: 12, at: 6.0,  gap: 0.9 },
     ],
@@ -644,11 +683,12 @@ export const WAVES = [
       { lane: 'east',  foe: 'husk',    count: 14, at: 5.0,  gap: 0.72 },
       { lane: 'west',  foe: 'husk',    count: 14, at: 6.0,  gap: 0.72 },
       { lane: 'north', foe: 'maul',    count: 4,  at: 7.0,  gap: 1.6 },
-      { lane: 'west',  foe: 'slinger', count: 5,  at: 9.0,  gap: 1.4 },
+      { lane: 'west',  foe: 'archer', count: 5,  at: 9.0,  gap: 1.4 },
+      { lane: 'east',  foe: 'shieldman', count: 5, at: 5.0, gap: 1.8 },
       { lane: 'east',  foe: 'bruiser', count: 3,  at: 11.0, gap: 2.6 },
-      { lane: 'west',  foe: 'climber', count: 12,  at: 10.0, gap: 1.2 },
-      { lane: 'north', foe: 'climber', count: 12,  at: 15.0, gap: 1.2 },
-      { lane: 'east',  foe: 'climber', count: 12,  at: 20.0, gap: 1.2 },
+      { lane: 'west',  foe: 'climber', count: 11,  at: 10.0, gap: 1.2 },
+      { lane: 'north', foe: 'climber', count: 11,  at: 15.0, gap: 1.2 },
+      { lane: 'east',  foe: 'climber', count: 11,  at: 20.0, gap: 1.2 },
     ],
   },
 ];

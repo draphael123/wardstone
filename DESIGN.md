@@ -1846,3 +1846,74 @@ throat now, so the pinch squeeze clamps a breaker's offset to about 0.45 — it
 walked past a wall a metre off-axis, and the test reported the wall's hp going
 *up*. Both are on the centreline now. The squeeze was right; the test's
 hard-coded offset was what the pinch invalidated.
+
+---
+
+# Solid scenery, a back rank, and a foe you cannot simply hit
+
+## The trees were never solid, and could never have been
+
+Reported as "we need collision with objects like trees". The player and the
+wards had always collided with `solidProps()` — but **the list was empty inside
+the arena**. Every candidate was thrown out by a guard refusing any buildable
+cell, and buildable cells cover nearly all of it. Measured: **49 colliders, 0 of
+them in the clearing.** And the trees you could actually see were scattered
+separately by the renderer with a different seed, so they were never the same
+objects in the first place.
+
+Props may now take build cells, and `isBuildableCell()` refuses those squares. A
+tree standing on ground you cannot wall is the honest version: the scenery takes
+ground away from your defence as well as from your feet, which is what makes it
+terrain instead of decoration.
+
+They are **clustered**, not scattered — a copse is a landmark you can navigate
+by and fight around, where twenty evenly-spread trunks are noise with collision
+turned on. 30 colliders in the clearing, 216 build cells taken. Cost 3 wins.
+
+## Goblin Archer — the back rank
+
+The Slinger existed and nobody ever noticed it, because its range was **7m**.
+That is barely past sword reach, so it walked to the wall with everything else
+and read as a melee goblin that happened to throw something. At 12m it stops
+behind the line and shoots over it, and backs away when you close.
+
+Its arrows hurt **you** far more than what you built (8 vs 11). An archer that
+melts palisades from 12m is not a back rank, it is a siege engine that happens
+to walk, and it deletes the defence from somewhere the defence cannot answer.
+
+## Shield Goblin — and why the shield is melee-only
+
+Its shield eats 70% of a melee blow through a 92-degree front arc, and it faces
+the way it walks, so that arc points exactly where a defender stands. Two
+answers, both already in the player's hands: **flank it**, or **charge a heavy**,
+which goes through a shield the same way it goes through poise.
+
+Shielding *bolts* as well was the first version and it was wrong. It made the
+Shield Goblin a **tower** problem rather than a **player** problem — a ballista
+shooting one head-on did 30% damage, so the defence quietly stopped working, and
+the answer was not something a ward could ever perform. Paying for that by
+thinning the waves broke the premise instead: a ward build started winning
+unattended on Squire. A ballista's bolt punches through a shield. Your sword
+does not.
+
+## Paying for two new enemy types
+
+Adding two types to every wave should add variety, not difficulty. The roster
+alone took the glade from 17/21 to 9/21; waves 3-6 at 92% of their counts, plus
+a Squire tier thickened from 0.70/0.72 to 0.85/0.88 so the easiest tier still
+needs a player, brought it to **13/21 with both new foes fully present** and all
+34 assertions green.
+
+## Three instrument failures in one session
+
+1. **The sweep used the wrong seeds.** T22 measures on a fixed Fibonacci-and-
+   primes list; my sweep used 1..21. It disagreed with the authoritative test by
+   about four wins *every time*, and I tuned against it three separate times
+   before noticing. It now uses T22's exact seeds and matches it to the win.
+2. **I taught the bot to hunt archers, and it got worse.** Ranking a shooter at
+   2200 put it above everything but Wall Goblins and Giants, so the bot
+   abandoned the line to chase three or four archers a wave: 17/21 down to 9/21.
+   It did not even reduce its deaths. Removed, with the measurement recorded.
+3. **The bot's deaths were never the problem.** 2.5 a run with the new roster
+   against **3.1 at baseline** — it dies constantly either way and wins anyway.
+   The runs were being lost at the fire, not at the player.

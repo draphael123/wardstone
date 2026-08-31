@@ -561,6 +561,35 @@ function maulGeo() {
   ]);
 }
 
+// SHIELD GOBLIN. The silhouette has one job: say "the front of this is not
+// where you hit it" from across the clearing. So the shield is deliberately
+// oversized, flat, pale against the green, and set forward of the body — a
+// slab with a goblin behind it rather than a goblin carrying a slab.
+// See [[character-silhouette-hierarchy]].
+function shieldmanGeo() {
+  const skin = 0x6f8f3f, limb = 0x5f7d36, iron = 0x8b8a80, wood = 0x5b4630;
+  return assemble([
+    { g: box(0.20, 0.44, 0.20), x: 0.17, y: 0.22, c: limb },
+    { g: box(0.20, 0.44, 0.20), x: -0.17, y: 0.22, c: limb },
+    { g: box(0.58, 0.72, 0.44), y: 0.80, c: skin },
+    { g: box(0.62, 0.14, 0.48), y: 1.14, c: 0x4a3a24 },          // belt
+    { g: box(0.44, 0.40, 0.40), y: 1.42, z: 0.04, c: skin },
+    EYE(0.11, 1.48, 0.22, 0.10, 0xd8e04a),
+    EYE(-0.11, 1.48, 0.22, 0.10, 0xd8e04a),
+    { g: box(0.50, 0.18, 0.46), y: 1.62, c: iron },              // helm
+    { g: box(0.10, 0.20, 0.10), y: 1.78, c: iron },
+    // THE SHIELD — big, forward, and the brightest thing on it
+    { g: box(1.02, 1.16, 0.14), y: 0.92, z: 0.40, c: wood },
+    { g: box(1.08, 0.14, 0.10), y: 1.30, z: 0.44, c: iron },
+    { g: box(1.08, 0.14, 0.10), y: 0.54, z: 0.44, c: iron },
+    { g: box(0.22, 0.22, 0.12), y: 0.92, z: 0.48, c: iron },     // boss
+    { g: box(0.16, 0.46, 0.16), x: 0.40, y: 0.92, z: 0.18, rz: 0.2, c: limb },
+    // a short stabbing blade, held low on the off side
+    { g: box(0.12, 0.16, 0.62), x: -0.40, y: 0.92, z: 0.16, c: limb },
+    { g: box(0.08, 0.10, 0.54), x: -0.40, y: 0.96, z: 0.62, c: 0xcfd4d8 },
+  ]);
+}
+
 function slingerGeo() {
   const skin = 0xa2bd5c, limb = 0x8da851, rag = 0x7e7050;
   return assemble([
@@ -632,7 +661,8 @@ const SKINS = {
     wisp:    { geo: wispGeo,    name: 'Wisp' },
     breaker: { geo: breakerGeo, name: 'Breaker' },
     maul:    { geo: maulGeo,    name: 'Maul Wight' },
-    slinger: { geo: slingerGeo, name: 'Bone Archer' },
+    archer: { geo: slingerGeo, name: 'Bone Archer' },
+    shieldman: { geo: shieldmanGeo, name: 'Shieldbearer' },
     bruiser: { geo: bruiserGeo, name: 'Bruiser' },
     climber: { geo: climberGeo, name: 'Crawler' },
   },
@@ -643,7 +673,8 @@ const SKINS = {
     wisp:    { geo: wispGeo,   name: 'Will-o-wisp' },
     breaker: { geo: trollGeo,  name: 'Giant Goblin' },
     maul:    { geo: maulGeo,    name: 'Maul Goblin' },
-    slinger: { geo: slingerGeo, name: 'Slinger' },
+    archer: { geo: slingerGeo, name: 'Goblin Archer' },
+    shieldman: { geo: shieldmanGeo, name: 'Shield Goblin' },
     bruiser: { geo: bruiserGeo, name: 'Bruiser' },
     climber: { geo: climberGeo, name: 'Wall Goblin' },
   },
@@ -651,7 +682,7 @@ const SKINS = {
 
 const FOE_CAP = {
   husk: 90, runner: 110, wisp: 40, breaker: 8, bomber: 24,
-  maul: 20, slinger: 24, bruiser: 12, climber: 60,
+  maul: 20, archer: 30, shieldman: 24, bruiser: 12, climber: 60,
 };
 
 // ---------------------------------------------------------------------------
@@ -1531,16 +1562,12 @@ export class Renderer {
       const r = H - 1 + rng() * 12;
       addTree(Math.cos(ang) * r, Math.sin(ang) * r, 1.0 + rng() * 0.5);
     }
-    // and trees standing IN the clearing, off the tracks — the depth cue that
-    // stops the middle reading as an empty field
-    for (let i = 0; i < 20; i++) {
-      const ang = rng() * Math.PI * 2, r = 15 + rng() * 18;
-      const x = Math.cos(ang) * r, z = Math.sin(ang) * r;
-      if (nearestLane(x, z).dist < 6.5) continue;
-      // deliberately smaller than the treeline: a full-size canopy this close
-      // to the camera blots out the half of the clearing you are fighting in
-      addTree(x, z, 0.45 + rng() * 0.25);
-    }
+    // Trees standing IN the clearing are NOT drawn here any more. They used to
+    // be scattered by this loop with its own seed, while the things the player
+    // actually collides with came from a different generator entirely — so
+    // every trunk in the middle of the map was a ghost you walked straight
+    // through. The clearing's trees and boulders now come from solidProps(),
+    // drawn by _buildSolids(), which is the same list the sim collides with.
     const trunkMesh = new THREE.Mesh(assemble(trunks), new THREE.MeshStandardMaterial({
       color: PAL.bark, roughness: 1, flatShading: true,
     }));

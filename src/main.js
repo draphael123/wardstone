@@ -364,7 +364,7 @@ function showTally(e) {
   state.tallyPrev = { ...k };
   const bits = [];
   for (const [id, label] of [['husk', 'cutters'], ['runner', 'scouts'],
-                             ['climber', 'wall goblins'], ['slinger', 'slingers'],
+                             ['climber', 'wall goblins'], ['archer', 'archers'], ['shieldman', 'shield goblins'],
                              ['maul', 'mauls'], ['bruiser', 'bruisers'],
                              ['breaker', 'giants']]) {
     if (d(id) > 0) bits.push(`<b>${d(id)}</b> ${label}`);
@@ -694,7 +694,7 @@ const DOORS = new Map();
 const _dp = new THREE.Vector3();
 const FOE_TINT = {
   husk: '#a8ae9c', runner: '#8fbf6a', climber: '#a8c95e',
-  slinger: '#a2bd5c', maul: '#8fae4a', bruiser: '#7d9c44', breaker: '#8a6a4a',
+  archer: '#a2bd5c', shieldman: '#6f8f3f', maul: '#8fae4a', bruiser: '#7d9c44', breaker: '#8a6a4a',
 };
 
 function initDoors() {
@@ -730,7 +730,7 @@ function stepDoors() {
       d.cnt.textContent = info.total;
       d.nm.textContent = d.lane.name;
       d.pips.innerHTML = '';
-      for (const k of ['husk', 'runner', 'climber', 'slinger', 'maul', 'bruiser', 'breaker']) {
+      for (const k of ['husk', 'runner', 'climber', 'archer', 'shieldman', 'maul', 'bruiser', 'breaker']) {
         const n = info.kinds[k];
         if (!n) continue;
         for (let i = 0; i < Math.min(6, Math.ceil(n / 4)); i++) {

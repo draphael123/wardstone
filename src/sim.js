@@ -610,6 +610,10 @@ export class World {
       fx: 0, fz: 0,
       // its own phase, so a rank drifts as a rabble and not as one body
       wph: this.rng.range(0, 6.283),
+      // Which way it is FACING. Only a shield reads it, but it has to be
+      // maintained for everything or the shield would flicker on and off as
+      // a foe changed what it was doing.
+      hx: 0, hz: 1,
     };
     // Lane foes start at their door; an off-lane foe keeps the rim position it
     // was given, or this would put it straight back on the road.
@@ -623,8 +627,33 @@ export class World {
   }
 
   // ------------------------------------------------------------------ damage
-  hurtFoe(f, amount, source) {
+  // Does this foe's shield eat a blow arriving from (fx, fz)?
+  //
+  // The shield faces the way the foe faces, which for anything walking a lane
+  // is straight at the defender — so the front arc is pointed exactly where you
+  // are standing. Getting behind it, or to its flank, is the whole answer.
+  static shielded(f, fx, fz) {
+    const sh = f.def.shield;
+    if (!sh) return false;
+    const dx = fx - f.x, dz = fz - f.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 1e-4) return false;
+    return (dx / d) * f.hx + (dz / d) * f.hz > Math.cos(sh.arc / 2);
+  }
+
+  hurtFoe(f, amount, source, fromX, fromZ) {
     if (f.dead) return 0;
+    // A shield eats most of a MELEE blow arriving through the front arc.
+    //
+    // Player damage only, deliberately. Shielding bolts as well made the Shield
+    // Goblin a tower problem instead of a player problem: a ballista shooting
+    // one head-on did 30% damage, so the defence quietly stopped working and
+    // the answer — flank it, or charge a heavy — was not something a ward could
+    // ever do. It is a lock on YOU, and paying for it by thinning the waves
+    // broke the premise instead (a ward build started winning unattended on
+    // Squire). A ballista's bolt punches through a shield; your sword does not.
+    if (source === 'player' && fromX != null &&
+        World.shielded(f, fromX, fromZ)) amount *= f.def.shield.reduce;
     // A foe may be resistant to WARD damage specifically. This is what makes a
     // foe the player's problem rather than a building's.
     if (source === 'ward' && f.def.wardMul != null) amount *= f.def.wardMul;
@@ -1013,7 +1042,10 @@ export class World {
         f.stagX = dx / kl; f.stagZ = dz / kl;
         this.emit({ type: 'stagger', x: f.x, y: f.y + f.def.height * 0.6, z: f.z, foe: f.kind });
       }
-      this.hurtFoe(f, move.damage, 'player');
+      // A charged heavy ignores the shield, exactly as it ignores poise —
+      // so the Shield Goblin has two answers and the player already owns both.
+      if (move.breaksPoise) this.hurtFoe(f, move.damage, 'player');
+      else this.hurtFoe(f, move.damage, 'player', p.x, p.z);
       hits++;
     }
 
@@ -1125,6 +1157,8 @@ export class World {
         f.z += (dz / d) * k;
         if (!f.def.flying) f.dist = Math.max(0, f.dist - k);
       }
+      // The bash goes through a shield too: it is a shield being driven into
+      // one, which is the one moment that ability stops being a panic button.
       this.hurtFoe(f, ABILITY.damage, 'player');
       hit++;
     }
@@ -1459,6 +1493,20 @@ export class World {
       }
       const q = laneAt(f.lane, f.dist, f.off);
       const strayed = Math.hypot(f.x - q.x, f.z - q.z);
+      // Which way it is facing: at the player when it has taken an interest,
+      // otherwise up its own lane. Only a shield reads this, but it is kept for
+      // every foe so the renderer can lean on it later.
+      {
+        let hx, hz;
+        if (p.alive && (f.aggroT > 0 || dPlayer < NOTICE_RADIUS)) {
+          hx = p.x - f.x; hz = p.z - f.z;
+        } else {
+          const ah = laneAt(f.lane, Math.min(f.lane.total, f.dist + 1), f.off);
+          hx = ah.x - f.x; hz = ah.z - f.z;
+        }
+        const hl = Math.hypot(hx, hz);
+        if (hl > 1e-4) { f.hx = hx / hl; f.hz = hz / hl; }
+      }
       // Reach and CONTACT are deliberately different distances. `hitPlayer` is
       // how far the thing can swing; `planted` is how close it insists on
       // getting first. Making them the same number is why foes stopped a full
@@ -1623,7 +1671,17 @@ export class World {
             f.targetKind = shot.kind;
             f.target = shot.ward || null;
             f.standing = true;
-            // no movement at all this step: it has stopped to shoot
+            // BACKS AWAY if you close on it. An archer that lets you walk up
+            // and kill it is not a back rank, it is a slow melee goblin — the
+            // threat is that reaching it costs you the time you are not
+            // spending on the screen in front of it.
+            const ka = def.ranged.keepAway;
+            if (ka && p.alive && dPlayer < ka) {
+              const bx = f.x - p.x, bz = f.z - p.z;
+              const bl = Math.hypot(bx, bz) || 1;
+              f.x += (bx / bl) * spd * 0.85 * dt;
+              f.z += (bz / bl) * spd * 0.85 * dt;
+            }
           } else {
             f.standing = false;
           }
@@ -2033,6 +2091,9 @@ export class World {
           this.projectiles.push({
             id: NEXT_ID++, source: 'ward',
             x: w.x, y: 1.4, z: w.z,
+            // where it was fired FROM, so a shield can tell a bolt coming at
+            // its face from one arriving in its back
+            ox: w.x, oz: w.z,
             dx: dx / d, dy: dy / d, dz: dz / d,
             speed: def.projSpeed, damage: def.damage * w.power, radius: def.projRadius,
             target: t, life: 3, dead: false,
@@ -2110,7 +2171,7 @@ export class World {
         if (Math.hypot(t.x - b.x, t.z - b.z) < reach) {
           if (b.targetKind === 'player') this.hurtPlayer(b.damage);
           else if (b.targetKind === 'ward' && !t.dead) this.hurtWard(t, b.damage);
-          else if (b.targetKind === 'stone') this.hurtStone(b.damage, 'slinger');
+          else if (b.targetKind === 'stone') this.hurtStone(b.damage, 'archer');
           b.dead = true;
           this.emit({ type: 'impact', x: b.x, y: b.y, z: b.z, source: 'foe' });
         }
@@ -2130,7 +2191,7 @@ export class World {
         // and it stops homing once it is through its first target — a bolt
         // that curved onto each new victim would be a seeking missile, not a
         // line through a rank.
-        this.hurtFoe(f, b.damage, b.source);
+        this.hurtFoe(f, b.damage, b.source, b.ox, b.oz);
         this.emit({ type: 'impact', x: b.x, y: b.y, z: b.z, source: b.source });
         if (b.pierce && b.pierce > 1) {
           b.pierce--;
