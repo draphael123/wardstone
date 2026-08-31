@@ -674,13 +674,21 @@ export function clampToHall(x, z, r) {
 // which is the entire point of having a room at all: picking a difficulty is
 // standing at the muster stone, not ticking a box on a title screen.
 export const STATIONS = [
-  { id: 'portal',  name: 'The Glade',      x: 0,    z: 388,  r: 3.4,
+  // A gate PER MAP, side by side at the far end, each with the road it opens
+  // written on it. One portal that silently meant "whatever was last selected"
+  // is a menu wearing an arch; two you can walk between is a choice you make
+  // with your feet.
+  { id: 'gate:glade',    name: 'The Glade',    map: 'glade',    x: -5.2, z: 388, r: 3.0,
     prompt: 'March out' },
-  { id: 'dummy',   name: 'Pell',           x: -8.5, z: 400,  r: 2.6,
+  { id: 'gate:gauntlet', name: 'The Gauntlet', map: 'gauntlet', x: 5.2,  z: 388, r: 3.0,
+    prompt: 'March out' },
+  { id: 'board',   name: 'The Muster Board', x: 0,    z: 404.5, r: 3.0,
+    prompt: 'Look over the muster' },
+  { id: 'dummy',   name: 'The Pells',        x: -9.3, z: 400,   r: 3.4,
     prompt: 'Practise' },
-  { id: 'rack',    name: 'The Ward Rack',  x: 8.5,  z: 400,  r: 2.6,
+  { id: 'rack',    name: 'The Ward Rack',    x: 8.5,  z: 400,   r: 2.6,
     prompt: 'Inspect the wards' },
-  { id: 'muster',  name: 'The Muster Stone', x: 6.8, z: 407.6, r: 2.6,
+  { id: 'muster',  name: 'The Muster Stone', x: 6.8,  z: 407.6, r: 2.6,
     prompt: 'Choose the watch' },
 ];
 

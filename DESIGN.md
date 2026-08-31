@@ -2145,3 +2145,47 @@ directional wedge at the ability's real arc and reach, and the toast says
 `requestAnimationFrame` does not fire at all in the automation pane, so several
 "the sim is frozen" readings I took were the harness, not the code. Drive the
 world by hand (`world.step`) when measuring in there.
+
+---
+
+# The hall as a hub: gates, a muster, and getting the grey out
+
+## The grey background was the outdoors
+
+The hall borrowed the arena's dusk sky and its 168m blue fog, so above the low
+walls sat a flat grey-blue void. Inside, the sky is now a warm near-black and
+the fog closes to 34m — the room ends in **darkness a lamp has not reached**
+rather than in a colour. The far wall goes up with lit windows in it (the camera
+looks that way from above, so height there costs nothing), and there are hanging
+lanterns down the aisle, a rug marking the route from door to gates, a keeper
+behind a counter, and crates and barrels.
+
+## A gate per road
+
+One portal that silently meant "whatever was selected" is a menu wearing an
+arch. There are two now, side by side, in different colours with their own
+plaques — and walking to one **is** the choice.
+
+**They reload.** The renderer builds its lane strips, scenery, solid props and
+terraces ONCE from whichever map was current at boot, so calling `setMap()`
+mid-session gave the Gauntlet's simulation with the Glade's geometry drawn over
+it: right minimap, right lanes underneath, wrong everything you could see. The
+renderer has no teardown path, and a reload is a smaller and more honest thing
+than half of one. The muster is handed forward in `sessionStorage`.
+
+## The muster board
+
+A slate by the door: the road, the watch, and a party of four — you, and three
+slots that say **co-op soon**. It is a queue with one player in it, which is not
+a placeholder for multiplayer but the shape multiplayer needs. When local and
+online arrive they fill slots two to four and nothing else changes.
+
+The note on the board says so plainly rather than implying a matchmaker exists.
+
+## The fuzzer earned its keep
+
+`HIGH_GROUND is not defined` — a later edit replaced the block from
+`HALL_SOLIDS` up to `WANDER_RATE` and took that declaration with it. It only
+throws when a ward actually stands on a terrace, so all 38 assertions passed and
+only the chaos actors, which build in places no sensible plan would, ever hit
+it. See [[regex-edits-reach-the-next-function]].

@@ -624,6 +624,36 @@
     /* the HUD's war furniture has nothing to say in the hall */
     #hud.inHall #stoneBar,#hud.inHall #bar,#hud.inHall #map,#hud.inHall #topL,
     #hud.inHall #ready,#hud.inHall #hint,#hud.inHall #ohBadge{display:none}
+  
+    /* The muster board. Deliberately a SLATE rather than a modal: it is a thing
+       in the room you are reading, not a menu the room went away for. */
+    #board{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+      z-index:60;width:min(420px,92vw);padding:22px 26px 20px;
+      background:linear-gradient(180deg,rgba(26,21,16,.97),rgba(16,13,10,.98));
+      border:1px solid rgba(200,168,96,.42);border-radius:5px;
+      box-shadow:0 18px 60px rgba(0,0,0,.7);}
+    #board.hidden{display:none}
+    #board .bTitle{font-family:Cinzel,Georgia,serif;letter-spacing:.14em;
+      text-transform:uppercase;font-size:19px;color:#e8c877}
+    #board .bSub{font-size:12.5px;color:#9d9384;margin:2px 0 14px}
+    #board .bRow{display:flex;justify-content:space-between;align-items:baseline;
+      padding:7px 0;border-bottom:1px solid rgba(255,255,255,.07)}
+    #board .bK{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#8b8172}
+    #board .bV{font-size:14px;color:#e4dcc9}
+    #board .bParty{margin:14px 0 10px;display:grid;gap:6px}
+    #board .slot{display:flex;justify-content:space-between;align-items:center;
+      padding:8px 12px;border:1px solid rgba(255,255,255,.09);border-radius:3px;
+      font-size:13px;color:#b6ab97;background:rgba(255,255,255,.02)}
+    #board .slot.me{border-color:rgba(200,168,96,.5);color:#e8dcc0}
+    #board .slot .st{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#7f7768}
+    #board .slot.me.rdy .st{color:#7fd8a0}
+    #board .bNote{font-size:11.5px;line-height:1.5;color:#7d7466;margin:6px 0 14px}
+    #board .bBtns{display:flex;gap:8px}
+    #board .bBtn{flex:1;padding:10px;cursor:pointer;font-family:inherit;font-size:12.5px;
+      letter-spacing:.1em;text-transform:uppercase;color:#d8cdb4;
+      background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.14);border-radius:3px}
+    #board .bBtn:hover{background:rgba(255,255,255,.1)}
+    #board .bBtn.go{color:#1b1409;background:#d8b063;border-color:#e8c877;font-weight:700}
   </style>
 </head>
 <body>
@@ -812,7 +842,22 @@
   <div class="wpHint" id="wpHint"></div>
 </div>
 
-<div id="station" class="hidden">
+<div id="board" class="hidden">
+      <div class="bTitle">The Muster</div>
+      <div class="bSub">Who is riding out, and where</div>
+      <div class="bRow"><span class="bK">Road</span><span id="bRoad" class="bV"></span></div>
+      <div class="bRow"><span class="bK">Watch</span><span id="bV" class="bV"></span></div>
+      <div class="bParty" id="bParty"></div>
+      <div class="bNote">Local co-op and online are not built yet. The board is
+        here so the party is a thing the game already understands &mdash; one
+        slot filled, three open.</div>
+      <div class="bBtns">
+        <button id="bReady" class="bBtn">Ready</button>
+        <button id="bGo" class="bBtn go">March out</button>
+        <button id="bClose" class="bBtn">Back</button>
+      </div>
+    </div>
+    <div id="station" class="hidden">
       <div class="stName"></div>
       <div class="stSub"></div>
     </div>

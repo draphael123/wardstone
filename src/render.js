@@ -1049,17 +1049,28 @@ export class Renderer {
     }
     this.hallFire = add(flame, { emissive: 0xff9a40, emissiveIntensity: 1.1, shadow: false });
 
-    // --- the portal. A door you WALK THROUGH to start a run.
-    add([
-      { g: box(6.0, 0.7, 3.0), y: 0.35, z: -12.0, c: stone },
-      { g: box(1.1, 5.4, 1.1), x: -2.2, y: 2.7, z: -12.0, c: pale },
-      { g: box(1.1, 5.4, 1.1), x: 2.2, y: 2.7, z: -12.0, c: pale },
-      { g: box(5.6, 1.0, 1.3), y: 5.5, z: -12.0, c: pale },
-    ]);
-    this.hallGate = add([{ g: box(3.5, 4.4, 0.24), y: 2.9, z: -12.0, c: 0x7fd8c4, e: 1 }],
-      { emissive: 0x39a68d, emissiveIntensity: 1.2, shadow: false });
-    this.hallGate.material.transparent = true;
-    this.hallGate.material.opacity = 0.55;
+    // --- the GATES. One arch per road, side by side, so choosing where to
+    // fight is a thing you do with your feet.
+    const arches = [];
+    this.hallGates = [];
+    for (const [gx, tint, dim] of [[-5.2, 0x7fd8c4, 0x39a68d], [5.2, 0xd8b47f, 0xa6763a]]) {
+      arches.push({ g: box(4.6, 0.7, 2.6), x: gx, y: 0.35, z: -12.0, c: stone });
+      arches.push({ g: box(0.95, 5.0, 0.95), x: gx - 1.75, y: 2.5, z: -12.0, c: pale });
+      arches.push({ g: box(0.95, 5.0, 0.95), x: gx + 1.75, y: 2.5, z: -12.0, c: pale });
+      arches.push({ g: box(4.3, 0.9, 1.15), x: gx, y: 5.1, z: -12.0, c: pale });
+      // a plaque over each, so the arches are not interchangeable holes
+      arches.push({ g: box(2.4, 0.5, 0.2), x: gx, y: 5.9, z: -11.7, c: 0x4a3826 });
+      const g2 = add([{ g: box(2.7, 4.0, 0.22), x: gx, y: 2.7, z: -12.0, c: tint, e: 1 }],
+        { emissive: dim, emissiveIntensity: 1.2, shadow: false });
+      g2.material.transparent = true;
+      g2.material.opacity = 0.55;
+      this.hallGates.push(g2);
+      const gl = new THREE.PointLight(tint, 90, 26, 2);
+      gl.position.set(gx, 2.6, -11.3);
+      g.add(gl);
+    }
+    add(arches);
+    this.hallGate = this.hallGates[0];
 
     // --- the pell. A post to hit with the real sword.
     const pell = [
@@ -1090,6 +1101,38 @@ export class Renderer {
       { g: box(0.34, 1.9, 0.34), x: 8.9, y: 1.05, z: 0.3, rx: 0.12, c: 0x5b4630 },
       { g: box(2.4, 0.16, 0.16), x: 8.5, y: 2.75, c: 0x8a8378 },
       { g: box(0.16, 0.16, 1.1), x: 8.5, y: 2.75, c: 0x6b5a3f },
+    ]);
+
+    // --- the muster board: a slate by the door where the party is written up.
+    add([
+      { g: box(0.4, 2.6, 0.4), x: -1.5, y: 1.3, z: 4.5, c: wood },
+      { g: box(0.4, 2.6, 0.4), x: 1.5, y: 1.3, z: 4.5, c: wood },
+      { g: box(3.6, 2.2, 0.24), y: 1.9, z: 4.5, c: 0x2f2a22 },
+      { g: box(3.9, 0.26, 0.36), y: 3.1, z: 4.5, c: wood },
+    ]);
+    add([
+      { g: box(2.9, 0.1, 0.06), y: 2.45, z: 4.36, c: 0xbdb59c },
+      { g: box(2.4, 0.1, 0.06), y: 2.15, z: 4.36, c: 0x8f8a78 },
+      { g: box(2.6, 0.1, 0.06), y: 1.85, z: 4.36, c: 0x8f8a78 },
+      { g: box(1.9, 0.1, 0.06), y: 1.55, z: 4.36, c: 0x8f8a78 },
+    ], { shadow: false });
+
+    // --- the keeper's counter. A hall with nobody in it is a warehouse.
+    add([
+      { g: box(3.2, 1.1, 1.0), x: 10.5, y: 0.55, z: -9.0, c: 0x5b4630 },
+      { g: box(3.5, 0.18, 1.2), x: 10.5, y: 1.18, z: -9.0, c: 0x6f5940 },
+      { g: box(0.5, 0.34, 0.5), x: 9.6, y: 1.44, z: -9.0, c: 0x8a7a58 },
+      { g: box(0.34, 0.5, 0.34), x: 11.4, y: 1.52, z: -9.2, c: 0x7d6a4a },
+    ]);
+    this.hallKeeper = add([
+      { g: box(0.22, 0.5, 0.22), x: 10.1, y: 0.25, z: -10.6, c: 0x3f3a30 },
+      { g: box(0.22, 0.5, 0.22), x: 10.7, y: 0.25, z: -10.6, c: 0x3f3a30 },
+      { g: box(0.78, 0.85, 0.5), x: 10.4, y: 0.92, z: -10.6, c: 0x6b5a3f },
+      { g: box(0.86, 0.16, 0.56), x: 10.4, y: 1.3, z: -10.6, c: 0x8a7550 },
+      { g: box(0.46, 0.44, 0.42), x: 10.4, y: 1.6, z: -10.6, c: 0xc9a882 },
+      { g: box(0.52, 0.18, 0.48), x: 10.4, y: 1.84, z: -10.6, c: 0x9c9080 },
+      { g: box(0.2, 0.42, 0.2), x: 9.95, y: 1.05, z: -10.3, rz: 0.4, c: 0xc9a882 },
+      { g: box(0.2, 0.42, 0.2), x: 10.85, y: 1.05, z: -10.3, rz: -0.4, c: 0xc9a882 },
     ]);
 
     // --- the muster stone: where you choose the watch. Three notches.
@@ -1134,6 +1177,40 @@ export class Renderer {
     }
     add(ban, { shadow: false });
 
+    // --- a rug down the aisle, so the floor has a direction and the walk from
+    // the door to the gates reads as a route rather than a field of flagstones
+    add([
+      { g: box(5.0, 0.06, 20.0), y: 0.17, z: -1.0, c: 0x6b3a35 },
+      { g: box(4.4, 0.07, 19.4), y: 0.19, z: -1.0, c: 0x7d4640 },
+      { g: box(3.2, 0.08, 18.6), y: 0.21, z: -1.0, c: 0x5e332f },
+    ], { shadow: false });
+
+    // --- the far wall goes UP, with lit windows in it. The camera looks that
+    // way from above, so height there costs nothing and it gives the room a
+    // back rather than a horizon.
+    const far = [], glass = [];
+    far.push({ g: box(H * 2, 4.6, 0.5), y: 6.5, z: -H, c: dark });
+    for (let wx = -H + 3.5; wx <= H - 3.5; wx += 5.2) {
+      far.push({ g: box(0.7, 4.6, 0.7), x: wx, y: 6.5, z: -H, c: wood });
+      glass.push({ g: box(1.9, 2.3, 0.24), x: wx + 2.6, y: 6.4, z: -H + 0.15, c: 0x2b3550, e: 1 });
+    }
+    far.push({ g: box(H * 2 + 1, 0.5, 1.1), y: 8.9, z: -H, c: wood });
+    add(far);
+    add(glass, { emissive: 0x39456b, emissiveIntensity: 0.5, shadow: false });
+
+    // --- hanging lanterns down the aisle. The one thing that says "somebody
+    // lives here" more than any amount of furniture.
+    const lant = [], lantGlass = [];
+    for (const lz of [-6.5, 0.5, 7.0]) {
+      lant.push({ g: box(0.1, 1.5, 0.1), y: 4.6, z: lz, c: 0x2e2a24 });
+      lant.push({ g: box(0.62, 0.16, 0.62), y: 3.9, z: lz, c: 0x3a352c });
+      lant.push({ g: box(0.62, 0.16, 0.62), y: 3.28, z: lz, c: 0x3a352c });
+      lantGlass.push({ g: box(0.46, 0.5, 0.46), y: 3.6, z: lz, c: 0xffcf8a, e: 1 });
+    }
+    add(lant);
+    this.hallLanterns = add(lantGlass,
+      { emissive: 0xffab4a, emissiveIntensity: 1.2, shadow: false });
+
     // --- lights. The arena's key light is the wardstone 400m away, so without
     // these the hall renders pitch black.
     this.hallKey = new THREE.PointLight(0xffb066, 260, 60, 2);
@@ -1147,9 +1224,11 @@ export class Renderer {
     g.add(this.hallGateLight);
     // a second warm lamp over the near half, or everything past the table
     // falls off a cliff into black
-    const lamp = new THREE.PointLight(0xffc98a, 150, 52, 2);
-    lamp.position.set(2, 6.5, 8);
-    g.add(lamp);
+    for (const lz of [-6.5, 0.5, 7.0]) {
+      const lp = new THREE.PointLight(0xffc07a, 95, 26, 2);
+      lp.position.set(0, 3.5, lz);
+      g.add(lp);
+    }
     g.add(new THREE.HemisphereLight(0x8d93b4, 0x3a3226, 1.5));
 
     g.position.set(HALL.x, 0, HALL.z);
@@ -1164,6 +1243,34 @@ export class Renderer {
   setHall(on) {
     if (!this.hall) this._buildHall();
     this.hall.visible = !!on;
+    // The hall borrowed the arena's dusk sky and its 168m blue fog, so above
+    // the low walls sat a flat grey-blue void with nothing in it. Reported as
+    // "a gray background with no life", and it was literally the outdoors
+    // showing over the top of an indoor room.
+    //
+    // Inside, the sky is a warm near-black and the fog closes to 34m — so the
+    // room ends in darkness a lamp has not reached rather than in a colour.
+    if (!this._skyArena) {
+      this._skyArena = this.scene.background ? this.scene.background.clone() : null;
+      this._fogArena = this.scene.fog
+        ? { color: this.scene.fog.color.clone(), near: this.scene.fog.near, far: this.scene.fog.far }
+        : null;
+    }
+    if (on) {
+      this.scene.background = new THREE.Color(0x120d0a);
+      if (this.scene.fog) {
+        this.scene.fog.color.setHex(0x140f0b);
+        this.scene.fog.near = 12;
+        this.scene.fog.far = 34;
+      }
+    } else if (this._skyArena) {
+      this.scene.background = this._skyArena;
+      if (this.scene.fog && this._fogArena) {
+        this.scene.fog.color.copy(this._fogArena.color);
+        this.scene.fog.near = this._fogArena.near;
+        this.scene.fog.far = this._fogArena.far;
+      }
+    }
   }
 
   // The chase camera EASES toward the player, which is right for walking and

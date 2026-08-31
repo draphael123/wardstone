@@ -15,7 +15,7 @@ import {
   ENERGY, WARDSTONE,
 } from './defs.js';
 import {
-  cellOf, cellCenter, isBuildableCell, ARENA, LANES, laneDoor, MAPS, currentMap,
+  cellOf, cellCenter, isBuildableCell, ARENA, LANES, laneDoor, MAPS, currentMap, setMap,
 } from './arena.js';
 
 const $ = (id) => document.getElementById(id);
@@ -130,6 +130,8 @@ const state = {
   ghostCell: null, ghostRot: null, overhead: false, showAbil: false, wantJump: false,
   binds: defaultBinds(), keyToAction: {},
   inspect: null, runFrom: null,
+  // the party, as the game understands it today: you, and three open slots
+  queue: { map: 'glade', ready: false }, boardOpen: false,
   acc: 0, last: 0, lastFrame: 0, hitstop: 0,
   vel: { x: 0, z: 0 },
   hintShown: new Set(),
@@ -858,6 +860,7 @@ function bindInput() {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     state.keys.add(k);
     if (k === 'escape' || k === '0') {
+      if (state.boardOpen) { closeBoard(); return; }
       if (state.inspect) { inspectWard(null); return; }
       state.selected = null; select(null);
       return;
@@ -1446,7 +1449,7 @@ function frame(now) {
     $('flash').style.opacity = flashT;
   }
 
-  if (state.running && !state.paused) {
+  if (state.running && !state.paused && !state.boardOpen) {
     applyInput(dt);
     // Fixed timestep so the sim is identical to the one the harness measured.
     // Hitstop: the sim slows to a crawl for a few frames on a meaty connect
@@ -1479,7 +1482,7 @@ function frame(now) {
   else state.rend.menuFrame(state.world, dt);
   if (state.world.hub) {
     state.rend.stepHall(dt, state.world);
-    syncStation();
+    if (!state.boardOpen) syncStation();
   } else if (state.running) {
     syncFirePrompt();
   }
@@ -1552,17 +1555,86 @@ function syncStation() {
   el.classList.remove('hidden');
 }
 
+// THE MUSTER BOARD.
+//
+// It is a queue with one player in it. That is not a placeholder for
+// multiplayer, it is the shape multiplayer needs: a chosen road, a chosen
+// watch, a party with slots and a ready state. When local and online co-op
+// arrive they fill slots two to four and nothing else about this changes.
+function renderBoard() {
+  const road = MAPS[state.queue.map];
+  $('bRoad').textContent = road ? road.name : '—';
+  $('bV').textContent = DIFFICULTY[state.difficulty].name;
+  const host = $('bParty');
+  host.innerHTML = '';
+  for (let i = 0; i < 4; i++) {
+    const el = document.createElement('div');
+    if (i === 0) {
+      el.className = 'slot me' + (state.queue.ready ? ' rdy' : '');
+      el.innerHTML = `<span>You &mdash; Knight</span><span class="st">${state.queue.ready ? 'Ready' : 'Not ready'}</span>`;
+    } else {
+      el.className = 'slot';
+      el.innerHTML = '<span>Open</span><span class="st">Co-op soon</span>';
+    }
+    host.appendChild(el);
+  }
+  $('bReady').textContent = state.queue.ready ? 'Stand down' : 'Ready';
+  $('bGo').disabled = !state.queue.ready;
+  $('bGo').style.opacity = state.queue.ready ? 1 : 0.45;
+}
+
+function openBoard(mapId) {
+  if (mapId) state.queue.map = mapId;
+  renderBoard();
+  $('board').classList.remove('hidden');
+  $('station').classList.add('hidden');
+  state.boardOpen = true;
+}
+
+function closeBoard() {
+  $('board').classList.add('hidden');
+  state.boardOpen = false;
+}
+
+// Leaving the hall for the road the board says.
+//
+// This RELOADS rather than switching in place, and that is deliberate. The
+// renderer builds its lane strips, scenery, solid props and terraces ONCE, from
+// whichever map was current at boot — so calling setMap() mid-session gave the
+// Gauntlet's simulation with the Glade's geometry drawn over it: right minimap,
+// right lanes underneath, wrong everything you could see. The renderer has no
+// teardown path, and a reload is a smaller, more honest thing than half a one.
+//
+// The muster is handed forward in sessionStorage and picked up on boot, so the
+// player sees a load and then the road they chose.
+function marchOut() {
+  closeBoard();
+  try {
+    sessionStorage.setItem('ws:march', JSON.stringify({
+      map: state.queue.map, difficulty: state.difficulty,
+    }));
+  } catch (e) { /* private mode: fall through to switching in place */ }
+  clearSave();
+  location.reload();
+}
+
+// The other half: if we arrive with a muster written down, honour it before
+// anything is built, and go straight to the road.
+function pendingMarch() {
+  try {
+    const raw = sessionStorage.getItem('ws:march');
+    if (!raw) return null;
+    sessionStorage.removeItem('ws:march');
+    const m = JSON.parse(raw);
+    return (m && MAPS[m.map]) ? m : null;
+  } catch (e) { return null; }
+}
+
 function useStation() {
   const st = state._station;
   if (!st) return false;
-  if (st.id === 'portal') {
-    state.world.leaveHall();
-    state.rend.setHall(false);
-    state.rend.snapCamera(state.world);
-    $('station').classList.add('hidden');
-    startRun(null);
-    return true;
-  }
+  if (st.map) { openBoard(st.map); return true; }
+  if (st.id === 'board') { openBoard(null); return true; }
   if (st.id === 'muster') {
     const order = ['squire', 'knight', 'warden'];
     const i = (order.indexOf(state.difficulty) + 1) % order.length;
@@ -1571,6 +1643,7 @@ function useStation() {
     saveSettings();
     syncSettingsPanel();
     banner(DIFFICULTY[state.difficulty].name, DIFFICULTY[state.difficulty].blurb);
+    if (state.boardOpen) renderBoard();
     return true;
   }
   if (st.id === 'rack') {
@@ -1601,6 +1674,12 @@ function enterHall() {
 // Boot
 // ---------------------------------------------------------------------------
 function boot() {
+  // Before the World or the Renderer exist, because both read the map.
+  const march = pendingMarch();
+  if (march) {
+    setMap(march.map);
+    state.difficulty = march.difficulty || state.difficulty;
+  }
   state.world = new World({
     seed: (Math.random() * 1e9) | 0,
     difficulty: state.difficulty,
@@ -1621,6 +1700,13 @@ function boot() {
   resize();
   addEventListener('resize', resize);
   addEventListener('orientationchange', () => setTimeout(resize, 250));
+
+  // and once everything is built, walk straight out
+  if (march) {
+    state.tutorial = false;
+    state.difficulty = march.difficulty || state.difficulty;
+    setTimeout(() => startRun(null), 0);
+  }
 
   $('ctrlHint').textContent = isTouch
     ? 'Stick to move · drag to turn · tap a ward then tap the ground.'
@@ -2111,6 +2197,13 @@ function bindSettings() {
   });
 
   $('pResume').addEventListener('click', () => setPaused(false));
+$('bReady').addEventListener('click', () => {
+  state.queue.ready = !state.queue.ready;
+  renderBoard();
+  if (state.snd) state.snd.play('click');
+});
+$('bGo').addEventListener('click', () => { if (state.queue.ready) marchOut(); });
+$('bClose').addEventListener('click', () => { closeBoard(); if (state.snd) state.snd.play('hover'); });
   $('pSettings').addEventListener('click', () => {
     // settings already pauses; opening it from here just swaps the overlay
     $('paused').classList.add('hidden');

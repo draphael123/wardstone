@@ -46,17 +46,25 @@ const CLIMBER_FLOOR = 1.0;
 // the renderer for the same reason the clearing's trees are: what you see and
 // what you bump into have to be one list, and last time they were not.
 const HALL_SOLIDS = [
-  { x: 0,    z: 388,   r: 1.9 },   // the portal arch's plinth
-  { x: -8.5, z: 400,   r: 0.8 },   // the pell
+  { x: -5.2, z: 388,   r: 1.7 },   // the Glade gate's plinth
+  { x: 5.2,  z: 388,   r: 1.7 },   // the Gauntlet gate's plinth
+  { x: 0,    z: 404.5, r: 1.2 },   // the muster board
   { x: 8.5,  z: 400,   r: 1.3 },   // the ward rack
   { x: 6.8,  z: 407.6, r: 1.3 },   // the muster stone
   { x: -6.0, z: 393.0, r: 1.5 },   // long table
   { x: 7.2,  z: 393.0, r: 1.2 },   // the hearth
   { x: -12.0, z: 406.0, r: 1.0 },  // barrels
   { x: 11.8, z: 406.5, r: 1.0 },
+  { x: -12.6, z: 404.3, r: 1.0 },
+  { x: 10.5, z: 391.0, r: 1.1 },   // the keeper's counter
 ];
 
 // How much further a ward on a terrace can reach.
+//
+// Lost once already: a later edit replaced the block from HALL_SOLIDS up to
+// WANDER_RATE and took this declaration with it. It only throws when a ward
+// actually stands on a terrace, so every assertion passed and only the fuzz
+// actors — which build in places no sensible plan would — ever hit it.
 const HIGH_GROUND = 1.22;
 
 const WANDER_RATE = 0.28;
@@ -1479,7 +1487,7 @@ export class World {
     // the thing worth practising is the CHAIN and the arc it sweeps, and one
     // target teaches you nothing about either.
     this.foes.length = 0;
-    for (const [dx, dz] of [[-9.5, 402.0], [-8.0, 399.0], [-10.5, 398.5]]) {
+    for (const [dx, dz] of [[-10.2, 401.8], [-8.6, 399.4], [-11.0, 398.4]]) {
       this.foes.push(this._makeDummy(dx, dz));
     }
     this.events.length = 0;
