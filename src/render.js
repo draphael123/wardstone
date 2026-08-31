@@ -27,6 +27,18 @@ const WINDUP = AGGRO.windup;
 // characters — which GLSL rejects with "invalid character".
 const BSN = String.fromCharCode(10);
 const WIND_UNIFORMS = [];
+
+// How far the chase camera may be tilted and pulled back.
+//
+// The floor is 14 degrees rather than 0: at true eye level the player's own
+// body fills the screen and the ground he is standing on disappears. The
+// ceiling is 72 rather than 90 because a plan view kills every silhouette in
+// the game — the overhead BUILD camera is deliberately tilted for the same
+// reason, and it already exists for anyone who wants the board.
+const CAM_PITCH_MIN = 0.245;   // ~14 degrees
+const CAM_PITCH_MAX = 1.256;   // ~72 degrees
+const CAM_ORBIT_MIN = 8;
+const CAM_ORBIT_MAX = 30;
 // Display-only crowd fan-out: bucket size, and how far a packed bucket spreads.
 const BLOB_CAP = 220;
 const CROWD_CELL = 0.55;
@@ -742,8 +754,18 @@ export class Renderer {
     // overhead gives, which is exactly why the minimap exists — awareness moves
     // to the map and the 3D view becomes a place you are standing in.
     // Wheel zooms out to 26 for players who want the old view.
+    // The camera is an ORBIT now: a distance and a PITCH, with camDist and
+    // camHeight derived from them. They used to be an independent pair, and
+    // the wheel drove distance while height was pinned to `2.2 + dist * 0.48`
+    // — so zooming from 7m to 26m moved the pitch between 29 and 38 degrees
+    // and there was no way to look up or down at all. In a game where things
+    // converge from three lanes that is the difference between fighting a
+    // crowd and being surprised by one.
+    this.camPitch = 0.599;          // ~34 degrees, the old fixed angle
+    this.camOrbit = 13.3;           // the old 11m back / 7.5m up, as one ray
     this.camDist = 11;
     this.camHeight = 7.5;
+    this._applyCam();
     this.shake = 0;
     this.showHpBars = true;
     this.allowShake = true;
@@ -1309,6 +1331,21 @@ export class Renderer {
       const k = Math.max(0, world.pell.hitT) / 0.18;
       this.hallPell.rotation.x = k * 0.16 * Math.sin(t * 40);
     }
+  }
+
+  // Pitch and orbit are the authored values; camDist and camHeight are what
+  // the rest of the renderer reads. One place derives one from the other so
+  // they can never disagree.
+  _applyCam() {
+    this.camPitch = Math.max(CAM_PITCH_MIN, Math.min(CAM_PITCH_MAX, this.camPitch));
+    this.camOrbit = Math.max(CAM_ORBIT_MIN, Math.min(CAM_ORBIT_MAX, this.camOrbit));
+    this.camDist = Math.cos(this.camPitch) * this.camOrbit;
+    this.camHeight = Math.sin(this.camPitch) * this.camOrbit;
+    // Look-ahead belongs to a LOW camera. Aiming 4m past the player from a
+    // near-overhead angle shoves him off the bottom of the frame, so it fades
+    // out as the camera climbs.
+    this.lookAhead = 4 * Math.max(0, 1 - (this.camPitch - CAM_PITCH_MIN) /
+      (CAM_PITCH_MAX - CAM_PITCH_MIN));
   }
 
   // ------------------------------------------------------------------ lights

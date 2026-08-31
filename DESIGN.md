@@ -2366,3 +2366,49 @@ Thirteen steps, in the order the ideas depend on each other.
 against Dungeon Defenders while the game already had one, and I had been editing
 combat for days without once opening the file that explains combat to a new
 player. Features drift; the thing that teaches them drifts silently.
+
+---
+
+# The camera could not look up or down
+
+The thing I suspected was the real feel problem, and it was there in the code:
+the wheel drove `camDist` while `camHeight` was pinned to `2.2 + dist * 0.48`.
+So zooming from 7m to 26m moved the pitch between **29 and 38 degrees**, and
+there was no way to raise or lower your eye at all. In a game where three lanes
+converge on you, that is the difference between fighting a crowd and being
+surprised by one.
+
+## It is an orbit now
+
+`camPitch` and `camOrbit` are the authored values; `camDist` and `camHeight` are
+derived from them in one place so they can never disagree. Right-drag turns
+**and** tilts; the wheel changes distance only, where it used to silently
+overwrite the height.
+
+| | pitch | camera |
+|---|---|---|
+| lowest | 14° | 12.9m back, 3.2m up |
+| default | 34° | 11.0m back, 7.5m up — the old view, unchanged |
+| highest | 72° | 4.1m back, 12.6m up |
+
+The floor is 14° rather than 0 because at true eye level the knight's own body
+fills the screen. The ceiling is 72° rather than 90 because a plan view kills
+every silhouette in the game — and the overhead *build* camera already exists,
+deliberately tilted, for anyone who wants the board.
+
+**Look-ahead fades with pitch.** Aiming 4m past the player is right for a low
+camera and shoves him off the bottom of the frame from a high one, so it scales
+to zero as the camera climbs.
+
+Pitch and orbit persist between sessions, and there is an invert-Y toggle,
+because a camera you cannot set the way your hands expect is worse than one you
+cannot move.
+
+## Known, and left alone for now
+
+At the low end, foreground trees fill the frame — **there is no occluder fade**,
+so a trunk between the camera and the knight simply hides him. The player can
+raise the camera to solve it, which is exactly the escape hatch that did not
+exist before, so this is a smaller problem than the one it replaced. It is the
+obvious next thing if the low angle turns out to be where the game wants to
+live. See [[fixed-iso-camera-needs-occluder-fade]].

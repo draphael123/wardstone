@@ -139,7 +139,9 @@ const state = {
   vel: { x: 0, z: 0 },
   hintShown: new Set(),
   low: isTouch,
-  musicOn: true, soundOn: true, dmgNums: false,
+  musicOn: true, soundOn: true, dmgNums: false, invertY: false,
+  // the camera the player left it at, restored next session
+  camPitch: 0.599, camOrbit: 13.3,
   musVol: 0.34, sfxVol: 0.9, difficulty: 'knight', paused: false,
   shakeAmt: 1, sens: 1, fov: 62, minimap: true, calm: false,
   autoPause: true, fps: false, autoWave: false,
@@ -957,13 +959,14 @@ function bindInput() {
   addEventListener('blur', () => { state.keys.clear(); state.firing = false; });
 
   // ---- pointer: left = act, right-drag = turn
-  let dragging = false, dragBtn = 0, lastX = 0, downX = 0, downY = 0, downT = 0;
+  let dragging = false, dragBtn = 0, lastX = 0, lastY = 0, downX = 0, downY = 0, downT = 0;
 
   cv.addEventListener('contextmenu', (e) => e.preventDefault());
 
   cv.addEventListener('pointerdown', (e) => {
     cv.setPointerCapture(e.pointerId);
     dragging = true; dragBtn = e.button;
+    lastY = e.clientY;
     lastX = downX = e.clientX; downY = e.clientY; downT = performance.now();
     state.pointer.x = e.clientX; state.pointer.y = e.clientY; state.pointer.has = true;
     if (e.button === 0 && !isTouch && !state.selected) state.firing = true;
@@ -987,7 +990,14 @@ function bindInput() {
       // line out from under the pointer.
       if (state.runFrom) return;
       state.rend.camYaw -= (e.clientX - lastX) * 0.0055 * state.sens;
-      lastX = e.clientX;
+      // Vertical drag TILTS. Dragging down looks down, which is the convention
+      // every third-person game uses and the one thing this camera could not
+      // do: you could turn on the spot and zoom, but never raise or lower your
+      // eye, so whatever was closing from behind stayed off-screen.
+      state.rend.camPitch += (e.clientY - lastY) * 0.0042 * state.sens *
+        (state.invertY ? -1 : 1);
+      state.rend._applyCam();
+      lastX = e.clientX; lastY = e.clientY;
     }
   });
 
@@ -1039,8 +1049,10 @@ function bindInput() {
       state.rend.ohHeight = Math.max(22, Math.min(64,
         state.rend.ohHeight + Math.sign(e.deltaY) * 3));
     } else {
-      state.rend.camDist = Math.max(7, Math.min(26, state.rend.camDist + Math.sign(e.deltaY) * 1.3));
-      state.rend.camHeight = 2.2 + state.rend.camDist * 0.48;
+      // distance only — the pitch is the player's, and zooming used to
+      // silently overwrite it
+      state.rend.camOrbit += Math.sign(e.deltaY) * 1.5;
+      state.rend._applyCam();
     }
   }, { passive: false });
 
@@ -1111,15 +1123,18 @@ function bindInput() {
 
   // a dedicated turn pad, for when a thumb is busy on the stick
   const cam = $('bCam');
-  let camId = null, camX = 0;
+  let camId = null, camX = 0, camY = 0;
   cam.addEventListener('pointerdown', (e) => {
-    e.preventDefault(); camId = e.pointerId; camX = e.clientX;
+    e.preventDefault(); camId = e.pointerId; camX = e.clientX; camY = e.clientY;
     cam.setPointerCapture(e.pointerId); cam.classList.add('on');
   });
   cam.addEventListener('pointermove', (e) => {
     if (e.pointerId !== camId) return;
     state.rend.camYaw -= (e.clientX - camX) * 0.012 * state.sens;
-    camX = e.clientX;
+    state.rend.camPitch += (e.clientY - camY) * 0.009 * state.sens *
+      (state.invertY ? -1 : 1);
+    state.rend._applyCam();
+    camX = e.clientX; camY = e.clientY;
   });
   const camEnd = () => { camId = null; cam.classList.remove('on'); };
   cam.addEventListener('pointerup', camEnd);
@@ -1796,6 +1811,10 @@ function boot() {
   bindInput();
   bindSettings();
   loadSettings();
+  // the camera the player left it at
+  state.rend.camPitch = state.camPitch;
+  state.rend.camOrbit = state.camOrbit;
+  state.rend._applyCam();
   loadBag();
   state.world.setKit(state.kit);
   if (!state.binds) state.binds = defaultBinds();
@@ -2050,7 +2069,7 @@ function syncResume() {
 // site data cannot break boot.
 // ---------------------------------------------------------------------------
 const SET_KEYS = ['musicOn', 'soundOn', 'dmgNums', 'hpBars', 'shake', 'low', 'tutorial',
-  'minimap', 'calm', 'autoPause', 'fps', 'autoWave'];
+  'minimap', 'calm', 'autoPause', 'fps', 'autoWave', 'invertY'];
 const SET_NUMS = ['camDist', 'musVol', 'sfxVol'];
 function loadSettings() {
   try {
@@ -2059,7 +2078,7 @@ function loadSettings() {
     const o = JSON.parse(raw);
     for (const k of SET_KEYS) if (typeof o[k] === 'boolean') state[k] = o[k];
     if (typeof o.camDist === 'number') state.camDist = o.camDist;
-    for (const k of ['musVol', 'sfxVol', 'shakeAmt', 'sens', 'fov'])
+    for (const k of ['musVol', 'sfxVol', 'shakeAmt', 'sens', 'fov', 'camPitch', 'camOrbit'])
       if (typeof o[k] === 'number') state[k] = o[k];
     if (DIFFICULTY[o.difficulty]) state.difficulty = o.difficulty;
     if (o.binds && typeof o.binds === 'object') {
@@ -2084,6 +2103,8 @@ function saveSettings() {
       camDist: state.rend ? state.rend.camDist : 11,
       musVol: state.musVol, sfxVol: state.sfxVol, difficulty: state.difficulty,
       shakeAmt: state.shakeAmt, sens: state.sens, fov: state.fov,
+      camPitch: state.rend ? state.rend.camPitch : state.camPitch,
+      camOrbit: state.rend ? state.rend.camOrbit : state.camOrbit,
       binds: state.binds,
     };
     for (const k of SET_KEYS) o[k] = state[k];
