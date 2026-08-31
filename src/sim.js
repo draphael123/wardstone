@@ -227,6 +227,15 @@ export class World {
       wardLosses: 0, playerDeaths: 0, manaEarned: 0, manaSpent: 0,
       wavesCleared: 0,
     };
+    // A per-WAVE ledger, reset when each one starts. The totals above answer
+    // "how did the run go"; this answers "how did that wave go", which is the
+    // question the player is actually asking in the pause after it.
+    this.waveLog = this._blankWaveLog();
+  }
+
+  _blankWaveLog() {
+    return { kills: {}, killed: 0, leaked: 0, mana: 0, wardsLost: 0, deaths: 0,
+             items: [], fireStart: 0, fireEnd: 0 };
   }
 
   // ---------------------------------------------------------------- helpers
@@ -497,6 +506,7 @@ export class World {
     const it = this._rollItem();
     it.x = x; it.z = z;
     this.drops.push(it);
+    this.waveLog.items.push(it);
     this.emit({ type: 'drop', x, z, item: it });
     return it;
   }
@@ -628,6 +638,8 @@ export class World {
   _startWave() {
     const wave = WAVES[this.waveIndex];
     if (!wave) { this.phase = 'won'; return; }
+    this.waveLog = this._blankWaveLog();
+    this.waveLog.fireStart = this.stone.hp;
     this.spawnQueue.length = 0;
     for (const g of wave.groups) {
       // At least one of anything the wave asked for: rounding a group of 1 down
@@ -869,6 +881,10 @@ export class World {
     f.dead = true;
     f.corpseT = CORPSE_TIME;
     this.stats.kills[f.kind] = (this.stats.kills[f.kind] || 0) + 1;
+    if (!f.def.inert) {
+      this.waveLog.kills[f.kind] = (this.waveLog.kills[f.kind] || 0) + 1;
+      this.waveLog.killed++;
+    }
     // Elites drop. Not everything, and not a stream — a drop should be an
     // event you look up for, which means the common goblins must never give
     // one or the rare one stops meaning anything.
@@ -927,6 +943,7 @@ export class World {
       this.du -= w.def.du;      // a ruined ward frees its units to rebuild
       this.occupancy.delete(cellKey(w.i, w.j));
       this.stats.wardLosses++;
+      this.waveLog.wardsLost++;
       this.emit({ type: 'wardDown', x: w.x, z: w.z, ward: w.def.id });
     }
   }
@@ -958,6 +975,7 @@ export class World {
       p.hp = 0;
       p.respawnT = PLAYER.respawn;
       this.stats.playerDeaths++;
+    this.waveLog.deaths++;
       this.emit({ type: 'playerDown', x: p.x, z: p.z });
     }
   }
@@ -1735,6 +1753,8 @@ export class World {
         this.phase = 'build';
         this.phaseTimer = ECON.interPhase;
         this.scatterCaches();
+        this.waveLog.fireEnd = this.stone.hp;
+        this.emit({ type: 'waveDone', wave: this.waveIndex, log: this.waveLog });
         // Surviving a late wave is worth something on its own, so a run that
         // ends badly still leaves you holding more than it started with.
         if (this.waveIndex >= LOOT.waveClearWave) this._dropItem(0, WARDSTONE.radius + 3);

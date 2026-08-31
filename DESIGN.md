@@ -2306,3 +2306,19 @@ sharing the world's `rng` re-rolls every later draw in the run.
 Because the whole point of loot is that a run leaves something behind. The
 armoury is the old ward rack — you walk up to it, and what you carry is a place
 in the room rather than a menu the room went away for.
+
+## And a correction: the wave tally already existed
+
+I built a second one — panel, CSS, the lot — before noticing `#tally` was
+already in the page and already better than mine: it names the foe types slain,
+shows the fire percentage, wards lost, the bounty, and previews the next wave.
+The duplicate `id` meant `getElementById` kept returning the original, which is
+the only reason it surfaced at all.
+
+Reverted. The per-wave ledger in the sim earns its place by carrying the one
+thing the old tally could not have known about — **what the wave dropped** —
+which is now a line in the real tally.
+
+The lesson is the boring one: grep the DOM for the id before building the
+feature. "The game has no wave summary" was in my own analysis of what we were
+missing against Dungeon Defenders, and it was simply wrong.

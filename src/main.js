@@ -397,6 +397,13 @@ function showTally(e) {
     `Bounty <b>+${e.bonus}</b> mana`,
   ];
   $('tallyRows').innerHTML = rows.join('<br>');
+  // What the wave DROPPED. The tally already said what you killed and what it
+  // cost; loot is the one thing it could not have known about before there was
+  // any, and it is the line the player most wants after a hard wave.
+  const found = (w.waveLog && w.waveLog.items) || [];
+  if (found.length) {
+    rows.push(found.map(it => `<b>${itemName(it)}</b> &mdash; ${itemLine(it)}`).join('<br>'));
+  }
   const nxt = WAVES[w.waveIndex + 1];
   $('tallyNext').innerHTML = nxt
     ? `Next: <b>${nxt.name}</b> — ${waveByLane(nxt) && Object.values(waveByLane(nxt)).reduce((n, x) => n + x.total, 0)} coming`
