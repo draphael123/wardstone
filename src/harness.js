@@ -705,10 +705,22 @@ export function runTests(log = console.log) {
       `${fmt(noClimb)}, ${Math.round(noClimb.stats.leaked.climber || 0)} of the ` +
       `damage from Wall Goblins (the same bot that fights them wins)`);
 
-    const pb = p.breaker || 0, db = d.breaker || 0;
-    ok('T15 the player does a real share of breaker damage',
-      pb > 0.25 * (pb + db),
-      `player ${Math.round(pb)} vs wards ${Math.round(db)} (${Math.round(100 * pb / (pb + db || 1))}% player)`);
+    // Was "a real share of BREAKER damage", from when the heavy was the thing
+    // the player had to help with. It is not any more, and that is deliberate:
+    // the ballista was rebuilt as the anti-elite ward, so wards carrying the
+    // Giant Goblin is the design working rather than the premise slipping.
+    //
+    // What must be true is that the player carries the foe the premise RESTS
+    // on. T14 proves it by outcome — take the Wall Goblins away from the body
+    // and the run is lost — and this proves it by damage, which is the part a
+    // reader can sanity-check against the design in one number.
+    const pc = p.climber || 0, dc = d.climber || 0;
+    ok('T15 the player carries the Wall Goblins — the foe the premise rests on',
+      pc > 0.7 * (pc + dc),
+      `player ${Math.round(pc)} vs wards ${Math.round(dc)} ` +
+      `(${Math.round(100 * pc / (pc + dc || 1))}% player) — and only ` +
+      `${Math.round(100 * (p.breaker || 0) / ((p.breaker || 0) + (d.breaker || 1)))}% of the ` +
+      `Giant Goblins, which is the ballista's job by design`);
 
     const ph = p.husk || 0, dh = d.husk || 0;
     ok('T16 but the WARDS carry the lane foes',

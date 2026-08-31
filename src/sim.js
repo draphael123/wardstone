@@ -38,6 +38,10 @@ const CORPSE_TIME = 0.75;
 // The least a difficulty tier may thin the premise foe.
 const CLIMBER_FLOOR = 1.0;
 
+// How fast and how far a lane foe drifts across its own track.
+const WANDER_RATE = 0.28;
+const WANDER_AMT = 0.85;
+
 // How much of the combined body radii ground foes keep between them. At 1.0 two
 // bodies do not overlap at all when there is room to avoid it.
 //
@@ -1452,6 +1456,19 @@ export class World {
         if (d > stop) {
           f.x += (dx / d) * spd * dt;
           f.z += (dz / d) * spd * dt;
+          // Boulders and trunks are solid to it. This is what turns the scenery
+          // into CHOKE POINTS: a Wall Goblin walks a straight line to the fire,
+          // so a rock in that line funnels it somewhere predictable, and the
+          // gaps between them become the places worth standing. Lane foes are
+          // unaffected — no prop is ever placed on a lane.
+          for (const q of solidProps()) {
+            const ox = f.x - q.x, oz = f.z - q.z;
+            const od = Math.hypot(ox, oz);
+            const want = q.r + f.def.radius;
+            if (od >= want || od < 1e-4) continue;
+            f.x = q.x + (ox / od) * want;
+            f.z = q.z + (oz / od) * want;
+          }
           f.targetKind = null;
         } else {
           f.targetKind = 'stone';

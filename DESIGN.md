@@ -1575,3 +1575,54 @@ can confuse.
 **Foes:** Cutter, Runner, Maul, Slinger, **Wall Goblin**, Powder Goblin, Bruiser,
 **Giant Goblin** (formerly Breaker).
 **30/30 assertions, 11/11 behaviour audit, fuzz clean, glade 7/10, gauntlet 6/10.**
+
+---
+
+# Wander, choke points, and where the player's work actually is
+
+## Foes stopped marching in files
+
+A lane foe held one lateral offset for its entire life, so a wave came down the
+track in rigid parallel columns. Each one now drifts slowly across its own lane
+on its own sine — a rabble following a road rather than a column marching down a
+line.
+
+It changes the lateral offset **only**. Lane progress is untouched, so arrival
+timing is identical and the balance did not move by a single point: 7/10 and
+6/10 before and after, same medians.
+
+## The scenery became choke points
+
+Boulders and trunks are now solid to **Wall Goblins**. This is what turns
+decoration into terrain: a Wall Goblin walks a straight line to the fire, so a
+rock in that line funnels it, and the gaps between rocks become the places worth
+standing. Lane foes are unaffected, because no prop is ever placed on a lane.
+
+It cost about three wins in twenty-one — they arrive from less predictable
+bearings, which makes interception harder — and that was paid for with a small
+reduction in their number rather than by removing the terrain.
+
+## T15 was measuring the wrong foe
+
+It asserted the player did a real share of **Breaker** damage, from when the
+heavy was the thing the body had to help with. That is no longer true and it is
+deliberate: the ballista was rebuilt as the anti-elite ward, so wards carrying
+the Giant Goblin is the design working, not the premise slipping.
+
+Measured share, seed 7:
+
+| foe | player | wards | player share |
+|---|---|---|---|
+| **Wall Goblin** | 5101 | 351 | **94%** |
+| Cutter | 3028 | 10172 | 23% |
+| Giant Goblin | 1254 | 5946 | 17% |
+| Bruiser | 0 | 1700 | **0%** |
+
+T15 now asserts the player carries the foe the premise rests on — 94%, against a
+70% floor — and reports the Giant Goblin share alongside it so the contrast is
+visible rather than hidden.
+
+**The Bruiser at 0% is a known instrument gap, not a design one.** It has poise,
+so light attacks cannot stagger it, and the charged heavy exists precisely to
+answer that — but the harness bot never charges a heavy. A human has a tool here
+that the measurement cannot see.
