@@ -1429,7 +1429,15 @@ export class World {
         // one. Reported: "they don't always attack me, they should." A foe with
         // nothing else to do notices the player well before contact and comes
         // for them; one already busy with a wall keeps hitting the wall.
-        if (!hitPlayer && !def.flying && !def.blast && dPlayer < NOTICE_RADIUS) {
+        //
+        // NOT `!hitPlayer`. Guarding this on being out of reach set up an exact
+        // limit cycle on the reach boundary: a foe closed, came into reach, and
+        // by coming into reach stopped having its aggro refreshed — so aggro
+        // decayed, `chasing` went false, and it fell through to the lane branch,
+        // which snapped it back onto the polyline just outside reach, where its
+        // aggro refreshed and it closed again. It sat oscillating between 2.36
+        // and 2.47m against a 2.45m reach, winding up 93 times to land 2 blows.
+        if (!def.flying && !def.blast && dPlayer < NOTICE_RADIUS) {
           f.aggroT = Math.max(f.aggroT, 0.35);
         }
       }
@@ -1440,7 +1448,18 @@ export class World {
       // at exactly the moment it should be committing to you.
       const q = laneAt(f.lane, f.dist, f.off);
       const strayed = Math.hypot(f.x - q.x, f.z - q.z);
-      const chasing = !def.flying && f.aggroT > 0 && p.alive && !hitPlayer &&
+      // Reach and CONTACT are deliberately different distances. `hitPlayer` is
+      // how far the thing can swing; `planted` is how close it insists on
+      // getting first. Making them the same number is why foes stopped a full
+      // body-width short and swung at the air in front of you — they satisfied
+      // "can strike" and immediately stopped closing.
+      const contact = def.radius + PLAYER.radius + 0.45;
+      // Only a windup aimed at the PLAYER plants. A foe winding up at a ward is
+      // already held still by the blocked branch below, and catching it here
+      // instead would skip the line that keeps `f.target` pointed at the wall.
+      const planted = (p.alive && dPlayer < contact) ||
+        (f.windT > 0 && f.windAt === 'player');
+      const chasing = !def.flying && f.aggroT > 0 && p.alive && !planted &&
         strayed < AGGRO.leash;
       // Given up on you: walk back to its lane rather than standing where it
       // stopped, or a peeled foe would simply be deleted from the wave.
@@ -1621,6 +1640,21 @@ export class World {
           f.x += (cx / cl) * spd * dt;
           f.z += (cz / cl) * spd * dt;
           f.targetKind = null;
+        } else if (planted) {
+          // PLANTED. In reach of the player, or committed to a windup: stand
+          // where you are and land the blow.
+          //
+          // Without this it fell through to the lane branch below, which does
+          // `f.x = q.x; f.z = q.z` — it SNAPS back onto the polyline. So a foe
+          // closed on you, came into reach, was teleported back to its lane on
+          // that very frame and walked on. `hitPlayer` went false again, it
+          // chased, reached you, snapped back... over and over.
+          //
+          // Reported as "they come at me but don't actually hit me", and that
+          // is exactly what it was: 348 windups at the player over 150 seconds
+          // produced 15 blows. The windup was real and the animation played;
+          // the foe just was not there any more when it finished.
+          if (hitPlayer) f.targetKind = null;
         } else if (!blocked && !atStone) {
           f.dist += spd * dt;
           const q = laneAt(f.lane, f.dist, f.off);

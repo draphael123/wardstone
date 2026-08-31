@@ -1692,3 +1692,70 @@ it is now the clearest read of the terrain in the game, better than the grass.
 The lane strips needed no change at all, which is the design checking itself: no
 bank is ever generated within 3 m of a lane, so `moundY` under every one of the
 289 sampled lane points is exactly zero.
+
+---
+
+# "They come at me but don't actually hit me"
+
+A movement bug wearing an attack bug's clothes, which is why it read as *weird
+behaviour* rather than as something broken: the windups were real and the
+animation played every time.
+
+## The limit cycle
+
+Aggro was refreshed only while the player was **out of reach**:
+
+```js
+if (!hitPlayer && dPlayer < NOTICE_RADIUS) f.aggroT = ...
+```
+
+So the instant a foe came into reach it stopped being aggroed. `chasing` went
+false, and it fell through to the lane branch — which does `f.x = q.x;
+f.z = q.z`, snapping it back onto the polyline just outside reach. There its
+aggro refreshed, it closed again, and the whole thing repeated.
+
+A single-foe trace shows it oscillating between **2.36 and 2.47 m against a
+2.45 m reach**, forever.
+
+| | before | after |
+|---|---|---|
+| windups aimed at a rooted player, 150 s | 348 | 164 |
+| blows that landed | **15** | **163** |
+| wasted windups | **96%** | **1%** |
+| closest approach | 2.35 m | 1.56 m |
+
+## Two fixes, and they are separate
+
+**Refresh aggro in reach as well.** This is the actual bug — the `!hitPlayer`
+guard was the whole limit cycle.
+
+**Plant a foe that is at contact.** Falling through to the lane branch while
+next to the player is wrong even with aggro fixed, because that branch teleports
+the foe back onto its polyline. A foe at contact now stands and swings.
+
+Reach and contact are deliberately **different numbers**: `hitPlayer` at
+`radius + 1.3` is how far it can swing, `planted` at `radius + 0.45` is how
+close it insists on getting first. Setting them equal — which was the first
+attempt — reintroduced the stand-off, because a foe satisfied "can strike" and
+stopped closing on the same frame. Measured: 95% wasted again.
+
+Only a windup aimed at the *player* plants. A foe winding up at a ward is
+already held by the blocked branch, and catching it here instead skipped the
+line that keeps `f.target` pointed at the wall.
+
+## What it cost
+
+The player is now a **body blockade** — a planted foe stops advancing — which is
+a real new power and a genuine difficulty drop. T19 moved from 6/10 to 9/10, top
+of the 5–9 band, with the median fire left standing rising 828 → 1200.
+
+The three-way test is untouched: wards alone still lose at wave 1, body alone
+still loses at wave 3, both still win 19/21.
+
+## T29 / T30
+
+Asserted as a **conversion rate**, not a damage total, because the rate is what
+was wrong — a total could be restored by making foes hit harder while the
+swinging-at-air stayed exactly as it was.
+
+Both were checked against the old code first: **584 windups, 0 blows.**

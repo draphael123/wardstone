@@ -948,6 +948,57 @@ export function runTests(log = console.log) {
       'no mid-combat save, and an unknown version degrades to a new run');
   }
 
+  // ------------------------------------------------------------- contact
+  // Reported: "they will come at me but not actually hit me."
+  //
+  // It was a MOVEMENT bug wearing an attack bug's clothes. Aggro was only
+  // refreshed while the player was out of reach, so the instant a foe came
+  // into reach it stopped being aggroed, fell through to the lane branch —
+  // which snaps x/z back onto the polyline — and was flicked just outside
+  // reach again, where it re-aggroed and closed. It oscillated on the reach
+  // boundary, winding up over and over and landing almost nothing.
+  //
+  // The windups were real and the animation played, which is exactly why it
+  // read as "weird behaviour" rather than as a bug: 348 windups aimed at a
+  // rooted player over 150 seconds produced 15 blows.
+  //
+  // Asserted as a CONVERSION RATE rather than a damage total, because that is
+  // the thing that was wrong — a total could be restored by simply making them
+  // hit harder while the swinging-at-air stayed.
+  {
+    log('');
+    log('[contact]');
+    const w = new World({ seed: 7 });
+    for (let i = 0; i < 60 * 90 && !w.foes.some(f => !f.dead); i++) w.step(DT);
+    const spot = laneAt(LANES[0], LANES[0].total * 0.55, 0);
+    let winds = 0, blows = 0, closest = Infinity;
+    for (let i = 0; i < 60 * 150; i++) {
+      // rooted and immortal: the question is whether they can LAND one, not
+      // whether they can kill someone who is standing still
+      w.player.x = spot.x; w.player.z = spot.z; w.player.y = 0; w.player.hp = 100;
+      w.events.length = 0;
+      w.step(DT);
+      for (const e of w.events) {
+        if (e.type === 'windup' && e.at === 'player') winds++;
+        if (e.type === 'foeSwing' && e.at === 'player') blows++;
+      }
+      for (const f of w.foes) {
+        if (f.dead) continue;
+        const d = Math.hypot(w.player.x - f.x, w.player.z - f.z);
+        if (d < closest) closest = d;
+      }
+    }
+    const rate = winds ? blows / winds : 0;
+    ok('T29 a foe that winds up at the player actually lands the blow',
+      winds > 20 && rate > 0.8,
+      `${winds} windups at a rooted player -> ${blows} blows (${(rate * 100).toFixed(0)}% landed)`);
+
+    // and it has to CLOSE, not stand off swinging at the air in front of you
+    ok('T30 and it closes to contact rather than hovering at the edge of reach',
+      closest < 2.0,
+      `closest approach ${closest.toFixed(2)}m (strike reach is about 2.45m, so it comes inside it)`);
+  }
+
 
 
 
