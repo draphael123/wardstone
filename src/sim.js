@@ -789,6 +789,10 @@ export class World {
     // the flash unconditionally left anything standing in a brazier — reliably
     // the breaker, the one foe whose colour matters most — permanently white
     // and unidentifiable. A bolt is 26, an aura tick is 0.4.
+    // The flinch clock. It gates a visible reaction, so the threshold has to be
+    // "a discrete blow" and not "a big one" — but an aura ticking dps*dt every
+    // frame must never latch it on, or the thing standing in a brazier flickers
+    // permanently. 4 is above any per-frame tick and below any real hit.
     if (dealt > 4) f.hitT = 0.1;
     if (source === 'player' && dealt > 0) {
       f.aggroT = AGGRO.chaseTime;   // it noticed, and it is coming
@@ -940,7 +944,7 @@ export class World {
     if (!p.alive || p.swapT > 0 || p.blocking) return null;
     if (this.weaponDef(p).kind !== 'melee') {
       if (p.atkCd > 0) return null;
-      return this.fireBolt(dirx, dirz, diry);
+      return this.fireBolt(dirx, dirz, diry, false);
     }
     // One-shot melee, used by the harness and by anything that wants "swing
     // now" without modelling a held button: press and release in one call.
@@ -1037,6 +1041,25 @@ export class World {
   meleeInput(held, dirx, dirz) {
     const p = this.player;
     const wd = PLAYER.weapons.sword;
+    // The crossbow gets the same held-button treatment, so one input path
+    // drives both weapons and the player learns one rule: tap for the quick
+    // one, hold for the committed one.
+    if (p.weapon === 'crossbow') {
+      const cb = PLAYER.weapons.crossbow;
+      if (held) {
+        p.holdT += this._dt;
+        if (cb.brace && p.holdT >= cb.brace.charge && p.atkCd <= 0 &&
+            p.energy >= cb.brace.energy) {
+          p.holdT = -999;
+          return this.fireBolt(dirx, dirz, 0, true);
+        }
+        return null;
+      }
+      const wasHeld = p.holdT;
+      p.holdT = 0;
+      if (wasHeld <= 0) return null;
+      return this.fireBolt(dirx, dirz, 0, false);
+    }
     if (p.weapon !== 'sword') return null;
 
     if (held) {
@@ -1341,11 +1364,15 @@ export class World {
     return best;
   }
 
-  fireBolt(dirx, dirz, diry) {
+  // `braced` is a held shot: slower to set up, and it goes through a rank.
+  fireBolt(dirx, dirz, diry, braced) {
     const p = this.player;
     const wd = PLAYER.weapons.crossbow;
     if (!p.alive || p.atkCd > 0) return null;
-    p.atkCd = wd.cooldown;
+    const br = braced && wd.brace ? wd.brace : null;
+    if (br && p.energy < br.energy) return null;
+    if (br) this.spendEnergy(br.energy);
+    p.atkCd = br ? wd.cooldown * 1.9 : wd.cooldown;
 
     // Aim assist: snap to the nearest foe inside a narrow cone. Without this,
     // hitting a 0.5m wisp at 4m altitude with a mouse is miserable.
@@ -1369,13 +1396,17 @@ export class World {
       id: NEXT_ID++, source: 'player',
       x: p.x, y: p.y + 1.2, z: p.z,
       dx: ux, dy: uy, dz: uz,
-      speed: wd.speed,
-      damage: wd.damage * (best && best.def.flying && wd.airMul ? wd.airMul : 1),
-      radius: wd.radius, target: best, life: wd.range / wd.speed,
+      speed: br ? br.speed : wd.speed,
+      damage: (br ? br.damage : wd.damage) *
+        (best && best.def.flying && wd.airMul ? wd.airMul : 1),
+      radius: br ? br.radius : wd.radius,
+      target: best, life: wd.range / (br ? br.speed : wd.speed),
       dead: false,
+      pierce: br ? br.pierce : 0, hit: null,
+      knock: br ? br.knock : 0, braced: !!br,
     };
     this.projectiles.push(b);
-    this.emit({ type: 'bolt', x: b.x, y: b.y, z: b.z });
+    this.emit({ type: 'bolt', x: b.x, y: b.y, z: b.z, braced: !!br });
     return b;
   }
 
@@ -1406,7 +1437,20 @@ export class World {
     // of the animation instead of a period of unexplained paralysis. The lunge
     // routes through here deliberately, so a committed step still collides.
     if (p.dodgeT <= 0 && !p._lunging &&
-        (p.atkPhase === 'startup' || p.atkPhase === 'active')) return;
+        (p.atkPhase === 'startup' || p.atkPhase === 'active')) {
+      // A HEAVY still roots you completely — that is what buys it its damage
+      // and its poise break. A LIGHT does not.
+      //
+      // Measured: the light chain rooted you for 49% of the time you spent
+      // swinging it, in a game where a mob converges on you from three lanes
+      // at once. Committing your feet is right for a wind-up you chose; it is
+      // just stickiness on a 0.07s jab. You keep about a third of your speed
+      // through a light, so you can hold a line while swinging and still not
+      // stroll through a fight untouchable.
+      if (p.atkKind === 'heavy') return;
+      vx *= PLAYER.attackDrift;
+      vz *= PLAYER.attackDrift;
+    }
     if (p.blocking && p.dodgeT <= 0) { vx *= PLAYER.block.slow; vz *= PLAYER.block.slow; }
     let nx = p.x + vx * dt, nz = p.z + vz * dt;
     const c = this.hub ? clampToHall(nx, nz, PLAYER.radius)
@@ -2465,6 +2509,9 @@ export class World {
         // that curved onto each new victim would be a seeking missile, not a
         // line through a rank.
         this.hurtFoe(f, b.damage, b.source, b.ox, b.oz);
+        // a braced bolt SHOVES. It is the only ranged thing in the game that
+        // moves a body, which is most of why it reads as heavier than a tap.
+        if (b.knock) { f.x += b.dx * b.knock; f.z += b.dz * b.knock; }
         this.emit({ type: 'impact', x: b.x, y: b.y, z: b.z, source: b.source });
         if (b.pierce && b.pierce > 1) {
           b.pierce--;

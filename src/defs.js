@@ -41,6 +41,25 @@ export const PLAYER = {
       // the capacity has to go somewhere, and the premise says it goes here.
       airMul: 1.6,
       speed: 62, radius: 0.9, range: 34,
+      // A BRACED SHOT. Hold, and the crossbow gets the same grammar the sword
+      // has: a quick one you spam and a committed one you set up.
+      //
+      // The crossbow had exactly one note — 34 damage every 0.55s, forever —
+      // so swapping to it was a downgrade in FEEL even where it was the right
+      // tool. Braced, it is the ranged answer to a rank: it punches through
+      // two bodies and knocks the first one back.
+      //
+      // Priced in energy rather than mana, and at the same cost as the sword's
+      // heavy, so the choice between them stays about range and not economy.
+      brace: {
+        charge: 0.42,
+        damage: 82,
+        pierce: 2,
+        speed: 84,
+        radius: 1.05,
+        knock: 1.4,
+        energy: 34,
+      },
     },
     // THE SWORD — rebuilt as a moveset rather than a single repeated swing.
     //
@@ -125,6 +144,8 @@ export const PLAYER = {
     airReach: 0.5,
     cooldown: 0.12,    // just enough to stop a held key machine-gunning it
   },
+  // How much of your speed survives a LIGHT attack. A heavy still roots you.
+  attackDrift: 0.34,
   aimCone: 0.978,      // cos(12deg) — assist snaps to a foe inside this cone
   aimConeAir: 0.62,    // cos(52deg) — fliers, which sit well above a flat aim
 

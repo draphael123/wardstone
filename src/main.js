@@ -295,13 +295,19 @@ function syncHud() {
   // While a heavy is charging, a pale bar fills across exactly the slice of
   // energy the swing will cost — so the meter shows both "how charged" and
   // "what it will take" in one shape.
+  // The crossbow charges too now, so the meter has to know which weapon is
+  // being held — a braced bolt costs more than a heavy swing and the bar was
+  // showing the sword's price whatever was in your hands.
   const hold = w.player.holdT;
-  const charging = hold > 0 && hold < 900 && !w.player.atkPhase &&
-    w.weaponDef(w.player).kind === 'melee';
+  const melee = w.weaponDef(w.player).kind === 'melee';
+  const chargeDef = melee
+    ? { time: PLAYER.weapons.sword.heavy.charge, cost: ENERGY.heavy }
+    : { time: PLAYER.weapons.crossbow.brace.charge, cost: PLAYER.weapons.crossbow.brace.energy };
+  const charging = hold > 0 && hold < 900 && !w.player.atkPhase;
   const cg = $('enCharge');
   if (charging) {
-    const k = Math.min(1, hold / PLAYER.weapons.sword.heavy.charge);
-    const slice = (ENERGY.heavy / ENERGY.max) * k;
+    const k = Math.min(1, hold / chargeDef.time);
+    const slice = (chargeDef.cost / ENERGY.max) * k;
     cg.style.transform = `scaleX(${Math.min(ef, slice)})`;
   } else {
     cg.style.transform = 'scaleX(0)';
@@ -324,7 +330,9 @@ function syncHud() {
   const p = w.player;
   const wp = $('weap');
   if (wp) {
-    wp.textContent = PLAYER.weapons[p.weapon].name;
+    wp.textContent = p.weapon === 'crossbow'
+      ? 'Crossbow — hold to brace'
+      : PLAYER.weapons[p.weapon].name;
     // Assigning className wholesale wiped any other class on this element
     // every frame — which silently deleted the tutorial's pointer ring the
     // instant it was added. Touch only the classes this actually owns.

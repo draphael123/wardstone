@@ -2189,3 +2189,56 @@ The note on the board says so plainly rather than implying a matchmaker exists.
 throws when a ward actually stands on a terrace, so all 38 assertions passed and
 only the chaos actors, which build in places no sensible plan would, ever hit
 it. See [[regex-edits-reach-the-next-function]].
+
+---
+
+# Why combat did not feel good: two measurements
+
+## You were rooted half the time you were swinging
+
+The light chain rooted the player for **0.65s of the 1.33s** it takes to throw
+— 49% — in a game where a mob converges from three lanes at once. Committing
+your feet is right for a wind-up you chose; it is just stickiness on a 0.07s
+jab.
+
+A light now leaves you **34% of your speed**. A heavy still roots you
+completely, because that is what buys it its damage and its poise break.
+
+It costs the harness three wins on the glade (16/21 → 13/21), and the sweep is
+monotonic with a clean control at zero — the bot walks *toward* its target while
+swinging, so extra freedom carries it deeper into the mob. A human uses the same
+freedom to step out. All 38 assertions still pass.
+
+## Two thirds of your hits looked like misses
+
+Only **36% of connecting blows produced any visible reaction**. The real stagger
+is gated to once per 1.15s per foe, so a three-hit chain landing inside a second
+moved the target once; the other two changed its colour for a tenth of a second
+and did nothing else.
+
+Every hit now **flinches** the body — rocked back along its own facing, pitched,
+and squashed slightly. It is renderer-only, driven off the `hitT` the sim
+already sets on any discrete hit, so it cannot touch a hit point: a feel fix
+with no balance risk at all.
+
+**36% → 100%.**
+
+# The crossbow had one note
+
+34 damage every 0.55s, forever. Swapping to it was a downgrade in *feel* even
+where it was the right tool.
+
+It now has the same grammar as the sword — tap for the quick one, hold for the
+committed one:
+
+| | damage | notes |
+|---|---|---|
+| tap | 34 | as before |
+| **braced** (hold 0.42s) | **82** | pierces 2, knocks the first body back 1.4m, 34 energy |
+
+Priced in energy at exactly the sword heavy's cost, so choosing between them
+stays a question of range rather than economy. It is the only ranged thing in
+the game that moves a body, which is most of why it reads as heavier.
+
+One input path drives both weapons now, so the player learns one rule instead of
+two.

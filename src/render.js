@@ -3513,12 +3513,31 @@ export class Renderer {
       // XYZ order the pitch is applied in world space after the yaw, so a foe
       // walking east "leans" sideways instead of forward and the whole attack
       // animation reads as a wobble. See [[world-space-tests-cannot-see-inverted-controls]].
+      // FLINCH. Every connecting blow rocks the body back a little, on top of
+      // whatever else is happening to it.
+      //
+      // Measured before this existed: only 36% of connecting blows produced any
+      // visible reaction at all, because the real stagger is gated to once per
+      // 1.15s per foe — so a three-hit chain landing inside a second moved the
+      // target once and the other two hits changed its colour for a tenth of a
+      // second and nothing else. Two thirds of your hits looked like misses.
+      //
+      // Renderer-only and driven off `hitT`, which the sim already sets on any
+      // discrete hit. It cannot touch a hit point, so it is a feel fix that
+      // carries no balance risk at all.
+      let flinch = 0;
+      if (f.hitT > 0) {
+        const k = Math.min(1, f.hitT / 0.1);
+        flinch = k * 0.30;                  // rocked back along its own facing
+        lean -= k * 0.22;
+        sc *= 1 + k * 0.05;                 // and squashed by the impact
+      }
       _q.setFromEuler(new THREE.Euler(lean, ang, 0, 'YXZ'));
       _s.set(sc, sc, sc);
       // lunge is along the foe's own facing, so a strike visibly travels
       const lx = f.def.flying && f.faceX != null ? f.faceX : Math.sin(ang);
       const lz = f.def.flying && f.faceZ != null ? f.faceZ : Math.cos(ang);
-      _m.compose(_v.set(fx + lx * lunge, y, fz + lz * lunge), _q, _s);
+      _m.compose(_v.set(fx + lx * (lunge - flinch), y, fz + lz * (lunge - flinch)), _q, _s);
       slot.mesh.setMatrixAt(i, _m);
       // capped well below 1: a full-white flash erases the silhouette colour
       slot.flash.array[i] = f.hitT > 0 ? Math.min(0.55, f.hitT * 5.5) : 0;
