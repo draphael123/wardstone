@@ -25,7 +25,7 @@ export const STEPS = [
     id: 'wall',
     point: '.ward[data-id="palisade"]',
     title: 'Block a track',
-    text: 'Press <b>1</b> for a Palisade, then <b>click a green square</b> on one of the dirt tracks. ' +
+    text: 'Press <b>{ward1}</b> for a Palisade, then <b>click a green square</b> on one of the dirt tracks. ' +
           'Goblins do not walk around walls — they stop and hack at them.',
     touch: 'Tap <b>Palisade</b>, then tap a <b>green square</b> on a dirt track.',
     check: (w) => w.wards.some(x => !x.dead && x.def.id === 'palisade' &&
@@ -35,7 +35,7 @@ export const STEPS = [
     id: 'ballista',
     point: '.ward[data-id="ballista"]',
     title: 'Something behind it',
-    text: 'A wall deals no damage. Press <b>2</b> and place a <b>Ballista</b> just behind your wall, ' +
+    text: 'A wall deals no damage. Press <b>{ward2}</b> and place a <b>Ballista</b> just behind your wall, ' +
           'where it can shoot whatever stops there.',
     touch: 'Tap <b>Ballista</b> and place it just behind your wall.',
     setup: (w) => w.grant('ballista'),
@@ -54,28 +54,50 @@ export const STEPS = [
     id: 'swap',
     point: '#weap',
     title: 'Your sword',
-    text: 'Press <b>Q</b> to draw your sword. It hits far harder and sweeps everything in front of you — ' +
+    text: 'Press <b>{swap}</b> to draw your sword. It hits far harder and sweeps everything in front of you — ' +
           'but only within arm’s reach, and it cannot touch anything airborne. Kill one with it.',
     touch: 'Tap <b>Swap</b> for your sword — harder hitting, but only up close. Kill one with it.',
     spawn: [['east', 'husk'], ['east', 'runner']],
     check: (w, s) => s.swordKills >= 1,
   },
   {
+    id: 'chain',
+    point: null,
+    title: 'The sword is a chain',
+    text: 'Three swings, not one. Each click links into the next if you keep going, and the ' +
+          '<b>third lands hardest</b>. Hold the button instead and you wind up a <b>heavy</b>: ' +
+          'slower, costs energy, and the only thing that goes through a raised shield.',
+    touch: 'Tap to chain three swings &mdash; the third lands hardest. Hold to wind up a heavy.',
+    spawn: [['north', 'husk'], ['north', 'husk'], ['north', 'husk']],
+    check: (w, s) => s.chain >= 3 || s.heavies >= 1,
+  },
+  {
+    id: 'guard',
+    point: '#blockChip',
+    title: 'Your shield, and what it costs',
+    text: 'Hold <b>{block}</b> to raise your shield. It cuts what gets through and slows you down, ' +
+          'and it <b>drains the green bar</b> &mdash; energy, which the heavy and the bash also spend. ' +
+          'Run it dry and the shield drops on its own.',
+    touch: 'Hold <b>Block</b> to raise your shield. It drains energy, which your heavy and bash also spend.',
+    spawn: [['north', 'husk'], ['east', 'husk']],
+    check: (w, s) => s.blocked >= 1,
+  },
+  {
     id: 'roll',
     point: '#roll',
     title: 'Get out of trouble',
-    text: 'Press <b>Space</b> to roll. You are briefly untouchable while you do, and it is on a short timer.',
+    text: 'Press <b>{roll}</b> to roll. You are briefly untouchable while you do, and it is on a short timer.',
     touch: 'Tap <b>Roll</b>. You are briefly untouchable, on a short timer.',
     check: (w, s) => s.rolled >= 1,
   },
   {
     id: 'rally',
     point: '#abil',
-    title: 'Your one ability',
-    text: 'Press <b>V</b> to <b>Rally</b>. It staggers and shoves back everything within ten metres ' +
-          'and makes your nearby wards fire faster for a few seconds. ' +
-          'One ability, a long cooldown &mdash; it is what you spend when a lane is about to break.',
-    touch: 'Tap <b>Rally</b>. It staggers everything close and speeds up nearby wards for a few seconds.',
+    title: 'Shield bash',
+    text: 'Press <b>{rally}</b> to <b>bash</b>. It is a short frontal shove &mdash; about three metres, ' +
+          'in the arc you are facing &mdash; that stuns what it catches and knocks it back. ' +
+          'It costs energy and has a long cooldown: it is what you spend to get out of a corner.',
+    touch: 'Tap <b>Bash</b>. A short frontal shove that stuns and knocks back what it catches.',
     spawn: [['north', 'husk'], ['north', 'husk'], ['east', 'runner']],
     check: (w, s) => s.rallied >= 1,
   },
@@ -102,7 +124,7 @@ export const STEPS = [
     id: 'mend',
     point: '#wpMend',
     title: 'Mending, and its limit',
-    text: 'Hold <b>E</b> beside a damaged ward to mend it for mana. ' +
+    text: 'Hold <b>{mend}</b> beside a damaged ward to mend it for mana. ' +
           'It will not save you from a Troll: one ruins a wall faster than you can mend it. ' +
           'A wall buys you time to kill it, and nothing else.',
     touch: 'Hold <b>Mend</b> beside a damaged ward. It will not out-heal a Troll.',
@@ -122,7 +144,7 @@ export const STEPS = [
     id: 'ready',
     point: '#ready',
     title: 'Hold the fire',
-    text: 'That is everything. Spend what mana you have, then press <b>R</b> to call the first wave. ' +
+    text: 'That is everything. Spend what mana you have, then press <b>{rotate}</b> to call the first wave. ' +
           'Six of them. If the fire goes out, you are done.',
     touch: 'That is everything. Spend your mana, then tap <b>Ready</b>.',
     check: (w) => w.phase === 'combat',
@@ -139,6 +161,7 @@ export class Tutorial {
     this.s = {
       moved: 0, playerKills: 0, swordKills: 0, rolled: 0, motes: 0,
       mended: 0, rallied: 0, killsByKind: {},
+      blocked: 0, litBrazier: 0, heavies: 0, braced: 0, chain: 0,
     };
     this._px = world.player.x;
     this._pz = world.player.z;
@@ -160,6 +183,14 @@ export class Tutorial {
     if (ev.type === 'mote') s.motes++;
     if (ev.type === 'dodge') s.rolled++;
     if (ev.type === 'rally') s.rallied++;
+    if (ev.type === 'block' && ev.on) s.blocked++;
+    if (ev.type === 'brazier' && ev.lit) s.litBrazier++;
+    if (ev.type === 'swing' && ev.kind === 'heavy') s.heavies++;
+    if (ev.type === 'bolt' && ev.braced) s.braced++;
+    // the chain only counts when it actually reaches the third link
+    if (ev.type === 'swing' && ev.hits > 0) {
+      s.chain = (world.player.combo === 0 && s.chain >= 2) ? 3 : s.chain + 1;
+    }
   }
 
   tick(dt, world, playerDidKill, weapon) {

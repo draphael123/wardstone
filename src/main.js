@@ -2369,7 +2369,13 @@ function showTutStep() {
   el.classList.remove('hidden');
   $('tutStep').textContent = `${t.i + 1} / ${STEPS.length}`;
   $('tutTitle').textContent = st.title;
-  $('tutText').innerHTML = (isTouch && st.touch) ? st.touch : st.text;
+  // Keys are written as {roll}, {block}, {ward1}... and substituted with what
+  // the player has actually bound. The tutorial used to hardcode "Press V" and
+  // "Press Space", so anyone who rebound a control was taught the wrong key by
+  // the one part of the game whose whole job is to teach.
+  const raw = (isTouch && st.touch) ? st.touch : st.text;
+  $('tutText').innerHTML = raw.replace(/\{(\w+)\}/g, (m, id) =>
+    state.binds[id] ? keyLabel(state.binds[id]) : m);
   paintTutPointer(st);
   el.classList.remove('pop');
   void el.offsetWidth;

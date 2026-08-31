@@ -2322,3 +2322,47 @@ which is now a line in the real tally.
 The lesson is the boring one: grep the DOM for the id before building the
 feature. "The game has no wave summary" was in my own analysis of what we were
 missing against Dungeon Defenders, and it was simply wrong.
+
+---
+
+# The tutorial was teaching a game that no longer exists
+
+The first thing a new player touches, and it was wrong in three separate ways.
+
+## It made three false claims in one paragraph
+
+> "Press **V** to **Rally**. It staggers and shoves back everything within ten
+> metres and makes your nearby wards fire faster for a few seconds."
+
+The ability is a **Shield Bash**: 3.2m, a 97° frontal arc, and it does nothing
+to wards at all. Every clause of that sentence was false. It now describes what
+the ability actually does, including that it costs energy.
+
+## It hardcoded keys the player can rebind
+
+`Press 1`, `Press Q`, `Press Space`, `Press V`, `Hold E`, `press R`. A player
+who rebinds anything was taught the wrong key by the one part of the game whose
+whole job is to teach — and one of those defaults had already changed underneath
+it when block moved off Ctrl.
+
+Step text is written with tokens now — `{roll}`, `{block}`, `{ward1}` — and
+substituted at render time with the player's own binding through the same
+`keyLabel` the HUD uses. Space renders as "Space" rather than a gap.
+
+## It never mentioned half the game
+
+No block. No energy. No light chain. No heavy. Two steps added, placed where the
+dependency order puts them — right after you draw the sword, before you learn to
+roll and bash:
+
+- **The sword is a chain** — three swings, the third lands hardest, hold for a
+  heavy that is the only thing going through a raised shield
+- **Your shield, and what it costs** — block drains the green bar, which the
+  heavy and the bash also spend, and running it dry drops the shield
+
+Thirteen steps, in the order the ideas depend on each other.
+
+**The tell was in my own writing.** I had listed "no wave summary" as a gap
+against Dungeon Defenders while the game already had one, and I had been editing
+combat for days without once opening the file that explains combat to a new
+player. Features drift; the thing that teaches them drifts silently.
