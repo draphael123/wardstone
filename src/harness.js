@@ -1026,17 +1026,23 @@ export function runTests(log = console.log) {
       if (arc.player.y > 0) air += DT; else if (n > 5) break;
     }
 
+    // The sword is a state machine now: a swing lands one `startup` after it
+    // begins, so this asks whether the wisp ever LOST hit points rather than
+    // whether one call returned a hit count.
     const swordVsWisp = (fromAir) => {
       const x = new World({ seed: 3, sandbox: true });
       x._spawn('north', 'wisp');
       const f = x.foes[x.foes.length - 1];
       x.player.weapon = 'sword';
-      for (let n = 0; n < 240; n++) {
+      const hp0 = f.hp;
+      for (let n = 0; n < 400; n++) {
         f.x = x.player.x + 1.5; f.z = x.player.z; f.y = f.def.flyHeight;
         if (fromAir && x.player.y <= 0.01) x.jump();
+        // on the ground case swing freely; in the air only near the apex
         const high = fromAir ? x.player.y > 1.6 : true;
-        if (high && x.player.atkCd <= 0 && x._melee(1, 0) > 0) return true;
+        if (high) x.attack(1, 0, 0);
         x.step(DT);
+        if (f.dead || f.hp < hp0) return true;
       }
       return false;
     };

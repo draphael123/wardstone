@@ -42,15 +42,62 @@ export const PLAYER = {
       airMul: 1.6,
       speed: 62, radius: 0.9, range: 34,
     },
+    // THE SWORD — rebuilt as a moveset rather than a single repeated swing.
+    //
+    // The report was that all four halves of it were wrong at once: slow to
+    // start, no weight in the blow, no way to tell whether it connected, and
+    // only ever one move. So the fix is not a number, it is a shape:
+    //
+    //   light 1-2-3   a chain. Each link starts FASTER than the old single
+    //                 swing (0.07s against 0.36s of cooldown-gated nothing),
+    //                 gets wider as it goes, and the third is a finisher with
+    //                 real damage and a step into it.
+    //   heavy         held. Slow, committed, and the only thing in the game
+    //                 that staggers a POISED foe — which is what gives the
+    //                 Bruiser and the Breaker an answer other than running.
+    //
+    // Attacks ROOT you for their active frames. That is what makes a heavy
+    // weapon read as heavy rather than as laggy: the cost is your feet, not
+    // your reaction time. The roll is the way out.
     sword: {
       name: 'Sword', kind: 'melee', targets: 'ground',
-      damage: 36, cooldown: 0.36,      // 100 dps, but only within 2.8m
-      range: 2.8, arc: 1.9,            // radians, total sweep
+      // kept so anything reading weapon.damage/range/cooldown still works
+      damage: 36, cooldown: 0.36, range: 2.8, arc: 1.9,
+      // How long a swing may be followed up. Too short and the chain feels
+      // like it drops inputs; too long and it fires when you have stopped.
+      // The chain's sustained damage is held at the OLD single swing's 100 dps
+      // on purpose: the rework is about feel, and letting it also be a damage
+      // buff would have made every balance number in the suite unreadable.
+      chainWindow: 0.52,
+      chain: [
+        // startup: time before the blade lands. The FIRST one is the whole
+        // "too slow to start" complaint and is deliberately the shortest.
+        { startup: 0.07, active: 0.10, recover: 0.16, damage: 31, arc: 1.7, range: 2.8, lunge: 0.35 },
+        { startup: 0.09, active: 0.10, recover: 0.18, damage: 36, arc: 2.0, range: 2.9, lunge: 0.45 },
+        { startup: 0.15, active: 0.14, recover: 0.34, damage: 65, arc: 2.6, range: 3.2, lunge: 0.95 },
+      ],
+      heavy: {
+        charge: 0.34,        // s held before it is a heavy at all
+        startup: 0.22,
+        active: 0.16,
+        recover: 0.42,
+        damage: 96,
+        arc: 2.3,
+        range: 3.4,
+        lunge: 1.3,
+        breaksPoise: true,   // the ONLY thing that staggers a Bruiser
+      },
     },
   },
   // Blocking. Only with the sword — you cannot hold a shield up behind a
   // crossbow — which gives the swap a second reason to exist beyond reach.
+  // Blocking costs MANA — the same currency you build with. There is no stamina
+  // bar in this game by choice, and inventing a guard meter would be stamina
+  // wearing a hat. Draining the build purse instead means turtling has a real
+  // price that is legible without a new UI element: hold the shield up all
+  // fight and you cannot afford the wall that would have done the job for you.
   block: {
+    manaPerSec: 22,    // drained while braced; blocking stops when it runs dry
     reduce: 0.22,      // damage taken multiplier while braced
     slow: 0.42,        // movement multiplier
   },

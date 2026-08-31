@@ -412,8 +412,15 @@ function drainEvents() {
         }
         // a sword that connects stops time for a moment; one that whiffs does not
         if (e.hits > 0) {
-          state.hitstop = Math.max(state.hitstop, 0.05 + Math.min(0.05, e.hits * 0.02));
-          r.addShake(0.10 + Math.min(0.2, e.hits * 0.05));
+          const heavy = e.kind === 'heavy';
+          const big = heavy ? 2.2 : (e.arc > 2.3 ? 1.5 : 1);   // finisher or heavy
+          state.hitstop = Math.max(state.hitstop,
+            (0.05 + Math.min(0.05, e.hits * 0.02)) * big);
+          r.addShake((0.10 + Math.min(0.2, e.hits * 0.05)) * big);
+          if (heavy) {
+            r.shock(e.x + e.dx * 1.6, 0.2, e.z + e.dz * 1.6, 0xfff0c8, 0.8, 4.4, 0.42);
+            flash(0.10);
+          }
           r.spark(e.x + e.dx * 1.9, 1.0, e.z + e.dz * 1.9, 0xfff0c8, 8 + e.hits * 3, 7, 1.0, -3);
           // stood UP on its edge, so a sword hit reads across the target's body
           // rather than as a puddle on the floor under it
@@ -444,6 +451,13 @@ function drainEvents() {
         r.spark(e.x, 0.2, e.z, 0xa8b4c8, 7, 3.2, 0.7, -6);
         r.shock(e.x, 0.12, e.z, 0xa8b4c8, 0.5, 2.4, 0.3);
         r.addShake(0.06);
+        break;
+      case 'windupPlayer':
+        if (e.kind === 'heavy') {
+          // a charged blow announces itself
+          r.spark(w.player.x + e.dx * 1.1, 1.5, w.player.z + e.dz * 1.1, 0xffd89a, 7, 3, 0.7, -1);
+          if (s) s.play('select', 0.7, 0.6);
+        }
         break;
       case 'stagger':
         // A stagger is the loudest positive feedback in the game: it is the
@@ -1164,8 +1178,25 @@ function applyInput(dt) {
     else w.dodge(Math.sin(p.yaw), Math.cos(p.yaw));
   }
 
+  // The sword is held rather than tapped: the sim owns the charge timer so
+  // mouse, key and touch all get identical timing. A tap comes out as the next
+  // link in the chain, a hold as the heavy.
+  if (w.weaponDef(p).kind === 'melee' && !state.selected) {
+    let mx = fx, mz = fz;
+    if (!isTouch && state.pointer.has) {
+      const c = pickCell(state.pointer.x, state.pointer.y);
+      if (c) {
+        const cc = cellCenter(c.i, c.j);
+        const ddx = cc.x - p.x, ddz = cc.z - p.z;
+        const dd = Math.hypot(ddx, ddz);
+        if (dd > 0.5) { mx = ddx / dd; mz = ddz / dd; }
+      }
+    }
+    w.meleeInput(state.firing, mx, mz);
+  }
+
   // attacking — the weapon decides whether that is a sweep or a bolt
-  if (state.firing && p.atkCd <= 0 && !state.selected) {
+  if (state.firing && p.atkCd <= 0 && !state.selected && w.weaponDef(p).kind !== 'melee') {
     let ax = fx, az = fz, ay = 0;
     // A foe under the crosshair wins outright, and we aim at it in THREE
     // dimensions. Picking a ground cell — which is what this used to do — can

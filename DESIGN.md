@@ -1333,3 +1333,66 @@ costs real ground because the foe has to walk back in and the player follows it.
 The reel is visible — the body pitches back and compresses for the duration —
 and a stagger gets a ring, sparks and a beat of hitstop, because it is the
 moment the player finds out their swing did something.
+
+---
+
+# The knight's sword, rebuilt
+
+All four halves of it were wrong at once: too slow to start, no weight in the
+blow, no way to tell it connected, and only ever one move. So it is not a number
+change — the sword stopped being a cooldown and became a small state machine.
+
+```
+startup -> active -> recover
+```
+
+Damage lands once, on entering `active`. A cooldown has no timing to speak of:
+it gates *when you may swing* and says nothing about what the swing is doing.
+
+## The moveset
+
+| | startup | damage | arc | notes |
+|---|---|---|---|---|
+| light 1 | **0.07 s** | 31 | 1.7 | quick diagonal chop |
+| light 2 | 0.09 s | 36 | 2.0 | backhand — the return cut |
+| light 3 | 0.15 s | 65 | 2.6 | wide finisher, real step into it |
+| heavy | 0.34 s charge + 0.22 s | 96 | 2.3 | **the only thing that breaks poise** |
+
+The first link's 0.07 s startup is the entire "too slow to start" complaint. Each
+link comes from a different guard and travels a different way — an overhead, a
+backhand, a two-handed sweep — because a chain played from one animation reads
+as a stutter rather than a combination.
+
+The heavy is what finally gives the **Bruiser and the Breaker an answer other
+than running away**: verified, a charged blow strips a Breaker's poise and
+staggers it mid-windup, where every light attack bounces off.
+
+Sustained chain damage is pinned at the old single swing's **99 dps against
+100** on purpose. The rework is about feel, and letting it also be a damage buff
+would have made every balance number in the suite unreadable.
+
+## Attacks commit you
+
+Movement is locked through startup and active, and free again during recovery.
+That is what makes a heavy weapon read as *heavy* rather than as *laggy* — the
+price of a swing is your feet, not your reaction time, and getting them back is
+part of the animation instead of unexplained paralysis. The roll is the way out.
+
+Each link lunges, and the lunge routes through `movePlayer` so a committed step
+still collides with walls and wards.
+
+## Blocking costs mana
+
+There is no stamina bar in this game by choice, and inventing a guard meter
+would be stamina wearing a hat. Blocking drains **22 mana a second** from the
+same purse you build with, and the shield drops on its own when it runs dry.
+
+Turtling now has a price that needs no new UI: hold the shield up all fight and
+you cannot afford the wall that would have done the job for you.
+
+## A bug that would have shipped
+
+`meleeInput()` reads `this._dt` to advance the charge timer, and can be called
+before the first `step()`. An undefined dt turned `holdT` into **NaN**, after
+which the heavy attack could never fire again — for the rest of the run. Caught
+because the directed test reported `holdT NaN` rather than a wrong number.

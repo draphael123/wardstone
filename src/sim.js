@@ -119,6 +119,10 @@ export class World {
     // one foe and watch exactly one rule. See [[asserts-must-fit-the-thing-tested]].
     this.sandbox = !!opts.sandbox;
     this.t = 0;
+    // Seeded, because meleeInput() reads it to advance the charge timer and
+    // can be called before the first step() — an undefined dt turns holdT
+    // into NaN and the heavy attack can then never fire at all.
+    this._dt = 1 / 60;
     this.phase = 'build';        // build | combat | won | lost
     this.waveIndex = 0;          // index of the wave about to run / running
     this.phaseTimer = ECON.buildPhase;
@@ -141,6 +145,8 @@ export class World {
       dodgeT: 0, dodgeCd: 0, dodgeX: 0, dodgeZ: 0, invuln: 0,
       blocking: false, abilityCd: 0, rallyT: 0, warming: false,
       vy: 0, airT: 0, jumpCd: 0,
+      atkPhase: null, atkT: 0, atkMove: null, atkKind: null,
+      combo: 0, comboT: 0, holdT: 0,
     };
 
     this.foes = [];
@@ -697,33 +703,136 @@ export class World {
   // decides what that means. Callers never branch on weapon kind.
   attack(dirx, dirz, diry) {
     const p = this.player;
-    if (!p.alive || p.atkCd > 0 || p.swapT > 0 || p.blocking) return null;
-    return this.weaponDef(p).kind === 'melee'
-      ? this._melee(dirx, dirz)
-      : this.fireBolt(dirx, dirz, diry);
+    if (!p.alive || p.swapT > 0 || p.blocking) return null;
+    if (this.weaponDef(p).kind !== 'melee') {
+      if (p.atkCd > 0) return null;
+      return this.fireBolt(dirx, dirz, diry);
+    }
+    // One-shot melee, used by the harness and by anything that wants "swing
+    // now" without modelling a held button: press and release in one call.
+    if (!this._meleeReady()) return null;
+    const wd = PLAYER.weapons.sword;
+    const link = wd.chain[Math.min(p.combo, wd.chain.length - 1)];
+    return this._beginMelee(link, dirx, dirz, 'light');
+  }
+  // ------------------------------------------------------------------ melee
+  // The sword is a small state machine rather than a cooldown, because the
+  // complaint was about TIMING, and a cooldown has none: it gates when you may
+  // swing and says nothing about what the swing is doing.
+  //
+  //   startup -> active -> recover
+  //
+  // Damage lands once, on entering `active`. Movement is locked for startup and
+  // active — that is the commitment — and returns during recover so the recovery
+  // reads as regaining your feet rather than as lag.
+  //
+  // A light attack during `recover`, while the chain window is open, links into
+  // the next swing. Miss the window and you start again at the first.
+  _stepMelee(dt) {
+    const p = this.player;
+    if (p.comboT > 0) {
+      p.comboT -= dt;
+      if (p.comboT <= 0) p.combo = 0;      // window closed; back to the top
+    }
+    if (!p.atkPhase) return;
+
+    p.atkT -= dt;
+    if (p.atkT > 0) return;
+
+    if (p.atkPhase === 'startup') {
+      // the blade lands NOW
+      this._meleeSweep(p.atkMove);
+      p.atkPhase = 'active';
+      p.atkT = p.atkMove.active;
+    } else if (p.atkPhase === 'active') {
+      p.atkPhase = 'recover';
+      p.atkT = p.atkMove.recover;
+      // the chain window opens as recovery begins
+      p.comboT = PLAYER.weapons.sword.chainWindow;
+    } else {
+      p.atkPhase = null;
+      p.atkMove = null;
+    }
   }
 
-  // A sweep, not a projectile: everything on the ground inside the arc is hit
-  // at once. That is what makes it worth standing in the brawl.
-  _melee(dirx, dirz) {
+  // Can this input start a swing right now?
+  _meleeReady() {
     const p = this.player;
-    const def = PLAYER.weapons.sword;
+    if (!p.alive || p.swapT > 0 || p.blocking || p.dodgeT > 0) return false;
+    // free when idle, or during recovery if the chain window is still open
+    return !p.atkPhase || (p.atkPhase === 'recover' && p.comboT > 0);
+  }
+
+  // `held` is the attack button's state. The sim owns the charge timer so that
+  // keyboard, mouse and touch all get identical timing for free.
+  meleeInput(held, dirx, dirz) {
+    const p = this.player;
+    const wd = PLAYER.weapons.sword;
+    if (p.weapon !== 'sword') return null;
+
+    if (held) {
+      p.holdT += this._dt;
+      // A charged heavy fires the moment it is ready rather than waiting for
+      // release: holding past the point of no return and then being told to let
+      // go is a worse feel than the blow simply happening.
+      if (p.holdT >= wd.heavy.charge && this._meleeReady()) {
+        p.holdT = -999;                    // consumed; will not re-trigger
+        return this._beginMelee(wd.heavy, dirx, dirz, 'heavy');
+      }
+      return null;
+    }
+
+    // released
+    const wasHeld = p.holdT;
+    p.holdT = 0;
+    if (wasHeld <= 0) return null;         // nothing pending, or already spent
+    if (!this._meleeReady()) return null;
+    const link = wd.chain[Math.min(p.combo, wd.chain.length - 1)];
+    return this._beginMelee(link, dirx, dirz, 'light');
+  }
+
+  _beginMelee(move, dirx, dirz, kind) {
+    const p = this.player;
     const len = Math.hypot(dirx, dirz) || 1;
-    const ux = dirx / len, uz = dirz / len;
-    p.atkCd = def.cooldown;
-    p.swingT = 0.18;
-    p.yaw = Math.atan2(ux, uz);
+    p.yaw = Math.atan2(dirx / len, dirz / len);
+    p.atkMove = move;
+    p.atkKind = kind;
+    p.atkPhase = 'startup';
+    p.atkT = move.startup;
+    p.swingT = move.startup + move.active;   // what the renderer animates
+    if (kind === 'light') {
+      p.combo = Math.min(p.combo + 1, PLAYER.weapons.sword.chain.length);
+      if (p.combo >= PLAYER.weapons.sword.chain.length) p.combo = 0;
+      p.comboT = 0;                          // reopened when recovery starts
+    } else {
+      p.combo = 0;
+    }
+    this.emit({
+      type: 'windupPlayer', x: p.x, z: p.z, kind,
+      startup: move.startup, dx: Math.sin(p.yaw), dz: Math.cos(p.yaw),
+    });
+    return true;
+  }
+
+  // The sweep itself. One arc, everything on the ground inside it, plus the
+  // step forward that gives the blow its weight.
+  _meleeSweep(move) {
+    const p = this.player;
+    const ux = Math.sin(p.yaw), uz = Math.cos(p.yaw);
+    // lunge: committed movement, so it goes through the same collision as a walk
+    if (move.lunge) {
+      p._lunging = true;
+      this.movePlayer(ux * move.lunge * 24, uz * move.lunge * 24, 1 / 24);
+      p._lunging = false;
+    }
 
     const near = this._scratch;
-    this.foeHash.query(p.x, p.z, def.range + 1.5, near);
-    const cosHalf = Math.cos(def.arc / 2);
+    this.foeHash.query(p.x, p.z, move.range + 1.5, near);
+    const cosHalf = Math.cos(move.arc / 2);
     let hits = 0;
     for (let n = 0; n < near.length; n++) {
       const f = near[n];
       if (f.dead) continue;
-      // From the GROUND the sword still cannot touch the sky — that rule is
-      // load-bearing. What jumping buys is a window: at the top of a jump the
-      // blade is high enough to reach a wisp, and only then.
       if (f.def.flying) {
         const blade = p.y + SWORD_TOP;
         if (f.y > blade + PLAYER.jump.airReach) continue;
@@ -731,33 +840,44 @@ export class World {
       }
       const dx = f.x - p.x, dz = f.z - p.z;
       const d = Math.hypot(dx, dz);
-      if (d > def.range + f.def.radius) continue;
+      if (d > move.range + f.def.radius) continue;
       if (d > 0.001 && (dx * ux + dz * uz) / d < cosHalf) continue;
-      this.hurtFoe(f, def.damage, 'player');
+      // A heavy is the only thing that goes through poise, which is what gives
+      // the Bruiser and the Breaker an answer other than running away.
+      if (move.breaksPoise) f.stagCd = 0;
+      const wasPoised = f.def.poise;
+      if (move.breaksPoise && wasPoised) {
+        f.stagT = STAGGER.time * 1.4;
+        f.windT = 0; f.strikeT = 0;
+        const kl = Math.hypot(dx, dz) || 1;
+        f.stagX = dx / kl; f.stagZ = dz / kl;
+        this.emit({ type: 'stagger', x: f.x, y: f.y + f.def.height * 0.6, z: f.z, foe: f.kind });
+      }
+      this.hurtFoe(f, move.damage, 'player');
       hits++;
     }
-    // A swing that connects with nothing, while something airborne WAS in
-    // reach, is the single most confusing moment in the game: seventeen swings
-    // at a will-o-wisp with no response reads as "the enemy is frozen and
-    // unattackable", which is exactly how it was reported. Say it out loud.
+
     let airborneInReach = false;
     if (!hits) {
       for (let n = 0; n < near.length; n++) {
         const f = near[n];
         if (f.dead || !f.def.flying) continue;
-        if (Math.hypot(f.x - p.x, f.z - p.z) <= def.range + 1.4) { airborneInReach = true; break; }
+        if (Math.hypot(f.x - p.x, f.z - p.z) <= move.range + 1.4) { airborneInReach = true; break; }
       }
     }
     for (const c of this.caches) {
       if (c.dead) continue;
       const dx = c.x - p.x, dz = c.z - p.z;
       const d = Math.hypot(dx, dz);
-      if (d > def.range + 0.9) continue;
+      if (d > move.range + 0.9) continue;
       if (d > 0.001 && (dx * ux + dz * uz) / d < cosHalf) continue;
-      this.hurtCache(c, def.damage);
+      this.hurtCache(c, move.damage);
       hits++;
     }
-    this.emit({ type: 'swing', x: p.x, z: p.z, dx: ux, dz: uz, hits, airborneInReach });
+    this.emit({
+      type: 'swing', x: p.x, z: p.z, dx: ux, dz: uz, hits, airborneInReach,
+      kind: this.player.atkKind, arc: move.arc, range: move.range,
+    });
     return hits;
   }
 
@@ -790,7 +910,8 @@ export class World {
   // and your attack for as long as you want the protection.
   setBlocking(on) {
     const p = this.player;
-    const want = !!on && p.alive && p.weapon === 'sword' && p.dodgeT <= 0;
+    const want = !!on && p.alive && p.weapon === 'sword' && p.dodgeT <= 0 &&
+      !p.atkPhase && this.mana > 0;
     if (want !== p.blocking) this.emit({ type: 'block', on: want });
     p.blocking = want;
     return want;
@@ -921,6 +1042,13 @@ export class World {
   movePlayer(vx, vz, dt) {
     const p = this.player;
     if (!p.alive) return;
+    // ATTACKS COMMIT YOU. Your feet are the price of a swing, not your reaction
+    // time — which is what makes a heavy weapon read as heavy rather than as
+    // laggy. Recovery frames are free again, so getting your feet back is part
+    // of the animation instead of a period of unexplained paralysis. The lunge
+    // routes through here deliberately, so a committed step still collides.
+    if (p.dodgeT <= 0 && !p._lunging &&
+        (p.atkPhase === 'startup' || p.atkPhase === 'active')) return;
     if (p.blocking && p.dodgeT <= 0) { vx *= PLAYER.block.slow; vz *= PLAYER.block.slow; }
     let nx = p.x + vx * dt, nz = p.z + vz * dt;
     const c = clampToArena(nx, nz, PLAYER.radius);
@@ -960,7 +1088,16 @@ export class World {
     if (p.abilityCd > 0) p.abilityCd -= dt;
     if (p.rallyT > 0) p.rallyT -= dt;
     if (p.invuln > 0) p.invuln -= dt;
+    this._dt = dt;
+    // Blocking is paid for out of the build purse. Run it dry and the shield
+    // drops on its own, which is a much clearer lesson than a greyed-out button.
+    if (p.blocking) {
+      this.mana = Math.max(0, this.mana - PLAYER.block.manaPerSec * dt);
+      this.stats.manaSpent += PLAYER.block.manaPerSec * dt;
+      if (this.mana <= 0) this.setBlocking(false);
+    }
     this._stepJump(dt);
+    this._stepMelee(dt);
     if (p.dodgeT > 0) {
       p.dodgeT -= dt;
       this.movePlayer(p.dodgeX * PLAYER.dodge.speed, p.dodgeZ * PLAYER.dodge.speed, dt);

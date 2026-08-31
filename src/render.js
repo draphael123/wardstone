@@ -2491,12 +2491,47 @@ export class Renderer {
       rig.cape.rotation.x = -0.10 - speedK * 0.22;
 
       // the swing: a fast forward chop that overrides the walk on the arm
-      if (p.swingT > 0) {
-        const k = 1 - (p.swingT / 0.18);
-        rig.armR.rotation.x = -1.5 + k * 2.6;
-        rig.armR.rotation.z = 0.4 - k * 0.5;
+      // Four distinct swings, not one played four times. Each link of the chain
+      // comes from a different guard and travels a different way, which is what
+      // makes a chain read as a chain rather than as a stutter.
+      if (p.atkMove) {
+        const total = p.atkMove.startup + p.atkMove.active;
+        const k = Math.max(0, Math.min(1, 1 - (p.swingT / Math.max(0.01, total))));
+        const heavy = p.atkKind === 'heavy';
+        const link = heavy ? 3 : (PLAYER.weapons.sword.chain.indexOf(p.atkMove));
+        if (heavy) {
+          // overhead: wound far back, then driven down through the target
+          rig.armR.rotation.x = -2.5 + k * 4.0;
+          rig.armR.rotation.z = 0.1;
+          rig.body.rotation.y = -0.35 + k * 0.7;
+        } else if (link === 1) {
+          // backhand: the return cut, travelling the other way
+          rig.armR.rotation.x = -0.6 + k * 1.6;
+          rig.armR.rotation.z = -0.9 + k * 1.5;
+          rig.body.rotation.y = 0.4 - k * 0.8;
+        } else if (link === 2) {
+          // finisher: a wide two-handed sweep with the shoulders behind it
+          rig.armR.rotation.x = -1.1 + k * 2.4;
+          rig.armR.rotation.z = 1.0 - k * 2.0;
+          rig.armL.rotation.x = -0.7 + k * 1.4;
+          rig.body.rotation.y = -0.55 + k * 1.1;
+        } else {
+          // opener: a quick diagonal chop
+          rig.armR.rotation.x = -1.5 + k * 2.6;
+          rig.armR.rotation.z = 0.4 - k * 0.5;
+          rig.body.rotation.y = -0.2 + k * 0.4;
+        }
+        // the whole body leans into the blow during the active frames
+        if (p.atkPhase === 'active') rig.body.rotation.x = 0.16;
       } else {
         rig.armR.rotation.z = 0;
+        rig.body.rotation.y = 0;
+      }
+      // charging a heavy: wind up and hold, so the hold is visible
+      if (p.holdT > 0 && p.holdT < 900 && !p.atkPhase) {
+        const c = Math.min(1, p.holdT / PLAYER.weapons.sword.heavy.charge);
+        rig.armR.rotation.x = -0.4 - c * 2.1;
+        rig.body.rotation.y = -c * 0.4;
       }
       // airborne: legs tuck at the top, then reach for the ground on the way
       // down, so the arc reads as a jump rather than a float
@@ -2518,8 +2553,9 @@ export class Renderer {
       }
 
       // the arc follows the swing and fades out over it
-      if (p.swingT > 0) {
-        const k = 1 - (p.swingT / 0.18);
+      if (p.swingT > 0 && p.atkMove) {
+        const total = p.atkMove.startup + p.atkMove.active;
+        const k = Math.max(0, Math.min(1, 1 - (p.swingT / Math.max(0.01, total))));
         this.arc.visible = true;
         this.arc.position.set(p.x, 0.9, p.z);
         this.arc.rotation.y = -p.yaw + Math.PI / 2;
@@ -2528,7 +2564,9 @@ export class Renderer {
         this.arc.material.opacity = 0.34 * (1 - k) + 0.05;
         // and the ribbon records where the blade has BEEN, which is the part
         // the eye reads as speed. Only while a sword is actually out.
-        if (p.weapon === 'sword') this.pushTrail(p.x, 1.0, p.z, p.yaw, k, 2.8);
+        if (p.weapon === 'sword' && p.atkMove) {
+          this.pushTrail(p.x, 1.0, p.z, p.yaw, k, p.atkMove.range);
+        }
       } else {
         this.arc.visible = false;
       }
