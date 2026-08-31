@@ -2091,3 +2091,57 @@ A hit now emits a `cleave` per body the blade passed through, at the contact
 point between the two, and a kill adds a darker second burst. A cleave through
 three goblins reads as three impacts instead of one louder one, and a blow reads
 as landing **on** something rather than as an animation happening near it.
+
+---
+
+# Four bugs from one playtest
+
+## Ctrl was closing the tab
+
+"Holding control seems to stop the game." Block was bound to **Control** and
+forward is **W** — so holding block and walking forward is `Ctrl+W`, which
+closes the browser tab. `Ctrl+R` was rotate/ready (reload), `Ctrl+S` was
+move-back (save page), and `Ctrl+1`–`4` were the ward keys (switch tabs).
+
+**A modifier cannot be a game key on the web.** Block moved to `c`, keydown now
+ignores any chord carrying ctrl/meta/alt, the rebinder refuses modifiers
+outright, and stored settings from before this build have their modifier binds
+dropped on load — otherwise the fix would never reach anyone who had already
+played.
+
+## The pell was not a foe
+
+"Targeting the dummies feels off." It was a hardcoded position test, so **none**
+of the aim snapping, hit flash, stagger, damage numbers or contact sparks
+applied to it — hitting it was a coordinate check wearing an animation.
+
+It is a real foe now with an `inert` flag: it never moves, never attacks, never
+dies, never belongs to a wave. Everything else in the combat code treats it
+exactly like a goblin, because it is one.
+
+**And the sword swept an empty index.** The melee sweep and the aim snap both go
+through the spatial hash, which only `step()` ever filled — so in the hall
+nothing was in it and the pells could not be hit at all. The complaint was not
+about targeting; it was that there was nothing there to target.
+
+## The roll did nothing in the hall
+
+`_stepHall` decremented the dodge timer and never moved the body, so a roll
+played its animation on the spot. A practice room where a move behaves
+differently from the field is worse than no practice room, because what you
+learn in it is wrong.
+
+## The bash had no pose
+
+It was still wearing Rally's presentation: an omnidirectional ring burst, with
+the knight standing perfectly still inside it. A bash is a body throwing a
+shield at something — the shield arm cocks and drives forward, the shoulder
+turns through, the sword arm trails, the whole man leans in. The effect is a
+directional wedge at the ability's real arc and reach, and the toast says
+*Shield bash* rather than *Rally*.
+
+## And one thing that was my instrument, not the game
+
+`requestAnimationFrame` does not fire at all in the automation pane, so several
+"the sim is frozen" readings I took were the harness, not the code. Drive the
+world by hand (`world.step`) when measuring in there.

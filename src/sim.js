@@ -1168,9 +1168,14 @@ export class World {
       // Where the blade actually met the body, so the renderer can put the
       // spark THERE. It used to spark at the player's own feet, which is why a
       // hit read as an animation happening near a goblin rather than to one.
+      if (f.def.inert) {
+        this.pell.combo++;
+        this.pell.comboT = 1.6;
+      }
       const cl = d || 1;
       this.emit({
         type: 'cleave',
+        damage: move.damage,
         x: p.x + (dx / cl) * Math.max(0.4, d - f.def.radius * 0.6),
         y: f.y + f.def.height * 0.55,
         z: p.z + (dz / cl) * Math.max(0.4, d - f.def.radius * 0.6),
@@ -1187,23 +1192,6 @@ export class World {
         if (Math.hypot(f.x - p.x, f.z - p.z) <= move.range + 1.4) { airborneInReach = true; break; }
       }
     }
-    // The pell. It cannot be killed and it cannot hurt you; it is here so the
-    // moveset has somewhere to be learned, and it counts the chain back at you.
-    if (this.hub && this.pell) {
-      const st = nearestStation(p.x, p.z);
-      const dpx = -8.5 - p.x, dpz = 400 - p.z;
-      const dp = Math.hypot(dpx, dpz);
-      if (dp < move.range + 0.9 && (dp < 0.001 || (dpx * ux + dpz * uz) / dp >= cosHalf)) {
-        this.pell.hitT = 0.18;
-        this.pell.lastHit = move.damage;
-        this.pell.combo++;
-        this.pell.comboT = 1.6;
-        this.emit({ type: 'pell', x: -8.5, z: 400, damage: move.damage,
-                    kind: this.player.atkKind, combo: this.pell.combo });
-        hits++;
-      }
-    }
-
     for (const c of this.caches) {
       if (c.dead) continue;
       const dx = c.x - p.x, dz = c.z - p.z;
@@ -1486,7 +1474,14 @@ export class World {
     // it and conclude the post was broken.
     this.player.weapon = 'sword';
     this.player.swapT = 0;
-    this.pell = { hp: 1, maxHp: 1, hitT: 0, lastHit: 0, combo: 0, comboT: 0 };
+    this.pell = { combo: 0, comboT: 0 };
+    // Three of them, in an arc where the old single post stood. Three because
+    // the thing worth practising is the CHAIN and the arc it sweeps, and one
+    // target teaches you nothing about either.
+    this.foes.length = 0;
+    for (const [dx, dz] of [[-9.5, 402.0], [-8.0, 399.0], [-10.5, 398.5]]) {
+      this.foes.push(this._makeDummy(dx, dz));
+    }
     this.events.length = 0;
   }
 
@@ -1494,6 +1489,19 @@ export class World {
     this.hub = false;
     this.player.x = 0;
     this.player.z = 6;
+  }
+
+  _makeDummy(x, z) {
+    const def = FOE_BY_ID.dummy;
+    return {
+      id: NEXT_ID++, kind: 'dummy', def,
+      lane: LANES[0], dist: 0, off: 0,
+      x, z, y: 0, hp: def.hp, maxHp: def.hp,
+      atkCd: 0, target: null, targetKind: null, dead: false, hitT: 0,
+      aggroT: 0, windT: 0, stunT: 0, slowT: 0, slowK: 1, strikeT: 0, swingK: 0,
+      stagT: 0, stagCd: 0, stagX: 0, stagZ: 0,
+      fuseT: 0, blastTarget: null, fx: 0, fz: 0, wph: 0, hx: 0, hz: 1,
+    };
   }
 
   // What you are standing close enough to use.
@@ -1642,6 +1650,7 @@ export class World {
       // The player outranks a ward: standing in a lane has to cost something,
       // or the safe play is to park on top of the palisade and hold repair.
       if (f.aggroT > 0) f.aggroT -= dt;
+      if (def.inert) continue;                        // a pell: hit it, it stands
       if (f.stunT > 0) { f.stunT -= dt; continue; }   // off its feet
       if (f.stagCd > 0) f.stagCd -= dt;
       if (f.stagT > 0) {
@@ -2005,22 +2014,35 @@ export class World {
   _stepHall(dt) {
     const p = this.player;
     this._dt = dt;
+    // The sweep and the aim snap both go through the spatial hash, and only
+    // step() ever filled it — so in the hall the sword swept an empty index and
+    // the pells could not be hit at all. Reported as "targeting the dummies
+    // feels off", and it was not the targeting: it was that nothing was there.
+    this.foeHash.clear();
+    for (const f of this.foes) if (!f.dead) this.foeHash.add(f);
     if (p.atkCd > 0) p.atkCd -= dt;
     if (p.swapT > 0) p.swapT -= dt;
     if (p.swingT > 0) p.swingT -= dt;
     if (p.dodgeCd > 0) p.dodgeCd -= dt;
     if (p.abilityCd > 0) p.abilityCd -= dt;
     if (p.invuln > 0) p.invuln -= dt;
-    if (p.dodgeT > 0) p.dodgeT -= dt;
+    // The ROLL, driven exactly as step() drives it. The hall was decrementing
+    // the timer and never moving the body, so a roll played its animation on
+    // the spot — reported as "dodge roll doesn't work correctly there". A
+    // practice room where a move behaves differently is worse than no practice
+    // room, because what you learn in it is wrong.
+    if (p.dodgeT > 0) {
+      p.dodgeT -= dt;
+      this.movePlayer(p.dodgeX * PLAYER.dodge.speed, p.dodgeZ * PLAYER.dodge.speed, dt);
+    }
     this._stepMelee(dt);
     this._stepJump(dt);
     this._stepEnergy(dt);
     // the pell's hit flash and the combo readout it exists to teach
     const q = this.pell;
-    if (q) {
-      if (q.hitT > 0) q.hitT -= dt;
-      if (q.comboT > 0) { q.comboT -= dt; if (q.comboT <= 0) q.combo = 0; }
-    }
+    if (q && q.comboT > 0) { q.comboT -= dt; if (q.comboT <= 0) q.combo = 0; }
+    // inert foes still need their hit flash ticked down
+    for (const f of this.foes) if (f.hitT > 0) f.hitT -= dt;
   }
 
   // Move from (x0,z0) toward (nx,nz), refusing to climb.

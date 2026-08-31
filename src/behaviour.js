@@ -63,6 +63,10 @@ const CHECKS = [
   {
     id: 'not-idle',
     why: 'a foe doing nothing at all — not moving, not winding up, not attacking',
+    // `inert` foes are exempt, and only they: the Pell in the hall exists to
+    // stand still and be hit. Exempting it by kind rather than by name means a
+    // future practice target is covered and a real foe never is.
+    skip: (f) => !!f.def.inert,
     // the one that actually catches "it just stands there". Allowed to be still
     // only if it is busy: winding up, striking, stunned, on cooldown, or a
     // ranged foe deliberately holding its ground.
@@ -130,6 +134,7 @@ function auditType(foeId, opts = {}) {
       if (f.fuseT > 0) seen.fused = true;
       if (f.aggroT > 0) seen.retaliated = true;
       for (const c of CHECKS) {
+        if (c.skip && c.skip(f)) continue;
         const bad = c.test(f, p, w, st);
         if (bad && !found.some(x => x.id === c.id)) {
           found.push({ id: c.id, why: c.why, detail: `${foeId}: ${bad}`, t: s * DT });
@@ -272,6 +277,11 @@ export function runBehaviour(log = console.log) {
   let bad = 0, total = 0;
 
   for (const def of FOES) {
+    // The Pell is not a foe in the sense this audit means. It never spawns in a
+    // run, so it can be neither clean nor broken — counting it as a subject
+    // just moved the score from 12/12 to 12/13 and made a healthy audit look
+    // like a failing one.
+    if (def.inert) continue;
     const r = auditType(def.id);
     total++;
     const flags = r.found;

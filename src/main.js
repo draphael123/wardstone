@@ -55,7 +55,13 @@ const ACTIONS = [
   { id: 'swap', name: 'Swap weapon', def: 'q' },
   { id: 'roll', name: 'Roll', def: ' ' },
   { id: 'jump', name: 'Jump', def: 'shift' },
-  { id: 'block', name: 'Block', def: 'control' },
+  // NOT Control. Block was bound to it, forward is W, and holding block while
+  // walking forward is Ctrl+W — which closes the tab. Reported as "holding
+  // control seems to stop the game", and it was worse than stopping it.
+  // Ctrl+R was rotate/ready (reload), Ctrl+S was move-back (save page), and
+  // Ctrl+1..4 were the ward keys (switch tabs). A modifier cannot be a game
+  // key on the web.
+  { id: 'block', name: 'Block', def: 'c' },
   { id: 'rally', name: 'Rally', def: 'v' },
   { id: 'mend', name: 'Mend (hold)', def: 'e' },
   { id: 'build', name: 'Build view', def: 'tab' },
@@ -499,13 +505,21 @@ function drainEvents() {
       case 'swap':
         if (s) s.play('select', 0.7);
         break;
-      case 'rally':
-        r.ringBurst(e.x, 0.5, e.z, 0xffd89a, 10, 40);
-        r.addShake(0.55);
-        flash(0.16);
-        state.hitstop = Math.max(state.hitstop, 0.09);
-        toast(`Rally &mdash; ${e.hit} scattered`);
+      case 'rally': {
+        // DIRECTIONAL, because a shield bash is. A ring burst says "something
+        // went off where I stood"; this says "I drove that forward, into
+        // those". The wedge is the ability's real arc and reach, the same way
+        // a sword swing draws its own.
+        const ang = Math.atan2(e.dx, e.dz);
+        r.swingFan(e.x, e.z, ang, ABILITY.arc, ABILITY.range);
+        r.shock(e.x + e.dx * 1.3, 0.25, e.z + e.dz * 1.3, 0xffe6bc, 0.5, 3.0, 0.34);
+        r.spark(e.x + e.dx * 1.7, 1.1, e.z + e.dz * 1.7, 0xfff0cc, 9, 6, 0.8, -3);
+        r.addShake(e.hit ? 0.5 : 0.24);
+        if (e.hit) flash(0.13);
+        state.hitstop = Math.max(state.hitstop, e.hit ? 0.09 : 0.04);
+        toast(e.hit ? `Shield bash &mdash; ${e.hit} staggered` : 'Shield bash');
         break;
+      }
       case 'blocked':
         r.spark(e.x, 1.2, e.z, 0xffe8b8, 7, 5, 0.7, -1);
         r.addShake(0.09);
@@ -839,6 +853,9 @@ function bindInput() {
     if (e.repeat) return;
     if (bindCapture(e)) return;   // rebinding owns the keyboard while it is armed
     const k = e.key.toLowerCase();
+    // A chord with a modifier belongs to the browser, not to us. Without this
+    // the game also treated Ctrl+W as "walk forward" on its way out the door.
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
     state.keys.add(k);
     if (k === 'escape' || k === '0') {
       if (state.inspect) { inspectWard(null); return; }
@@ -1858,6 +1875,15 @@ function loadSettings() {
       // merge rather than replace, so a build that ADDS an action does not
       // leave anyone who saved settings with an unbound control
       state.binds = { ...defaultBinds(), ...o.binds };
+      // Anyone who played before this build has `control` saved for something,
+      // and their stored settings would keep handing them Ctrl+W. A modifier
+      // can never be a game key on the web, so it is dropped on load whatever
+      // it was bound to, and that action falls back to its default.
+      for (const [id, key] of Object.entries(state.binds)) {
+        if (key === 'control' || key === 'meta' || key === 'alt') {
+          state.binds[id] = (ACTION_BY_ID[id] || {}).def || '';
+        }
+      }
     }
   } catch (e) { /* no stored settings is the normal case */ }
 }
@@ -1942,6 +1968,14 @@ function bindCapture(e) {
   e.stopPropagation();
   if (k === 'escape') { listeningFor = null; renderBinds(); return true; }
   if (RESERVED.has(k)) { listeningFor = null; renderBinds(); return true; }
+  // Modifiers are refused outright. Bound to a game action they turn every
+  // other key into a browser shortcut — Ctrl+W closes the tab, Ctrl+R reloads
+  // — and nothing the page can do will stop it.
+  if (k === 'control' || k === 'meta' || k === 'alt') {
+    listeningFor = null; renderBinds();
+    toast('That key belongs to the browser &mdash; pick another');
+    return true;
+  }
   state.binds[listeningFor] = k;
   listeningFor = null;
   rebuildKeymap();

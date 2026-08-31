@@ -566,6 +566,29 @@ function maulGeo() {
 // oversized, flat, pale against the green, and set forward of the body — a
 // slab with a goblin behind it rather than a goblin carrying a slab.
 // See [[character-silhouette-hierarchy]].
+// THE PELL. A straw figure lashed to a post: a target with a silhouette, so
+// the aim snap has something to snap TO and a hit has somewhere to land.
+function pellGeo() {
+  const wood = 0x5b4630, straw = 0xc4ab6a, rag = 0x8a7a58, iron = 0x7e7a6a;
+  return assemble([
+    { g: box(1.5, 0.26, 1.5), y: 0.13, c: 0x6a6559 },        // stone base
+    { g: box(0.42, 1.55, 0.42), y: 0.9, c: wood },            // post
+    { g: box(1.55, 0.26, 0.26), y: 1.5, c: wood },            // cross arm
+    { g: box(0.72, 0.78, 0.5), y: 1.35, c: straw },           // body of straw
+    { g: box(0.8, 0.16, 0.56), y: 1.05, c: rag },             // a belt of rag
+    { g: box(0.46, 0.44, 0.42), y: 1.92, c: straw },          // head
+    { g: box(0.5, 0.14, 0.46), y: 2.16, c: iron },            // a cast-off helm
+    { g: box(0.1, 0.12, 0.1), x: 0.12, y: 1.95, z: 0.22, c: 0x3a3226 },
+    { g: box(0.1, 0.12, 0.1), x: -0.12, y: 1.95, z: 0.22, c: 0x3a3226 },
+    // straw poking out of the arms, which is what says "hit me" rather than
+    // "I am a fence post"
+    { g: box(0.24, 0.24, 0.24), x: 0.72, y: 1.5, c: straw },
+    { g: box(0.24, 0.24, 0.24), x: -0.72, y: 1.5, c: straw },
+    { g: box(0.12, 0.4, 0.12), x: 0.78, y: 1.28, rz: 0.3, c: straw },
+    { g: box(0.12, 0.4, 0.12), x: -0.78, y: 1.28, rz: -0.3, c: straw },
+  ]);
+}
+
 function shieldmanGeo() {
   const skin = 0x6f8f3f, limb = 0x5f7d36, iron = 0x8b8a80, wood = 0x5b4630;
   return assemble([
@@ -663,6 +686,7 @@ const SKINS = {
     maul:    { geo: maulGeo,    name: 'Maul Wight' },
     archer: { geo: slingerGeo, name: 'Bone Archer' },
     shieldman: { geo: shieldmanGeo, name: 'Shieldbearer' },
+    dummy: { geo: pellGeo, name: 'Pell' },
     bruiser: { geo: bruiserGeo, name: 'Bruiser' },
     climber: { geo: climberGeo, name: 'Crawler' },
   },
@@ -675,6 +699,7 @@ const SKINS = {
     maul:    { geo: maulGeo,    name: 'Maul Goblin' },
     archer: { geo: slingerGeo, name: 'Goblin Archer' },
     shieldman: { geo: shieldmanGeo, name: 'Shield Goblin' },
+    dummy: { geo: pellGeo, name: 'Pell' },
     bruiser: { geo: bruiserGeo, name: 'Bruiser' },
     climber: { geo: climberGeo, name: 'Wall Goblin' },
   },
@@ -682,7 +707,7 @@ const SKINS = {
 
 const FOE_CAP = {
   husk: 90, runner: 110, wisp: 40, breaker: 8, bomber: 24,
-  maul: 20, archer: 30, shieldman: 24, bruiser: 12, climber: 60,
+  maul: 20, archer: 30, shieldman: 24, bruiser: 12, climber: 60, dummy: 4,
 };
 
 // ---------------------------------------------------------------------------
@@ -3167,6 +3192,23 @@ export class Renderer {
         rig.legL.rotation.x = tuck; rig.legR.rotation.x = tuck * 0.7;
         rig.armL.rotation.x = rising ? -0.9 : -0.3;
         rig.cape.rotation.x = -0.45;
+      }
+      // THE SHIELD BASH. It had no pose at all — the knight stood still while a
+      // ring of light went off around him, which is the presentation the old
+      // omnidirectional Rally left behind. A bash is a body throwing a shield
+      // at something: the shield arm comes across and drives FORWARD, the
+      // shoulder follows it, the sword arm trails, and the whole man leans in.
+      if (p.rallyT > 0) {
+        const k = 1 - (p.rallyT / 0.45);          // 0 wind-up .. 1 recovered
+        // a short cocking motion, then the drive
+        const drive = k < 0.28 ? -(k / 0.28) : Math.sin((k - 0.28) / 0.72 * Math.PI);
+        rig.armL.rotation.x = -0.35 - drive * 1.25;   // shield punches out
+        rig.armL.rotation.z = 0.45 - drive * 0.55;
+        rig.armR.rotation.x = 0.25 + drive * 0.35;    // sword arm trails behind
+        rig.armR.rotation.z = -0.3 - drive * 0.2;
+        rig.body.rotation.y = 0.5 - drive * 0.85;     // shoulder turns through
+        rig.body.rotation.x = drive * 0.28;           // and leans into it
+        if (rig.cape) rig.cape.rotation.x = -drive * 0.5;
       }
       // the roll: tuck and spin
       if (p.dodgeT > 0) {

@@ -513,6 +513,22 @@ export const FOES = [
     siegeMul: 3.4,          // multiplier applied ONLY against blockades
   },
   {
+    // THE PELL — a straw figure on a post, in the hall.
+    //
+    // It is a real FOE and not a bespoke object, which is the whole fix: the
+    // first version was a hardcoded position test, so none of the aim snapping,
+    // hit flash, stagger, damage numbers or contact sparks applied to it, and
+    // hitting it felt like swinging at scenery. As a foe it runs through every
+    // line of the combat code the goblins do.
+    //
+    // `inert` is the only thing that separates it: it never moves, never
+    // attacks, never dies, and never belongs to a wave.
+    id: 'dummy', name: 'Pell',
+    hp: 999999, speed: 0, radius: 0.55, bounty: 0,
+    damage: 0, playerDamage: 0, attackCd: 999, flying: false, height: 1.7,
+    inert: true,
+  },
+  {
     // The genuinely new SHAPE. Everything else has to reach a thing to hurt it,
     // which is what makes a wall a wall. A slinger stops short and shoots over
     // it — so a blockade stops its MOVEMENT and not its DAMAGE, and the lane
