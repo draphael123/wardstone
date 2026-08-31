@@ -22,6 +22,11 @@ import {
 import { makeRng } from './rand.js';
 import { AGGRO, STAGGER } from './defs.js';
 const WINDUP = AGGRO.windup;
+// An ACTUAL newline. Built with a char code because this file is edited by
+// scripts often enough that a bare escape kept surviving as the two literal
+// characters — which GLSL rejects with "invalid character".
+const BSN = String.fromCharCode(10);
+const WIND_UNIFORMS = [];
 // Display-only crowd fan-out: bucket size, and how far a packed bucket spreads.
 const BLOB_CAP = 220;
 const CROWD_CELL = 0.55;
@@ -110,6 +115,13 @@ const WALK_CHUNK = [
   'transformed.z += sw * 0.36 * legMask;',
   'float armMask = smoothstep(0.55, 1.05, position.y) * step(0.32, abs(position.x));',
   'transformed.y += abs(sin(aPhase)) * 0.055 * step(0.2, position.y);',
+  // IDLE BREATH. A foe that has stopped — waiting out a cooldown, blocked at a
+  // wall — froze completely, which reads as a broken animation rather than as
+  // a creature standing still. Driven off aPhase so a crowd never breathes in
+  // unison, and scaled by height so it is a chest movement, not a bob.
+  'float still = 1.0 - min(1.0, abs(sw) * 6.0);',
+  'transformed.y += sin(aPhase * 0.55) * 0.028 * still * smoothstep(0.3, 1.2, position.y);',
+  'transformed.z += sin(aPhase * 0.55) * 0.014 * still * smoothstep(0.5, 1.2, position.y);',
   // --- the weapon arm.
   // Everything on the +x side is the weapon side: the arm AND whatever it is
   // holding. That distinction is the whole fix. The walk mask only moves
@@ -140,6 +152,29 @@ const WALK_CHUNK = [
 // thing separating "stylised 3D character" from "box": without a dark edge, a
 // dark figure on dark ground has no boundary at all and the eye reads mass
 // rather than shape.
+// WIND.
+//
+// One shader patch shared by the grass and the canopies. Sway scales with the
+// vertex's own height, so a blade of grass shivers and a treetop rolls, and it
+// is driven by world position so neighbours are never in lockstep — a whole
+// field moving as one is worse than a field not moving at all.
+function windify(mat, strength) {
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.uWindT = { value: 0 };
+    WIND_UNIFORMS.push(sh.uniforms.uWindT);
+    sh.vertexShader = 'uniform float uWindT;' + BSN + sh.vertexShader
+      .replace('#include <begin_vertex>', [
+        '#include <begin_vertex>',
+        'float wh = max(0.0, position.y);',
+        'float ph = transformed.x * 0.35 + transformed.z * 0.27;',
+        'float gust = sin(uWindT * 0.9 + ph) * 0.65 + sin(uWindT * 2.3 + ph * 1.7) * 0.35;',
+        'transformed.x += gust * wh * ' + strength.toFixed(3) + ';',
+        'transformed.z += gust * wh * ' + (strength * 0.4).toFixed(3) + ';',
+      ].join(BSN));
+  };
+  return mat;
+}
+
 function outlineMat(width) {
   const m = new THREE.MeshBasicMaterial({
     color: 0x0b0e14, side: THREE.BackSide, fog: true,
@@ -475,6 +510,31 @@ function bomberGeo() {
 // Every weapon sits at x > 0.32, which is the side the swing shader rotates.
 // A weapon placed anywhere else does not move when the goblin attacks — that
 // was the original bug and it is a placement rule now, not a coincidence.
+function climberGeo() {
+  const skin = 0xa8c95e, limb = 0x93b34e, rag = 0x6d5f3e;
+  return assemble([
+    // slight, crouched, built to scramble — the smallest silhouette in the set
+    { g: box(0.42, 0.54, 0.30), y: 0.60, rx: 0.30, c: skin },
+    { g: box(0.50, 0.14, 0.34), y: 0.86, c: limb },
+    { g: box(0.36, 0.34, 0.34), y: 1.06, z: 0.14, c: skin },
+    { g: box(0.22, 0.11, 0.12), y: 0.99, z: 0.32, c: limb },
+    EYE(0.09, 1.12, 0.30, 0.10, 0xffe14a),
+    EYE(-0.09, 1.12, 0.30, 0.10, 0xffe14a),
+    // long ears swept back, so it reads as quick even standing still
+    { g: box(0.34, 0.12, 0.06), x: 0.28, y: 1.16, z: -0.06, rz: 0.35, c: skin },
+    { g: box(0.34, 0.12, 0.06), x: -0.28, y: 1.16, z: -0.06, rz: -0.35, c: skin },
+    // long arms
+    { g: box(0.13, 0.62, 0.13), x: 0.34, y: 0.62, rz: 0.30, c: limb },
+    { g: box(0.13, 0.62, 0.13), x: -0.34, y: 0.62, rz: -0.30, c: limb },
+    { g: box(0.17, 0.46, 0.17), x: 0.14, y: 0.19, c: limb },
+    { g: box(0.17, 0.46, 0.17), x: -0.14, y: 0.19, c: limb },
+    { g: box(0.40, 0.22, 0.32), y: 0.34, c: rag },
+    // a hooked climbing iron on the weapon side, so it swings like the rest
+    { g: box(0.09, 0.09, 0.44), x: 0.44, y: 0.42, z: 0.20, rx: 0.5, c: 0x4a3a2c },
+    { g: box(0.10, 0.26, 0.10), x: 0.44, y: 0.30, z: 0.40, rx: 0.9, c: 0xa8b0bd },
+  ]);
+}
+
 function maulGeo() {
   const skin = 0x8fae4a, limb = 0x7a9840, rag = 0x7d6a44, iron = 0x8a91a0;
   return assemble([
@@ -574,22 +634,24 @@ const SKINS = {
     maul:    { geo: maulGeo,    name: 'Maul Wight' },
     slinger: { geo: slingerGeo, name: 'Bone Archer' },
     bruiser: { geo: bruiserGeo, name: 'Bruiser' },
+    climber: { geo: climberGeo, name: 'Crawler' },
   },
   forest: {
     husk:    { geo: goblinGeo, name: 'Goblin' },
     bomber:  { geo: bomberGeo, name: 'Powder Goblin' },
     runner:  { geo: scoutGeo,  name: 'Scout' },
     wisp:    { geo: wispGeo,   name: 'Will-o-wisp' },
-    breaker: { geo: trollGeo,  name: 'Troll' },
+    breaker: { geo: trollGeo,  name: 'Giant Goblin' },
     maul:    { geo: maulGeo,    name: 'Maul Goblin' },
     slinger: { geo: slingerGeo, name: 'Slinger' },
     bruiser: { geo: bruiserGeo, name: 'Bruiser' },
+    climber: { geo: climberGeo, name: 'Wall Goblin' },
   },
 };
 
 const FOE_CAP = {
   husk: 90, runner: 110, wisp: 40, breaker: 8, bomber: 24,
-  maul: 20, slinger: 24, bruiser: 12,
+  maul: 20, slinger: 24, bruiser: 12, climber: 60,
 };
 
 // ---------------------------------------------------------------------------
@@ -663,6 +725,7 @@ export class Renderer {
     this._buildShocks();
     this._buildBlobs();
     this._buildTrail();
+    this._buildEmbers();
 
     this.wardViews = new Map();   // world ward id -> Object3D
     this.laneFlash = new Map();   // lane id -> seconds remaining
@@ -685,6 +748,13 @@ export class Renderer {
     this.scene.add(this.hemi);
 
     // key — the wardstone itself
+    // A cool RIM from behind and above. One warm key gives silhouettes, not
+    // form — a dark knight on dark grass has no boundary at all until something
+    // edges him. See [[one-light-gives-silhouettes-not-form]].
+    this.rim = new THREE.DirectionalLight(0x9fc6ff, forest ? 0.55 : 0.4);
+    this.rim.position.set(-16, 26, -22);
+    this.scene.add(this.rim);
+
     this.key = new THREE.PointLight(forest ? 0xff9a3c : PAL.stone, 340, 92, 1.7);
     this.key.position.set(0, forest ? 5.6 : 8.5, 0);
     if (!this.low) {
@@ -1223,6 +1293,28 @@ export class Renderer {
     addMesh(roots);
     addMesh(moss, { shadow: false });
 
+    // --- 7b. mist in the treeline. A soft band of translucent quads at the
+    // rim, which does two jobs: it puts atmosphere between the clearing and the
+    // wood, and it hides the hard edge where the playable floor stops.
+    {
+      const mist = [];
+      for (let i = 0; i < 150; i++) {
+        const a = (i / 150) * Math.PI * 2 + rng() * 0.05;
+        const r = H - 5 + rng() * 12;
+        mist.push({
+          g: box(9 + rng() * 8, 2.2 + rng() * 2.4, 5),
+          x: Math.cos(a) * r, y: 1.0 + rng() * 1.4, z: Math.sin(a) * r,
+          ry: a, c: 0x2c3a4e,
+        });
+      }
+      const m = new THREE.Mesh(assemble(mist), new THREE.MeshBasicMaterial({
+        color: 0xffffff, vertexColors: true, transparent: true, opacity: 0.16,
+        depthWrite: false, fog: true, blending: THREE.NormalBlending,
+      }));
+      m.renderOrder = -2;
+      this.scene.add(m);
+    }
+
     // --- 8. fireflies. The one moving thing in the scenery, and the reason the
     // clearing feels alive rather than modelled. Instanced and driven off a
     // sine per index, so 90 of them cost one draw call and no allocation.
@@ -1243,6 +1335,42 @@ export class Renderer {
       });
     }
     this.scene.add(this.fireflies);
+  }
+
+  // Embers off the hearth. Different from the fireflies: these RISE, fade with
+  // height, and are born at the fire rather than scattered across the clearing,
+  // so the eye is pulled back to the thing being defended.
+  _buildEmbers() {
+    const g = new THREE.SphereGeometry(0.06, 4, 3);
+    const m = new THREE.MeshBasicMaterial({
+      color: 0xffb347, transparent: true, opacity: 0.9,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    this.embers = new THREE.InstancedMesh(g, m, 54);
+    this.embers.frustumCulled = false;
+    this._emberSeeds = [];
+    for (let i = 0; i < 54; i++) {
+      this._emberSeeds.push({ t: Math.random(), sp: 0.28 + Math.random() * 0.35,
+        a: Math.random() * 6.28, r: 0.3 + Math.random() * 1.5,
+        drift: (Math.random() - 0.5) * 0.5 });
+    }
+    this.scene.add(this.embers);
+  }
+
+  _stepEmbers(dt, hearthAlive) {
+    if (!this.embers) return;
+    for (let i = 0; i < this._emberSeeds.length; i++) {
+      const e = this._emberSeeds[i];
+      e.t += dt * e.sp;
+      if (e.t > 1) { e.t -= 1; e.a = Math.random() * 6.28; e.r = 0.3 + Math.random() * 1.5; }
+      const h = e.t * 7.5;
+      _v.set(Math.cos(e.a) * e.r + e.drift * h, 0.6 + h, Math.sin(e.a) * e.r + e.drift * h * 0.6);
+      // shrink as it climbs and cools, and die back entirely with the fire
+      const sc = Math.max(0, (1 - e.t) * (0.6 + 0.6 * hearthAlive));
+      _m.compose(_v, _q.identity(), _s.set(sc, sc, sc));
+      this.embers.setMatrixAt(i, _m);
+    }
+    this.embers.instanceMatrix.needsUpdate = true;
   }
 
   // Fireflies drift and blink. Kept out of update()'s body so a frame reads as
@@ -1318,9 +1446,9 @@ export class Renderer {
         });
       }
     }
-    const turfMesh = new THREE.Mesh(assemble(tufts), new THREE.MeshStandardMaterial({
+    const turfMesh = new THREE.Mesh(assemble(tufts), windify(new THREE.MeshStandardMaterial({
       color: 0x5f7d40, roughness: 1, flatShading: true,
-    }));
+    }), 0.10));
     this.scene.add(turfMesh);
 
     // --- the tracks: bare earth worn through the grass. Dirt against green is
@@ -1392,9 +1520,9 @@ export class Renderer {
     }));
     trunkMesh.castShadow = !this.low;
     this.scene.add(trunkMesh);
-    const leafMesh = new THREE.Mesh(assemble(canopy), new THREE.MeshStandardMaterial({
+    const leafMesh = new THREE.Mesh(assemble(canopy), windify(new THREE.MeshStandardMaterial({
       color: PAL.leaf, roughness: 1, flatShading: true,
-    }));
+    }), 0.022));
     leafMesh.castShadow = !this.low;
     this.scene.add(leafMesh);
 
@@ -2370,6 +2498,7 @@ export class Renderer {
     }
 
     this._stepFireflies();
+    this._stepEmbers(dt, Math.max(0, world.stone.hp / world.stone.maxHp));
     this.syncWards(world, dt);
     this.renderer.render(this.scene, this.camera);
   }
@@ -2430,7 +2559,14 @@ export class Renderer {
 
     // --- the stone is the health bar. Its light dims as it is worn down.
     const sf = Math.max(0, world.stone.hp / world.stone.maxHp);
-    const pulse = 1 + Math.sin(this.t * 2.2) * 0.06;
+    // FLICKER, not a pulse. A single slow sine reads as a breathing lamp; a
+    // fire is three incommensurate frequencies plus a little noise, so the
+    // light never repeats on a beat you can hear.
+    const t = this.t;
+    const pulse = 1
+      + Math.sin(t * 2.2) * 0.05
+      + Math.sin(t * 5.7 + 1.3) * 0.035
+      + Math.sin(t * 11.3 + 2.9) * 0.02;
     this.key.intensity = (this.theme === 'forest' ? 70 : 95) * pulse +
       (this.theme === 'forest' ? 170 : 250) * sf * pulse;
     // floor is 0.62 so the room stays readable even at zero stone health
@@ -2960,6 +3096,8 @@ export class Renderer {
     }
 
     this._stepFireflies();
+    this._stepEmbers(dt, Math.max(0, world.stone.hp / world.stone.maxHp));
+    for (const u of WIND_UNIFORMS) u.value = this.t;
     this._stepShocks(dt);
     this._stepFans(dt);
     this._stepTrail(dt);

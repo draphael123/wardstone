@@ -1501,3 +1501,77 @@ Blocked at 30 frames → 4.4 damage and no stagger, exactly as before.
 The skill is in *when* you press block, not in a separate move, and it obeys
 poise like everything else — a Bruiser is deflected but not rocked, so you still
 have to move.
+
+---
+
+# No air, two wards, and a new premise
+
+The two requests that could not both be satisfied — "get rid of the flying
+enemies" and "just the two starting towers" — turn out to be the *same* request,
+and doing them together is what made either possible.
+
+Cutting to two wards was measured as impossible before: **0/21 on both maps**,
+at every ballista strength up to 60% stronger than the original, at pierce 10,
+at 48 defence units, at 10% of the air. The reason was always the air. With no
+anti-air ward and fifty-one wisps, no allocation could cover the objective and
+the lanes at once. **Remove the wisps and the reason two wards failed goes with
+them.**
+
+## But removing the air removed the premise
+
+Wards immediately won unattended with the fire untouched — 3000 stone, every
+plan, both maps. The wisp was not just a threat, it was *the thing wards
+structurally could not do*, and the design rested on it.
+
+## The Wall Goblin
+
+The wisp's job, brought down to the ground.
+
+It does not use the road. It comes over the rim from a random bearing, straight
+for the fire, so it **never meets the palisade you built or the gun behind it** —
+every ward you own is placed against a lane, and this thing has no lane. Wards
+also do only **15%** damage to it, which is the deliberate mirror of the old
+wisp's `airMul`: without that it merely converges on the fire like everything
+else, and a gun parked at the fire covers the convergence.
+
+Verified directly: a Wall Goblin walks past a **fully sealed** lane to the fire.
+
+`T14` now asserts the premise on it — a bot forbidden from chasing them **loses
+at wave 3 with 3000 damage from Wall Goblins**, while the same bot that fights
+them wins.
+
+## What the rebalance cost, and what it taught
+
+Getting here took a long sequence of measurements, and three findings are worth
+keeping:
+
+- **The bot needed to be taught to intercept them.** Without a policy — priority
+  above even a Giant Goblin, and meeting them 10 m out rather than chasing to the
+  rim — it lost while its own guns sat idle. Teaching it moved the same
+  configuration from 1/21 to 21/21.
+- **Difficulty tiers must not thin the premise foe, but must not freeze it
+  either.** Holding Wall Goblins fixed made *Squire harder than Knight* (dying at
+  wave 3.9 against 6.6); letting them scale fully let an idle ring survive the
+  gauntlet **by 48 hit points out of 3000**. The rule that satisfies both: a tier
+  may send more of them, never fewer — and an easier tier is made easier by
+  **income**, which works precisely because the idle arm runs rich and cannot
+  benefit from it.
+- **An easier tier was measurably a poorer one.** Fewer foes means fewer kills
+  means less mana. Bounty is now scaled by `1 / count`, so total income holds
+  across tiers.
+
+## T25 is asserted on one map, and that is an instrument limit
+
+Squire > Knight is checked on the glade only. On the gauntlet the bot **cannot**
+convert an easier tier into a better outcome, because it builds from a fixed
+shopping list — demonstrated three ways: raising the unit budget 32 → 44 changed
+nothing, and tripling Squire's income changed nothing. Asserting it there would
+measure the pilot. `T25b` checks the tier *configuration* instead, which no bot
+can confuse.
+
+## Final shape
+
+**Wards:** Palisade, Ballista.
+**Foes:** Cutter, Runner, Maul, Slinger, **Wall Goblin**, Powder Goblin, Bruiser,
+**Giant Goblin** (formerly Breaker).
+**30/30 assertions, 11/11 behaviour audit, fuzz clean, glade 7/10, gauntlet 6/10.**

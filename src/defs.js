@@ -286,11 +286,21 @@ export const CACHE = {
 // TWO dials, and one deliberately left alone:
 //   hp     — how long a foe survives, so how much the body is worth
 //   count  — how many arrive, so how much the WARDS are worth
+//   mana   — income. An easier tier must not STARVE you: fewer foes means
+//            fewer kills means less mana, and measured, that made Squire leave
+//            LESS fire standing than Knight on the gauntlet. Cutting the
+//            enemies without topping up the purse is not an easier game, it is
+//            a poorer one.
 //   du     — NOT a difficulty dial. It is the premise dial. 32 is the swept
 //            value; 36 is the measured cliff where a ward build wins with
 //            nobody playing. Every tier keeps 32, so no setting can turn this
 //            into a game that plays itself, and the tiers cannot drift the one
 //            number the whole design rests on.
+//
+// The tiers are WIDER than they were, because they no longer touch the Wall
+// Goblin at all — it is the premise foe and an easy setting that thinned it out
+// handed the gauntlet back to a static defence. With the premise foe held
+// fixed, the remaining foes have to carry the whole spread.
 //
 // An honest note on how far these are verified. The bot builds from a FIXED
 // shopping list sized for 32 units, so it cannot re-plan around a changed
@@ -304,15 +314,15 @@ export const CACHE = {
 // ---------------------------------------------------------------------------
 export const DIFFICULTY = {
   squire: {
-    id: 'squire', name: 'Squire', hp: 0.80, count: 0.85, du: 32,
+    id: 'squire', name: 'Squire', hp: 0.70, count: 0.72, du: 32, mana: 3.0,
     blurb: 'Fewer of them, and they die faster. The same board to hold.',
   },
   knight: {
-    id: 'knight', name: 'Knight', hp: 1, count: 1, du: 32,
+    id: 'knight', name: 'Knight', hp: 1, count: 1, du: 32, mana: 1,
     blurb: 'The curve everything was balanced against. Start here.',
   },
   warden: {
-    id: 'warden', name: 'Warden', hp: 1.04, count: 1.20, du: 32,
+    id: 'warden', name: 'Warden', hp: 1.18, count: 1.45, du: 32, mana: 0.92,
     blurb: 'More of them, and each one takes longer to put down.',
   },
 };
@@ -358,6 +368,16 @@ export const ECON = {
 //     two wards and no pierce, the game is unwinnable at ANY ballista strength,
 //     including one 60% stronger than the old one (4/21 on the glade, 0/21 on
 //     the gauntlet). Single-target damage cannot hold a hundred foes a wave.
+// TWO WARDS: a wall and a gun.
+//
+// The Watchtower is parked, not deleted — its definition is in git and the aura
+// code is untouched. It only ever existed to be the one thing that could reach
+// the sky, and there is no sky any more.
+//
+// This was measured as impossible once before, at 0/21 on both maps. What made
+// it impossible was the AIR: with no anti-air ward and fifty-one wisps, the
+// player could not cover the objective and the lanes at the same time. Removing
+// the wisps removes the reason two wards failed.
 export const WARDS = [
   {
     id: 'palisade', name: 'Palisade', key: '1', kind: 'blockade',
@@ -387,26 +407,6 @@ export const WARDS = [
     up: { power: 1.39, rate: 0.88, range: 1.225, pierce: 1 },
     blurb: 'A heavy bolt that punches through a rank. Short and slow until you invest.',
   },
-  {
-    id: 'archers', name: 'Watchtower', key: '3', kind: 'aura',
-    cost: 60, du: 4, hp: 260, buildTime: 3.5, radius: 0.8, targets: 'all',
-    range: 8.5, dps: 26, unlockWave: 2,
-    // It can shoot upward; it is BAD at it. "Only one ward reaches a flier"
-    // stopped being enough once you could ring the hearth with them, because
-    // every wisp converges there — measured, the player's share of the air had
-    // fallen to 39%, i.e. no specialisation at all. Loosing at something in
-    // the sky is hard, so it lands 40% of its damage there and the body still
-    // has to finish the job.
-    airMul: 0.55,
-    // A dead zone directly overhead. An archer on a platform cannot shoot
-    // straight up, and structurally this is what stops a tight RING of towers
-    // around the fire from being a complete answer to the air: every wisp
-    // converges on the hearth, so towers hugging it were covering the one
-    // place they should not be able to. Catch them on the approach or not at
-    // all. Tuning the stacking falloff twice did not fix this; geometry does.
-    minAir: 4.0,
-    blurb: 'Loose and steady at everything nearby. The only ward that can shoot upward.',
-  },
 ];
 
 // Wards go up INSTANTLY while the doors are shut and take real seconds once a
@@ -435,13 +435,19 @@ export const WARD_BY_ID = Object.fromEntries(WARDS.map(w => [w.id, w]));
 // ---------------------------------------------------------------------------
 // The goblins.
 //
+// THERE IS NO AIR ANY MORE. Will-o-wisps are gone, and with them the tidiest
+// version of the premise — "one ward in four reaches the sky, so the sky is
+// yours". What replaces it is less exotic and more honest: THIRTY-TWO UNITS
+// CANNOT COVER THREE LANES. You are the mobile reserve, and the Slinger (which
+// outranges a wall) and the Powder Goblin (which blows one up) are the foes
+// that punish a line you are not standing near.
+//
 // The rule this list is built on: a new foe must demand a DEFENSIVE VERB that
 // nothing else demands. Variety for its own sake makes a longer list, not a
 // harder game. See [[enemy-design-fill-gaps-not-variety]].
 //
 //   Cutter    the baseline. Walks up and hits the nearest thing.
 //   Runner    fast, cheap, arrives in a clump  -> intercept early
-//   Wisp      flies over every wall you own    -> YOUR job, not a ward's
 //   Maul      wrecks blockades specifically    -> do not defend with walls alone
 //   Slinger   stops short and SHOOTS           -> go and kill it yourself
 //   Powder    detonates on your line           -> kill before contact, don't cluster
@@ -458,14 +464,6 @@ export const FOES = [
     id: 'runner', name: 'Runner',
     hp: 55, speed: 6.2, radius: 0.45, bounty: 5,
     damage: 10, playerDamage: 7, attackCd: 0.7, flying: false, height: 1.4,
-  },
-  {
-    id: 'wisp', name: 'Wisp',
-    hp: 52, speed: 4.4, radius: 0.5, bounty: 12,
-    damage: 10, playerDamage: 9, attackCd: 1.0, flying: true, height: 1.1, flyHeight: 4.2,
-    // how low it comes to actually strike the fire — inside a jumping
-    // sword's reach, which is the whole point of it
-    diveHeight: 3.4,
   },
   {
     // The answer to "I will just wall the lane". A maul does ordinary damage to
@@ -497,6 +495,40 @@ export const FOES = [
     ranged: { range: 7, speed: 22, radius: 0.42 },
   },
   {
+    // The wisp's job, brought down to the ground.
+    //
+    // Removing the air removed the one thing wards structurally could not do,
+    // and the premise died with it: an idle ward build immediately won with the
+    // fire untouched. This is what puts it back, without a flying enemy.
+    //
+    // A Wall Goblin does not use the road. It comes over the rocks in a
+    // straight line for the fire, so it never meets the palisade you built or
+    // the gun you put behind it — every ward you own is placed against a LANE,
+    // and this thing has no lane. You are the only thing between it and the
+    // hearth. It is deliberately fragile: two crossbow bolts, one sword link.
+    id: 'climber', name: 'Wall Goblin',
+    hp: 58, speed: 4.4, radius: 0.45, bounty: 12,
+    damage: 12, playerDamage: 8, attackCd: 1.0, flying: false, height: 1.4,
+    offLane: true,        // ignores the polyline AND anything built on it
+    // Wards are BAD at it, and this is the deliberate mirror of the old wisp's
+    // `airMul`. Without it a Wall Goblin is only awkward, not structural: it
+    // converges on the fire like everything else, and a gun parked at the fire
+    // covers the convergence — measured, an idle ward build still won.
+    //
+    // The fiction is that a ballista is a lane weapon, laid along a road to
+    // punch down a file. Something small and quick crossing that line at an
+    // angle is a bad shot. The body is the reliable answer.
+    // Swept: at 0.3 a ring of guns around the fire still covered the point
+    // every climber converges on, and an idle ward build won the gauntlet
+    // outright. At 0.15 no idle build wins on either map. This is the same
+    // dial, and the same tuning history, as the old wisp's airMul.
+    // 0.3 let a ring of guns cover the convergence point and an idle build won
+    // the gauntlet outright. 0.15 holds it on every tier. Going lower was
+    // tried and is NOT the lever for the last hold-out — see the climber
+    // floor in sim.js, which was a 48-hit-point problem, not a damage one.
+    wardMul: 0.15,
+  },
+  {
     id: 'bomber', name: 'Powder Goblin',
     hp: 70, speed: 5.4, radius: 0.5, bounty: 14,
     damage: 0, playerDamage: 0, attackCd: 1.0, flying: false, height: 1.3,
@@ -517,7 +549,7 @@ export const FOES = [
   },
   {
     poise: true,          // never staggered — a wall buys the time, not your sword
-    id: 'breaker', name: 'Breaker',
+    id: 'breaker', name: 'Giant Goblin',
     hp: 1200, speed: 1.9, radius: 1.15, bounty: 40,
     damage: 320, playerDamage: 26, attackCd: 2.2, flying: false, height: 3.0,
   },
@@ -557,8 +589,8 @@ export const WAVES = [
       { lane: 'west',  foe: 'runner', count: 12, at: 1.5, gap: 0.6 },
       { lane: 'east',  foe: 'bomber', count: 2,  at: 4.0, gap: 2.4 },
       { lane: 'north', foe: 'slinger', count: 3, at: 8.0, gap: 2.0 },
-      { lane: 'north', foe: 'wisp',   count: 5,  at: 6.0, gap: 1.8 },
-      { lane: 'east',  foe: 'wisp',   count: 5,  at: 10.0, gap: 1.8 },
+      { lane: 'north', foe: 'climber', count: 8, at: 6.0, gap: 1.8 },
+      { lane: 'east',  foe: 'climber', count: 8, at: 10.0, gap: 1.8 },
     ],
   },
   { // 4 — the first BREAKER. A wall stops buying safety and starts buying time.
@@ -568,11 +600,11 @@ export const WAVES = [
       { lane: 'west',  foe: 'runner',  count: 14, at: 1.0,  gap: 0.55 },
       { lane: 'north', foe: 'breaker', count: 1,  at: 4.0,  gap: 0 },
       { lane: 'east',  foe: 'maul',    count: 3,  at: 6.0,  gap: 1.8 },
+      { lane: 'east',  foe: 'climber', count: 13,  at: 11.0, gap: 1.4 },
+      { lane: 'west',  foe: 'climber', count: 8,  at: 16.0, gap: 1.5 },
       { lane: 'north', foe: 'slinger', count: 4,  at: 8.0,  gap: 1.6 },
       { lane: 'west',  foe: 'bomber',  count: 3,  at: 7.0,  gap: 1.8 },
       { lane: 'north', foe: 'husk',    count: 10, at: 5.0,  gap: 1.0 },
-      { lane: 'east',  foe: 'wisp',    count: 6,  at: 11.0, gap: 1.4 },
-      { lane: 'west',  foe: 'wisp',    count: 4,  at: 16.0, gap: 1.5 },
     ],
   },
   { // 5 — two pressures at once, on lanes deliberately far apart.
@@ -583,11 +615,11 @@ export const WAVES = [
       { lane: 'east',  foe: 'breaker', count: 1,  at: 9.0,  gap: 0 },
       { lane: 'north', foe: 'bomber',  count: 4,  at: 5.0,  gap: 1.5 },
       { lane: 'east',  foe: 'bruiser', count: 2,  at: 4.0,  gap: 3.0 },
+      { lane: 'north', foe: 'climber', count: 19,  at: 9.0,  gap: 1.1 },
+      { lane: 'east',  foe: 'climber', count: 8,  at: 15.0, gap: 1.3 },
       { lane: 'west',  foe: 'slinger', count: 4,  at: 7.0,  gap: 1.5 },
       { lane: 'east',  foe: 'husk',    count: 14, at: 3.0,  gap: 0.8 },
       { lane: 'west',  foe: 'husk',    count: 12, at: 6.0,  gap: 0.9 },
-      { lane: 'north', foe: 'wisp',    count: 9,  at: 9.0,  gap: 1.1 },
-      { lane: 'east',  foe: 'wisp',    count: 4,  at: 15.0, gap: 1.3 },
     ],
   },
   // NOTE on tuning the finale: a FOURTH breaker here reads as a small change
@@ -610,9 +642,9 @@ export const WAVES = [
       { lane: 'north', foe: 'maul',    count: 4,  at: 7.0,  gap: 1.6 },
       { lane: 'west',  foe: 'slinger', count: 5,  at: 9.0,  gap: 1.4 },
       { lane: 'east',  foe: 'bruiser', count: 3,  at: 11.0, gap: 2.6 },
-      { lane: 'west',  foe: 'wisp',    count: 6,  at: 10.0, gap: 1.2 },
-      { lane: 'north', foe: 'wisp',    count: 6,  at: 15.0, gap: 1.2 },
-      { lane: 'east',  foe: 'wisp',    count: 6,  at: 20.0, gap: 1.2 },
+      { lane: 'west',  foe: 'climber', count: 13,  at: 10.0, gap: 1.2 },
+      { lane: 'north', foe: 'climber', count: 13,  at: 15.0, gap: 1.2 },
+      { lane: 'east',  foe: 'climber', count: 13,  at: 20.0, gap: 1.2 },
     ],
   },
 ];

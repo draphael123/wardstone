@@ -194,7 +194,14 @@ function buildBar() {
   }
 }
 
+let dragHintShown = false;
 function select(id) {
+  // Drag-to-build has existed for rounds and was reported missing, for the same
+  // reason the ward panel was: nothing on screen said the gesture was there.
+  if (id && WARD_BY_ID[id] && WARD_BY_ID[id].kind === 'blockade' && !dragHintShown) {
+    dragHintShown = true;
+    toast('Click to place one &mdash; or <b>drag</b> to lay a whole run of them');
+  }
   state.selected = state.selected === id ? null : id;
   state.ghostRot = null;      // each pick starts square-on to the track again
   for (const el of document.querySelectorAll('.ward')) {
@@ -529,9 +536,13 @@ function drainEvents() {
         r.ringBurst(e.x, 0.3, e.z, 0x7fe08a, 1.6, 12);
         break;
       case 'wardDown':
-        r.spark(e.x, 1, e.z, 0x8a7a5a, 20, 6, 1.5);
-        r.shock(e.x, 0.18, e.z, 0xc8a878, 0.8, 5, 0.5);
-        r.addShake(0.25);
+        // Losing a ward is a real event and used to look like a puff of dust.
+        // Timber, a dust ring, a heavier kick, and a beat of hitstop.
+        r.spark(e.x, 1.2, e.z, 0x8a7a5a, 26, 7, 1.7, -9);
+        r.spark(e.x, 0.6, e.z, 0x5b4a34, 16, 4.5, 1.2, -12);
+        r.shock(e.x, 0.18, e.z, 0xc8a878, 0.8, 6.2, 0.55);
+        r.addShake(0.42);
+        state.hitstop = Math.max(state.hitstop, 0.05);
         break;
       case 'caltrops':
         r.ringBurst(e.x, 0.3, e.z, PAL.snare, e.r, 22);
@@ -1277,6 +1288,22 @@ function applyInput(dt) {
   // whatever ward you are next to (or pointing at) shows its reach
   r._inspect = state.selected ? null
     : (state.inspect || (state.overhead ? wardUnderPointer() : w.wardNear(4.6)));
+
+  // Tell the player a ward is clickable, because nothing ever did. The panel
+  // that upgrades, repairs and demolishes was built two rounds ago and reported
+  // missing twice — not because it was hard to use, but because there was no
+  // way to discover it existed.
+  const tip = $('wardTip');
+  const overWard = (!state.selected && !isTouch && state.pointer.has)
+    ? wardUnderPointer() : null;
+  if (overWard && !state.inspect) {
+    tip.classList.remove('hidden');
+    tip.style.left = `${state.pointer.x}px`;
+    tip.style.top = `${state.pointer.y}px`;
+    tip.innerHTML = `<b>${overWard.def.name}</b> &nbsp;·&nbsp; click to upgrade, repair or demolish`;
+  } else {
+    tip.classList.add('hidden');
+  }
 
   // What the next bolt will hit, marked on the foe itself. Shown whenever the
   // ranged weapon is out, not only while firing, so aiming is something you can

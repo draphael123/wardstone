@@ -35,6 +35,9 @@ const MELEE_SNAP_COS = 0.26;
 // How long a body stays on the field after dying, so it can fall.
 const CORPSE_TIME = 0.75;
 
+// The least a difficulty tier may thin the premise foe.
+const CLIMBER_FLOOR = 1.0;
+
 // How much of the combined body radii ground foes keep between them. At 1.0 two
 // bodies do not overlap at all when there is room to avoid it.
 //
@@ -133,11 +136,12 @@ export class World {
     this.phase = 'build';        // build | combat | won | lost
     this.waveIndex = 0;          // index of the wave about to run / running
     this.phaseTimer = ECON.buildPhase;
-    this.mana = ECON.startMana;
     // Difficulty is resolved ONCE, here, and everything downstream reads
     // this.diff — so a run cannot change curve halfway through and the harness
-    // can drive any tier by passing opts.difficulty.
+    // can drive any tier by passing opts.difficulty. It must come BEFORE
+    // anything that reads it, which now includes the starting purse.
     this.diff = DIFFICULTY[opts.difficulty] || DIFFICULTY.knight;
+    this.mana = ECON.startMana * (this.diff.mana || 1);
     this.duBudget = this.diff.du;
     this.du = 0;                 // spent Defence Units, capped at this.duBudget
 
@@ -453,7 +457,25 @@ export class World {
       // At least one of anything the wave asked for: rounding a group of 1 down
       // to 0 on Squire would silently delete a foe TYPE from the run, which is
       // a different game rather than an easier one.
-      const count = Math.max(1, Math.round(g.count * this.diff.count));
+      // Difficulty scales the Wall Goblin like everything else. Holding it
+      // fixed on easier tiers was tried, to protect the premise, and it made
+      // SQUIRE HARDER THAN KNIGHT — dying at wave 4 on the gauntlet against
+      // wave 6.6 — because the same wall of climbers arrived against a thinner
+      // economy. The premise is protected by `wardMul` instead, which is a
+      // property of the foe rather than of the tier, and T24 checks every tier
+      // directly rather than trusting the exemption.
+      // The Wall Goblin follows the tier like everything else, but with a
+      // FLOOR of 1.0: a tier may send MORE of them, never fewer.
+      //
+      // Thinning them made an idle ring survive the gauntlet; not thinning
+      // them made Squire harder than Knight. The two pull opposite ways, so
+      // neither is the answer — an easier tier is made easier by helping the
+      // PLAYER instead, with income. That works precisely because the idle
+      // arm runs rich by construction, so mana cannot help it at all.
+      const mul = g.foe === 'climber'
+        ? Math.max(CLIMBER_FLOOR, this.diff.count)
+        : this.diff.count;
+      const count = Math.max(1, Math.round(g.count * mul));
       for (let n = 0; n < count; n++) {
         this.spawnQueue.push({ t: this.t + g.at + n * g.gap, lane: g.lane, foe: g.foe });
       }
@@ -551,11 +573,28 @@ export class World {
     const def = FOE_BY_ID[foeId];
     if (!lane || !def) return;
     const half = lane.width / 2 - def.radius - 0.2;
-    const hp = Math.round(def.hp * this.diff.hp);
+    // Same reasoning as the count: the premise foe does not soften on an
+    // easier tier, or the easier tier stops being the same game.
+    // Same floor as the count: a tier may make the premise foe tougher, never
+    // flimsier. Squire was giving them 70% health, which was enough for a
+    // ring of guns to cover them and win the gauntlet with nobody playing.
+    const hpMul = def.offLane ? Math.max(1, this.diff.hp) : this.diff.hp;
+    const hp = Math.round(def.hp * hpMul);
+    // An off-lane foe does not come from a DOOR either. It comes over the rim,
+    // anywhere. Spawning it at one of the three gates left it perfectly
+    // coverable by a ring of guns at the fire — measured, a static defence
+    // still won unattended. With no fixed arrival point there is nothing to
+    // pre-cover, which is exactly the job the player is there to do.
+    let sx = 0, sz = 0;
+    if (def.offLane) {
+      const a = this.rng.range(0, Math.PI * 2);
+      const r = ARENA.wallInset - 1.5;
+      sx = Math.cos(a) * r; sz = Math.sin(a) * r;
+    }
     const f = {
       id: NEXT_ID++, def, kind: foeId,
       lane, dist: 0, off: this.rng.range(-half, half),
-      x: 0, z: 0, y: def.flying ? def.flyHeight : 0,
+      x: sx, z: sz, y: def.flying ? def.flyHeight : 0,
       hp: hp, maxHp: hp,
       atkCd: this.rng.range(0, 0.4),
       target: null, targetKind: null, dead: false, hitT: 0,
@@ -565,8 +604,12 @@ export class World {
       // fliers cut the corner: they take the straight line to the stone
       fx: 0, fz: 0,
     };
-    const p = laneAt(lane, 0, f.off);
-    f.x = p.x; f.z = p.z;
+    // Lane foes start at their door; an off-lane foe keeps the rim position it
+    // was given, or this would put it straight back on the road.
+    if (!def.offLane) {
+      const p = laneAt(lane, 0, f.off);
+      f.x = p.x; f.z = p.z;
+    }
     this.foes.push(f);
     this.stats.spawned[foeId] = (this.stats.spawned[foeId] || 0) + 1;
     this.emit({ type: 'spawn', x: f.x, z: f.z, foe: foeId, lane: laneId });
@@ -575,6 +618,9 @@ export class World {
   // ------------------------------------------------------------------ damage
   hurtFoe(f, amount, source) {
     if (f.dead) return 0;
+    // A foe may be resistant to WARD damage specifically. This is what makes a
+    // foe the player's problem rather than a building's.
+    if (source === 'ward' && f.def.wardMul != null) amount *= f.def.wardMul;
     const dealt = Math.min(f.hp, amount);
     f.hp -= dealt;
     // Only DISCRETE hits flash. An aura deals dps*dt every step, so refreshing
@@ -616,7 +662,12 @@ export class World {
     // has to be walked over — this is the whole reason the player leaves cover.
     this.motes.push({
       id: NEXT_ID++, x: f.x, z: f.z, y: f.def.flying ? f.y : 0.6,
-      value: f.def.bounty, life: 35, taken: false, vx: 0, vz: 0,
+      // Bounty is scaled INVERSELY to how many foes the tier sends, so total
+      // income is roughly constant across tiers. Without this, an easier tier
+      // is a POORER one: Squire kills 28% fewer things, banks 28% less mana,
+      // builds a worse line, and measured HARDER than Knight on both maps —
+      // which is the opposite of what the setting says on the tin.
+      value: f.def.bounty / (this.diff.count || 1), life: 35, taken: false, vx: 0, vz: 0,
     });
     this.emit({
       type: 'kill', x: f.x, y: f.y, z: f.z, foe: f.kind,
@@ -1312,7 +1363,7 @@ export class World {
       // rebuild after every wave regardless of how that wave had gone, which
       // flattened the consequence of a bad one. Swept against the wave curve
       // until the bot wins ~7/10 with roughly a fifth of the fire left.
-      const bonus = 72 + 24 * this.waveIndex;
+      const bonus = (72 + 24 * this.waveIndex) * (this.diff.mana || 1);
       this.mana = Math.min(ECON.manaCap, this.mana + bonus);
       this.stats.manaEarned += bonus;
       this.emit({ type: 'waveClear', index: this.waveIndex, bonus });
@@ -1391,7 +1442,21 @@ export class World {
       // stopped, or a peeled foe would simply be deleted from the wave.
       const returning = !def.flying && !chasing && strayed > 1.2 && f.aggroT <= 0;
 
-      if (def.flying) {
+      if (def.offLane) {
+        // Straight for the fire, over the rocks. It never touches a lane, so it
+        // never meets anything you built on one — which is the whole point of
+        // it, and why the body still has a job with no air in the game.
+        const dx = -f.x, dz = -f.z;
+        const d = Math.hypot(dx, dz) || 1;
+        const stop = stoneStandoff(def);
+        if (d > stop) {
+          f.x += (dx / d) * spd * dt;
+          f.z += (dz / d) * spd * dt;
+          f.targetKind = null;
+        } else {
+          f.targetKind = 'stone';
+        }
+      } else if (def.flying) {
         // Fliers ignore lanes and blockades entirely. This is the gap the
         // player exists to fill; do not "fix" it by pathing them.
         const dx = -f.x, dz = -f.z;

@@ -347,6 +347,16 @@
     color:#7fd4c0;pointer-events:none;font-variant-numeric:tabular-nums}
   #fps.hidden{display:none}
 
+  /* A prompt that follows whatever ward the pointer is over. The panel existed
+     for two rounds and was reported missing twice, because nothing on screen
+     ever said a ward could be clicked. */
+  #wardTip{position:fixed;z-index:46;pointer-events:none;transform:translate(-50%,-140%);
+    padding:5px 10px;border-radius:4px;font-size:10.5px;letter-spacing:.1em;
+    background:rgba(14,18,27,.94);border:1px solid rgba(255,179,71,.5);color:#ffd08a;
+    white-space:nowrap;box-shadow:0 3px 12px rgba(0,0,0,.5)}
+  #wardTip.hidden{display:none}
+  #wardTip b{color:#e6ecf7;font-weight:400}
+
   /* The ward panel. Anchored bottom-centre-left so it never sits under the
      ward bar or the minimap, and never over the middle of the fight. */
   #wardPanel{position:absolute;left:max(14px,env(safe-area-inset-left));
@@ -779,11 +789,12 @@
     <button id="wpUp"><em>Upgrade</em><span id="wpUpCost">60</span></button>
     <button id="wpRot"><em>Rotate</em><span>free</span></button>
     <button id="wpMend"><em>Mend</em><span id="wpMendCost">hold</span></button>
-    <button id="wpSell"><em>Sell</em><span id="wpSellBack">+21</span></button>
+    <button id="wpSell"><em>Demolish</em><span id="wpSellBack">+21</span></button>
   </div>
   <div class="wpHint" id="wpHint"></div>
 </div>
 
+<div id="wardTip" class="hidden"></div>
 <div id="fps" class="hidden"></div>
 <div id="vig"></div>
 <div id="flash"></div>
