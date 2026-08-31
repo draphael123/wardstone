@@ -98,6 +98,12 @@ export const PLAYER = {
   // fight and you cannot afford the wall that would have done the job for you.
   block: {
     energyPerSec: 16,  // drained while braced; the guard drops when it runs dry
+    // PERFECT GUARD. Raising the shield just before a blow lands refunds the
+    // energy and staggers the attacker. No new button and no parry input — the
+    // skill is in WHEN you press block, not in a separate move. It gives the
+    // hold-to-block a ceiling instead of leaving it a flat damage tax.
+    perfect: 0.22,     // s after raising the guard that counts as perfect
+    perfectRefund: 34, // energy handed back, i.e. a free heavy
     reduce: 0.22,      // damage taken multiplier while braced
     slow: 0.42,        // movement multiplier
   },

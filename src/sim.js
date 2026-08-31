@@ -28,6 +28,13 @@ const STRIKE_TIME = 0.26;
 // How high above the player's feet the sword's arc reaches.
 const SWORD_TOP = 2.5;
 
+// How far off your aim a foe may be and still be snapped to. cos(75deg) —
+// generous forward, and nothing behind you, so it corrects rather than steers.
+const MELEE_SNAP_COS = 0.26;
+
+// How long a body stays on the field after dying, so it can fall.
+const CORPSE_TIME = 0.75;
+
 // How much of the combined body radii ground foes keep between them. At 1.0 two
 // bodies do not overlap at all when there is room to avoid it.
 //
@@ -146,6 +153,7 @@ export class World {
       blocking: false, abilityCd: 0, rallyT: 0, warming: false,
       vy: 0, airT: 0, jumpCd: 0,
       energy: ENERGY.max, energyHold: 0,
+      guardT: 0,
       atkPhase: null, atkT: 0, atkMove: null, atkKind: null,
       combo: 0, comboT: 0, holdT: 0,
     };
@@ -602,6 +610,7 @@ export class World {
   _killFoe(f, by) {
     if (f.dead) return;
     f.dead = true;
+    f.corpseT = CORPSE_TIME;
     this.stats.kills[f.kind] = (this.stats.kills[f.kind] || 0) + 1;
     // Mana does not teleport into your pocket. It lands where the foe died and
     // has to be walked over — this is the whole reason the player leaves cover.
@@ -658,6 +667,16 @@ export class World {
     if (!p.alive) return;
     if (p.invuln > 0) return;         // rolling through it
     if (p.blocking && p.weapon === 'sword') {
+      // PERFECT GUARD: raised just as the blow arrives. No damage at all, the
+      // energy comes back, and whoever swung is thrown off — the skill is in
+      // WHEN you press block rather than in a separate parry input.
+      if (p.guardT > 0) {
+        p.energy = Math.min(ENERGY.max, p.energy + PLAYER.block.perfectRefund);
+        p.energyHold = 0;
+        this._staggerNear(1.9);
+        this.emit({ type: 'perfect', x: p.x, z: p.z });
+        return;
+      }
       amount *= PLAYER.block.reduce;
       this.emit({ type: 'blocked', x: p.x, z: p.z });
     }
@@ -724,6 +743,25 @@ export class World {
     p.energy -= n;
     p.energyHold = ENERGY.delay;
     return true;
+  }
+
+  // Throw off whatever was close enough to have hit you. Used by the perfect
+  // guard; obeys poise like everything else, so a Bruiser is deflected but not
+  // rocked — you still have to move.
+  _staggerNear(r) {
+    const p = this.player;
+    for (const f of this.foes) {
+      if (f.dead || f.def.flying || f.def.poise) continue;
+      const dx = f.x - p.x, dz = f.z - p.z;
+      const d = Math.hypot(dx, dz);
+      if (d > r + f.def.radius) continue;
+      f.stagT = STAGGER.time;
+      f.stagCd = STAGGER.cooldown;
+      f.windT = 0; f.strikeT = 0;
+      const l = d || 1;
+      f.stagX = dx / l; f.stagZ = dz / l;
+      this.emit({ type: 'stagger', x: f.x, y: f.y + f.def.height * 0.6, z: f.z, foe: f.kind });
+    }
   }
 
   _stepEnergy(dt) {
@@ -815,10 +853,50 @@ export class World {
     return this._beginMelee(link, dirx, dirz, 'light');
   }
 
-  _beginMelee(move, dirx, dirz, kind) {
+  // What this swing should actually point at.
+  //
+  // The crossbow got screen-space aim assist and the sword never did — it aimed
+  // at the GROUND CELL under the pointer, so you swung at a patch of dirt near
+  // a goblin and a 1.7-radian arc missed. This snaps the facing to the best
+  // target inside the swing's own reach, biased toward whatever is closest to
+  // the direction you asked for, so it corrects your aim without overriding it.
+  meleeTarget(dirx, dirz, move) {
     const p = this.player;
     const len = Math.hypot(dirx, dirz) || 1;
-    p.yaw = Math.atan2(dirx / len, dirz / len);
+    const ux = dirx / len, uz = dirz / len;
+    const near = this._scratch;
+    const reach = move.range + 1.2;
+    this.foeHash.query(p.x, p.z, reach + 1.5, near);
+    let best = null, bestScore = -Infinity;
+    for (let n = 0; n < near.length; n++) {
+      const f = near[n];
+      if (f.dead) continue;
+      if (f.def.flying) {
+        // only snap to something the blade can actually reach right now
+        const blade = p.y + SWORD_TOP;
+        if (f.y > blade + PLAYER.jump.airReach) continue;
+      }
+      const dx = f.x - p.x, dz = f.z - p.z;
+      const d = Math.hypot(dx, dz);
+      if (d > reach + f.def.radius || d < 0.001) continue;
+      const aim = (dx * ux + dz * uz) / d;          // 1 = dead ahead
+      if (aim < MELEE_SNAP_COS) continue;            // behind you: not a target
+      // prefer well-aimed and close, in that order
+      const score = aim * 2 - d / reach;
+      if (score > bestScore) { bestScore = score; best = f; }
+    }
+    if (!best) return { x: ux, z: uz };
+    const dx = best.x - p.x, dz = best.z - p.z;
+    const d = Math.hypot(dx, dz) || 1;
+    return { x: dx / d, z: dz / d, foe: best };
+  }
+
+  _beginMelee(move, dirx, dirz, kind) {
+    const p = this.player;
+    // Commit the facing to the target on the frame the swing starts, so the
+    // whole arc travels toward the thing you meant to hit.
+    const aim = this.meleeTarget(dirx, dirz, move);
+    p.yaw = Math.atan2(aim.x, aim.z);
     p.atkMove = move;
     p.atkKind = kind;
     p.atkPhase = 'startup';
@@ -936,7 +1014,10 @@ export class World {
     const p = this.player;
     const want = !!on && p.alive && p.weapon === 'sword' && p.dodgeT <= 0 &&
       !p.atkPhase && p.energy > 0;
-    if (want !== p.blocking) this.emit({ type: 'block', on: want });
+    if (want !== p.blocking) {
+      if (want) p.guardT = PLAYER.block.perfect;   // the window opens now
+      this.emit({ type: 'block', on: want });
+    }
     p.blocking = want;
     return want;
   }
@@ -1147,6 +1228,7 @@ export class World {
       if (p.energy <= 0) this.setBlocking(false);
     }
     this._stepJump(dt);
+    if (p.guardT > 0) p.guardT -= dt;
     this._stepEnergy(dt);
     this._stepMelee(dt);
     if (p.dodgeT > 0) {
@@ -1199,7 +1281,16 @@ export class World {
     this._stepMotes(dt);
 
     // ---- cull
-    if (this.foes.some(f => f.dead)) this.foes = this.foes.filter(f => !f.dead);
+    // Dead foes linger for a moment so the renderer can drop the body instead
+    // of blinking it out mid-animation. Everything in the sim already skips
+    // `dead`, so a corpse on the list is inert — it just has not been swept up.
+    let sweep = false;
+    for (const f of this.foes) {
+      if (!f.dead) continue;
+      f.corpseT = (f.corpseT == null ? CORPSE_TIME : f.corpseT) - dt;
+      if (f.corpseT <= 0) sweep = true;
+    }
+    if (sweep) this.foes = this.foes.filter(f => !f.dead || f.corpseT > 0);
     if (this.wards.some(w => w.dead)) this.wards = this.wards.filter(w => !w.dead);
     if (this.projectiles.some(b => b.dead)) this.projectiles = this.projectiles.filter(b => !b.dead);
     if (this.caches.some(c => c.dead)) this.caches = this.caches.filter(c => !c.dead);

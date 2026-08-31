@@ -150,11 +150,18 @@ const INVARIANTS = [
   ['phase is a known value', (w) =>
     ['build', 'combat', 'won', 'lost'].includes(w.phase) ? null : `phase is ${w.phase}`],
 
-  ['a dead foe is never left in the live list', (w) => {
-    // culling happens at the end of step(), so nothing dead should survive it
-    let d = 0;
-    for (let i = 0; i < w.foes.length; i++) if (w.foes[i].dead) d++;
-    return d ? `${d} dead foes still listed` : null;
+  ['a dead foe is only listed while its body is still falling', (w) => {
+    // Bodies now linger briefly so they can drop rather than blink out, so
+    // "nothing dead is ever listed" is no longer the rule. The rule that still
+    // matters is that a corpse is on a TIMER and cannot leak: anything dead
+    // with no timer, or past its own timer, was never swept up.
+    let bad = 0;
+    for (let i = 0; i < w.foes.length; i++) {
+      const f = w.foes[i];
+      if (!f.dead) continue;
+      if (!(f.corpseT > 0)) bad++;
+    }
+    return bad ? `${bad} dead foes listed with no corpse timer left` : null;
   }],
 ];
 

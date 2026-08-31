@@ -425,6 +425,10 @@ function drainEvents() {
         if (e.source === 'player') { r.addShake(0.08); state.hitstop = Math.max(state.hitstop, 0.035); }
         break;
       case 'swing':
+        // show the wedge that was actually swept, at its real arc and reach
+        if (e.arc) {
+          r.swingFan(e.x, e.z, Math.atan2(e.dx, e.dz), e.arc, e.range || 2.8);
+        }
         if (e.airborneInReach) {
           // the swing passed under it. Say why, once, rather than letting the
           // player conclude the enemy is broken.
@@ -480,6 +484,15 @@ function drainEvents() {
           r.spark(w.player.x + e.dx * 1.1, 1.5, w.player.z + e.dz * 1.1, 0xffd89a, 7, 3, 0.7, -1);
           if (s) s.play('select', 0.7, 0.6);
         }
+        break;
+      case 'perfect':
+        // the loudest defensive moment in the game deserves to look like one
+        r.shock(e.x, 0.9, e.z, 0xbfe8ff, 0.5, 3.6, 0.42, Math.PI / 2);
+        r.spark(e.x, 1.2, e.z, 0xdff2ff, 14, 7, 0.9, -2);
+        r.addShake(0.24);
+        state.hitstop = Math.max(state.hitstop, 0.09);
+        toast('Perfect guard');
+        if (s) s.play('impact', 1.0, 1.3);
         break;
       case 'stagger':
         // A stagger is the loudest positive feedback in the game: it is the

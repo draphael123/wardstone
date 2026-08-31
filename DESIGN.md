@@ -1449,3 +1449,55 @@ The list is built on **first use**, not at module load or in `setMap()` — the
 lanes it needs may not be laid at load time, and `setMap()` is never called at
 all by the browser build. That combination left the colliders empty in the game
 while every headless test saw them populated.
+
+---
+
+# Four things that were making combat feel bad
+
+Diagnosed rather than guessed, and two of them were outright omissions.
+
+## 1. The sword had no target snapping
+
+The crossbow got screen-space aim assist and the sword never did — it aimed at
+the **ground cell under the pointer**. So you swung at a patch of dirt near a
+goblin, and a 1.7-radian arc missed.
+
+The swing now snaps its facing, on the frame it commits, to the best target
+inside its own reach — scored on how close it is to the direction you asked for,
+and then on distance. Measured forgiveness: **a hit at 0°, 20°, 40° and 60° off
+target, a miss at 80° and 100°.** It corrects your aim; it does not steer for you,
+and nothing behind you is ever a target.
+
+## 2. Dying was nine sparks
+
+A goblin blinked out mid-animation. Only the Breaker had a real death.
+
+Bodies now stay on the field for 0.75 s and **fall** — pitched forward, sinking,
+fading out by scale. Everything in the sim already skips the dead, so a corpse is
+inert; it just has not been swept up yet.
+
+This broke a fuzz invariant that said *"a dead foe is never left in the live
+list"*, which was true when corpses were deleted instantly. Restated to the rule
+that still matters: **a corpse is on a timer and cannot leak** — anything dead
+with no timer left was never swept up. Same defect caught, correct behaviour
+allowed.
+
+## 3. You could not see what you swept
+
+A one-shot ground wedge now draws at the **actual arc and range of the link that
+fired**. It teaches the weapon without a tutorial: you can see that the finisher
+is far wider than the opener, and that a heavy reaches further than either.
+
+## 4. Blocking was a flat damage tax
+
+You chose hold-to-block over parry, so this does not add a parry input. Raising
+the guard within **0.22 s** of a blow landing is a **perfect guard**: no damage
+at all, the energy comes back, and everything close enough to have hit you is
+staggered.
+
+Measured: blocked at 0 and 8 frames → **0 damage**, attacker staggered 0.32 s.
+Blocked at 30 frames → 4.4 damage and no stagger, exactly as before.
+
+The skill is in *when* you press block, not in a separate move, and it obeys
+poise like everything else — a Bruiser is deflected but not rocked, so you still
+have to move.

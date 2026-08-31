@@ -2609,7 +2609,11 @@ export class Renderer {
     const crowd = this._crowdOffsets(world);
     this._stepBlobs(world, crowd);
     for (const f of world.foes) {
-      if (f.dead) continue;
+      // A corpse is still drawn while it falls. Everything else in the
+      // renderer skips the dead; this one loop does not, because the drop is
+      // the whole point — a goblin blinking out mid-swing was the least
+      // satisfying moment in the game.
+      if (f.dead && !(f.corpseT > 0)) continue;
       const slot = this.foeMeshes[f.kind];
       const i = counts[f.kind];
       if (i >= slot.cap) continue;
@@ -2661,6 +2665,7 @@ export class Renderer {
       const fz = f.z + (co ? co.dz : 0);
       const gy = groundY(fx, fz);
       let y = f.y + gy;
+      if (f.dead && f.corpseT > 0) y -= (1 - f.corpseT / 0.75) * 0.55;
       let lean = 0, sc = 1, lunge = 0;
       // The gait phase advances with GROUND COVERED, not with the clock, so a
       // foe held at a wall stops stepping instead of jogging on the spot.
@@ -2712,6 +2717,14 @@ export class Renderer {
           const hk = f.hitT / 0.1;
           sc *= 1 + hk * 0.13;
           lean += hk * 0.16;
+        }
+        // DEATH: it goes over. Pitched onto its face, dropped into the ground
+        // and faded out by scale, so the body reads as falling rather than as
+        // an object being deleted.
+        if (f.dead && f.corpseT > 0) {
+          const k = 1 - (f.corpseT / 0.75);          // 0 at the moment of death
+          lean += k * 1.5;                            // topples forward
+          sc *= Math.max(0.05, 1 - k * 0.55);
         }
         // STAGGER: it reels. This is the difference between a hit that
         // registers and one that just tints the model for a frame — the body
@@ -2948,6 +2961,7 @@ export class Renderer {
 
     this._stepFireflies();
     this._stepShocks(dt);
+    this._stepFans(dt);
     this._stepTrail(dt);
     this.syncWards(world, dt);
     this.renderer.render(this.scene, this.camera);
@@ -3169,6 +3183,52 @@ export class Renderer {
     add(rock, 0.95);
     add(bark, 1);
     add(leaf, 1);
+  }
+
+  // The wedge you just swept.
+  //
+  // A one-shot ground fan at the ACTUAL arc and range of the link that fired,
+  // which is how the weapon teaches itself: you see with your eyes that the
+  // finisher is far wider than the opener, and that a heavy reaches further.
+  swingFan(x, z, yaw, arc, range) {
+    if (!this.fans) {
+      this.fans = [];
+      for (let i = 0; i < 4; i++) {
+        const m = new THREE.Mesh(
+          new THREE.RingGeometry(0.35, 1, 24, 1, -0.5, 1).rotateX(-Math.PI / 2),
+          new THREE.MeshBasicMaterial({
+            color: 0xfff2cc, transparent: true, opacity: 0,
+            depthWrite: false, depthTest: false, side: THREE.DoubleSide,
+            blending: THREE.AdditiveBlending,
+          }));
+        m.visible = false;
+        m.renderOrder = 11;
+        this.scene.add(m);
+        this.fans.push({ mesh: m, life: 0 });
+      }
+      this._fanN = 0;
+    }
+    const f = this.fans[this._fanN];
+    this._fanN = (this._fanN + 1) % this.fans.length;
+    // rebuild the wedge to this swing's own angle
+    f.mesh.geometry.dispose();
+    f.mesh.geometry = new THREE.RingGeometry(0.35, 1, 26, 1, -arc / 2, arc)
+      .rotateX(-Math.PI / 2);
+    f.mesh.position.set(x, groundY(x, z) + 0.05, z);
+    f.mesh.rotation.y = -yaw + Math.PI / 2;
+    f.mesh.scale.set(range, 1, range);
+    f.mesh.visible = true;
+    f.life = 0.26;
+  }
+
+  _stepFans(dt) {
+    if (!this.fans) return;
+    for (const f of this.fans) {
+      if (f.life <= 0) continue;
+      f.life -= dt;
+      if (f.life <= 0) { f.mesh.visible = false; continue; }
+      f.mesh.material.opacity = (f.life / 0.26) * 0.34;
+    }
   }
 
   // Contact shadows.
