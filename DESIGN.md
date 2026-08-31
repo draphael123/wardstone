@@ -2576,3 +2576,74 @@ and recognise again next wave.
 
 Deliberately **not solid**, and set outside the verge. A throat you cannot build
 across is not a chokepoint; it is a wall we placed for you.
+
+---
+
+# A visual and life pass
+
+## The sky was a single hex fill
+
+For a game set at dusk, in the dark, whose premise is about light, that was the
+largest cheap win in the codebase — every screenshot had a flat slab of one
+colour across the top third.
+
+A gradient dome with 420 stars, a moon low in the north with a halo, and cloud
+banks turning slowly. Three gotchas, all of which had bitten before: it must sit
+**inside the far plane**, it needs **`fog: false`** or the fog it sits behind
+erases it, and it must reach **below the horizon** or there is a hard band where
+the dome ends.
+
+**And the hills were tinted backwards.** The three distant bands got *darker*
+with distance, which is invisible against a flat fill and reads as a black wall
+the moment there is a real sky. Atmospheric perspective runs the other way: the
+further band is the hazier one. The fog colour now matches the sky it fades
+things into, for the same reason.
+
+## Weather, per wave
+
+One dial off how far through the run you are: the fog closes from 168m to 114m,
+the sky darkens, the hemisphere light drops, the treeline mist thickens and the
+**wind runs faster** — the same uniform the grass and canopy already read. Wave
+six does not look like wave one.
+
+## Damage direction
+
+A chase camera cannot show you what is behind you, so the one thing the HUD owes
+you when you are hit is **where from**. Eight wedges around the screen edge; the
+blow's world bearing is rotated into *screen* space by the camera yaw, because
+"behind me" means behind the camera. `hurtPlayer` now records the origin, which
+nothing had ever done.
+
+## The bars moved
+
+HP, energy and mana were top-left while everything that *spends* them is
+bottom-left — a disconnect I made worse by putting costs on the ability slots.
+They sit above the ability bar now.
+
+## Deaths differ by cause
+
+Forty deaths a minute all toppling forward identically reads as one animation on
+a loop. Three shapes: cut down topples forward and turns with the swing, a
+ballista bolt throws it **backwards** spinning, fire and powder make it crumple
+where it stands.
+
+**And I made the RNG mistake again.** `deathSpin` drew from `this.rng`, which
+re-rolled every later draw in the run and cost two wins on a purely cosmetic
+change — the same error the braziers taught, three features later. It is derived
+from the foe's own id now. Restored to 13/21 exactly.
+
+## Occluder fade
+
+At a low camera pitch a tree between the lens and the knight simply hid him — a
+black wedge across a third of the screen in every low-angle shot I took. Solid
+props fade to 22% when they stand between camera and player, tested in NDC
+because "is it in the way" is a 2D question. Measured 1.00 → 0.22.
+
+The first attempt registered the wrong meshes: the clearing's trees come from
+`_buildSolids`, not the treeline loop.
+
+## Idle
+
+A little breath and sway per foe, on its own phase, so a rank standing at a wall
+is a crowd of bodies rather than a row of statues. Deliberately tiny — it must
+never be mistaken for a windup.

@@ -446,6 +446,43 @@ function showTally(e) {
   t.classList.add('on');
 }
 
+// Eight wedges, one per 45 degrees. The blow's world direction is rotated into
+// SCREEN space by the camera yaw, because "behind me" means behind the camera,
+// not behind the world's z axis.
+const HURT_WEDGES = [];
+function initHurtRing() {
+  const host = $('hurtRing');
+  if (!host) return;
+  for (let i = 0; i < 8; i++) {
+    const el = document.createElement('i');
+    el.style.transform = `rotate(${i * 45}deg)`;
+    host.appendChild(el);
+    HURT_WEDGES.push({ el, t: 0 });
+  }
+}
+function showHurtFrom(fx, fz) {
+  if (!HURT_WEDGES.length) return;
+  const w = state.world, p = w.player;
+  if (fx == null) return;
+  const dx = fx - p.x, dz = fz - p.z;
+  if (Math.hypot(dx, dz) < 0.01) return;
+  // world bearing, minus where the camera is looking
+  const rel = Math.atan2(dx, dz) - state.rend.camYaw + Math.PI;
+  let deg = (rel * 180 / Math.PI) % 360;
+  if (deg < 0) deg += 360;
+  const i = Math.round(deg / 45) % 8;
+  const wg = HURT_WEDGES[i];
+  wg.el.classList.add('on');
+  wg.t = 0.85;
+}
+function stepHurtRing(dt) {
+  for (const w of HURT_WEDGES) {
+    if (w.t <= 0) continue;
+    w.t -= dt;
+    if (w.t <= 0) w.el.classList.remove('on');
+  }
+}
+
 function toast(msg) {
   const h = $('hint');
   h.innerHTML = msg;
@@ -535,6 +572,13 @@ function drainEvents() {
         if (s) s.play('build', 0.9, 1.3);
         break;
       }
+      // the night gets worse as the run goes on
+      case 'waveClear':
+        r.setWeather(Math.min(1, (w.waveIndex + 1) / (WAVES.length - 1)));
+        break;
+      case 'playerHurt':
+        showHurtFrom(e.fromX, e.fromZ);
+        break;
       case 'swing':
         // show the wedge that was actually swept, at its real arc and reach
         if (e.arc) {
@@ -1531,6 +1575,7 @@ function frame(now) {
   state.lastFrame = performance.now();
 
   stepDamageNumbers(dt);
+  stepHurtRing(dt);
   syncWardPanel();
   stepVignette(dt);
   stepFps(dt);
@@ -1856,6 +1901,7 @@ function boot() {
   state.map = new Minimap($('map'));
   buildBar();
   initDamageNumbers();
+  initHurtRing();
   initDoors();
   bindInput();
   bindSettings();

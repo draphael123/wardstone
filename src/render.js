@@ -745,7 +745,9 @@ export class Renderer {
     // Far plane pushed out for the forest so the hill bands read as distance
     // rather than as flat fog: at 118 they were geometry the fog had already
     // finished with. The near plane is unchanged, so the treeline hazes as before.
-    this.scene.fog = new THREE.Fog(forest ? 0x27324a : PAL.fog, 40, forest ? 168 : 118);
+    // The fog has to be the colour of the sky it fades things INTO, or every
+    // distant object reads as a slab of a different colour.
+    this.scene.fog = new THREE.Fog(forest ? 0x2a3350 : PAL.fog, 40, forest ? 168 : 118);
 
     this.camera = new THREE.PerspectiveCamera(56, 1, 0.5, 260);
     this.camYaw = Math.PI;
@@ -761,6 +763,7 @@ export class Renderer {
     // and there was no way to look up or down at all. In a game where things
     // converge from three lanes that is the difference between fighting a
     // crowd and being surprised by one.
+    this.occluders = [];            // meshes that may stand between you and the camera
     this.camPitch = 0.599;          // ~34 degrees, the old fixed angle
     this.camOrbit = 13.3;           // the old 11m back / 7.5m up, as one ray
     this.camDist = 11;
@@ -797,6 +800,7 @@ export class Renderer {
       this._buildSolids();
       this._buildTerraces();
       this._buildThroats();
+      this._buildSky();
       this._buildHearth();
     }
     else { this._buildArena(); this._buildStone(); }
@@ -812,6 +816,197 @@ export class Renderer {
   }
 
 
+
+
+  // --------------------------------------------------------------------- sky
+  // The sky was a single hex fill.
+  //
+  // For a game set at dusk, in the dark, whose entire premise is about light,
+  // that is the largest cheap win in the codebase — every screenshot has a flat
+  // slab of one colour across the top third.
+  //
+  // Three gotchas, all of which bit the last time I built one of these:
+  //   * it must sit INSIDE the far plane (260) or it is clipped away entirely
+  //   * `fog: false`, or the fog it is supposed to sit behind erases it
+  //   * it must reach BELOW the horizon, or there is a hard band where the dome
+  //     ends and the background shows through
+  // See [[sky-sphere-far-plane-and-below-horizon]].
+  _buildSky() {
+    const R = 235;
+    const geo = new THREE.SphereGeometry(R, 26, 18);
+    // Vertex colours rather than a texture: a gradient this soft costs nothing
+    // and stays sharp at any resolution.
+    const pos = geo.attributes.position;
+    const col = new Float32Array(pos.count * 3);
+    const top = new THREE.Color(0x0d1226);
+    const mid = new THREE.Color(0x24304e);
+    const low = new THREE.Color(0x4a3f54);   // the last of the sunset, west
+    const c = new THREE.Color();
+    for (let i = 0; i < pos.count; i++) {
+      // -1 at the nadir, +1 at the zenith
+      const t = pos.getY(i) / R;
+      if (t > 0.08) c.copy(mid).lerp(top, Math.min(1, (t - 0.08) / 0.75));
+      else c.copy(low).lerp(mid, Math.max(0, (t + 0.35) / 0.43));
+      col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    const dome = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+      vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false,
+    }));
+    dome.renderOrder = -50;
+    this.sky = new THREE.Group();
+    this.sky.add(dome);
+
+    // --- stars. Only in the upper half, thinning toward the horizon where the
+    // haze would eat them anyway, and never in the sunset band.
+    const rng = makeRng(90210);
+    const sg = new THREE.BufferGeometry();
+    const N = 420;
+    const sp = new Float32Array(N * 3);
+    const sc = new Float32Array(N * 3);
+    let n = 0;
+    for (let i = 0; i < N; i++) {
+      const u = rng() * 2 - 1, a = rng() * Math.PI * 2;
+      if (u < 0.06) continue;                       // above the horizon only
+      const r = Math.sqrt(Math.max(0, 1 - u * u));
+      const d = R * 0.94;
+      sp[n * 3] = Math.cos(a) * r * d;
+      sp[n * 3 + 1] = u * d;
+      sp[n * 3 + 2] = Math.sin(a) * r * d;
+      // a few warm ones. A field of identical white dots reads as noise.
+      const warm = rng() < 0.18;
+      const b = 0.55 + rng() * 0.45;
+      sc[n * 3] = b;
+      sc[n * 3 + 1] = b * (warm ? 0.88 : 0.97);
+      sc[n * 3 + 2] = b * (warm ? 0.72 : 1);
+      n++;
+    }
+    sg.setAttribute('position', new THREE.BufferAttribute(sp.slice(0, n * 3), 3));
+    sg.setAttribute('color', new THREE.BufferAttribute(sc.slice(0, n * 3), 3));
+    this.stars = new THREE.Points(sg, new THREE.PointsMaterial({
+      size: 1.5, sizeAttenuation: true, vertexColors: true,
+      transparent: true, opacity: 0.9, fog: false, depthWrite: false,
+    }));
+    this.stars.renderOrder = -49;
+    this.sky.add(this.stars);
+
+    // --- the moon. One warm disc low in the north, which gives the sky a
+    // direction and quietly explains the hemisphere light.
+    const moon = new THREE.Mesh(
+      new THREE.CircleGeometry(9, 24),
+      new THREE.MeshBasicMaterial({ color: 0xf0e2c0, fog: false, depthWrite: false }));
+    moon.position.set(-60, 74, -R * 0.86);
+    moon.lookAt(0, 40, 0);
+    moon.renderOrder = -48;
+    this.sky.add(moon);
+    const halo = new THREE.Mesh(
+      new THREE.CircleGeometry(22, 24),
+      new THREE.MeshBasicMaterial({
+        color: 0x9fb0d8, transparent: true, opacity: 0.13,
+        fog: false, depthWrite: false, blending: THREE.AdditiveBlending,
+      }));
+    halo.position.copy(moon.position).multiplyScalar(0.995);
+    halo.lookAt(0, 40, 0);
+    halo.renderOrder = -49;
+    this.sky.add(halo);
+
+    // --- cloud banks. Flat quads at three heights, drifting at three speeds,
+    // so the sky is never quite the same shape twice.
+    this.clouds = [];
+    const cparts = [];
+    for (let i = 0; i < 26; i++) {
+      const a = rng() * Math.PI * 2;
+      const rr = 120 + rng() * 90;
+      const y = 46 + rng() * 46;
+      const w = 44 + rng() * 60, h = 9 + rng() * 12;
+      cparts.push({
+        g: box(w, h, 2), x: Math.cos(a) * rr, y, z: Math.sin(a) * rr,
+        ry: a + Math.PI / 2, c: rng() < 0.4 ? 0x2b3450 : 0x232b44,
+      });
+    }
+    const cm = new THREE.Mesh(assemble(cparts), new THREE.MeshBasicMaterial({
+      color: 0xffffff, vertexColors: true, transparent: true, opacity: 0.5,
+      fog: false, depthWrite: false,
+    }));
+    cm.renderOrder = -47;
+    this.cloudMesh = cm;
+    this.sky.add(cm);
+
+    this.scene.add(this.sky);
+    // the flat fill stays as the colour BEHIND the dome, for the sliver of
+    // frame the dome cannot cover on a very wide aspect
+    this.scene.background = new THREE.Color(0x0d1226);
+  }
+
+  // OCCLUDER FADE.
+  //
+  // At a low camera pitch a tree between the lens and the knight simply hides
+  // him — a black wedge across a third of the screen, in every low-angle shot
+  // I took. The camera can now be raised to escape it, which is why this was
+  // survivable, but "raise the camera or you cannot see" is not a choice
+  // anyone should have to make.
+  //
+  // Tested in NDC rather than world space: what matters is whether the thing is
+  // between the camera and the player ON SCREEN, which is a 2D question.
+  // See [[fixed-iso-camera-needs-occluder-fade]].
+  _stepOccluders(world) {
+    if (!this.occluders.length) return;
+    const p = world.player;
+    _v.set(p.x, groundY(p.x, p.z) + 1.0, p.z).project(this.camera);
+    const px = _v.x, py = _v.y;
+    const camD = this.camera.position.distanceTo(
+      new THREE.Vector3(p.x, groundY(p.x, p.z) + 1.0, p.z));
+    for (const m of this.occluders) {
+      // A merged mesh has no per-tree position, so the test is done per-tree
+      // against the bounding spheres cached at build time.
+      let hide = false;
+      for (const b of m.userData.blobs || []) {
+        // cheap reject first: 400 trees projected every frame is waste when
+        // only the handful near the lens can possibly be in the way
+        const ddx = b.x - this.camera.position.x, ddz = b.z - this.camera.position.z;
+        if (ddx * ddx + ddz * ddz > 900) continue;
+        _v.set(b.x, b.y, b.z);
+        const d = this.camera.position.distanceTo(_v);
+        if (d > camD - 0.5) continue;            // behind the player: harmless
+        _v.project(this.camera);
+        if (Math.hypot(_v.x - px, (_v.y - py) * 0.6) < b.r) { hide = true; break; }
+      }
+      const want = hide ? 0.22 : 1;
+      const cur = m.material.opacity == null ? 1 : m.material.opacity;
+      const next = cur + (want - cur) * 0.18;
+      m.material.transparent = next < 0.995;
+      m.material.opacity = next;
+      m.material.depthWrite = next > 0.9;
+    }
+  }
+
+  // WEATHER, per wave. Wave six should not look like wave one.
+  //
+  // One dial, driven off how far through the run you are: the fog closes in,
+  // the sky darkens, the wind gets up and the treeline mist thickens. Nothing
+  // here touches a rule — it is the same clearing getting worse.
+  setWeather(k) {
+    this.weather = Math.max(0, Math.min(1, k));
+    const w = this.weather;
+    if (this.scene.fog) {
+      this.scene.fog.far = 168 - w * 54;          // 168 -> 114
+      this.scene.fog.near = 40 - w * 14;
+      this.scene.fog.color.setHex(w < 0.5 ? 0x2a3350 : 0x232a41);
+    }
+    if (this.hemi) this.hemi.intensity = 1.05 - w * 0.34;
+    if (this.mistMesh) this.mistMesh.material.opacity = 0.16 + w * 0.3;
+    // the wind is the same uniform the grass and canopy already read
+    this.windGain = 1 + w * 1.6;
+  }
+
+  // The dome rides with the camera, so you can never walk to the edge of the
+  // sky — and the clouds turn slowly, which is the only motion up there.
+  _stepSky(dt) {
+    if (!this.sky) return;
+    this.sky.position.set(this.camera.position.x, 0, this.camera.position.z);
+    if (this.cloudMesh) this.cloudMesh.rotation.y += dt * 0.004;
+    if (this.stars) this.stars.rotation.y += dt * 0.0016;
+  }
 
   // ----------------------------------------------------------- lane throats
   // A pair of leaning standing stones either side of each lane's narrowest
@@ -1791,7 +1986,11 @@ export class Renderer {
     for (let band = 0; band < 3; band++) {
       const parts = [];
       const dist = 100 + band * 24;
-      const tint = [0x2b3a42, 0x27333d, 0x232c38][band];
+      // Atmospheric perspective runs the OTHER way: the further band is the
+      // HAZIER one, tending toward the sky behind it. These got darker with
+      // distance, which was invisible against a flat fill and read as a black
+      // wall the moment there was a real sky to sit against.
+      const tint = [0x1e2740, 0x27304a, 0x333d59][band];
       for (let a = 0; a < 46; a++) {
         const ang = (a / 46) * Math.PI * 2 + rng() * 0.06;
         const hgt = (22 - band * 4) * (0.6 + rng() * 0.7);
@@ -1968,6 +2167,7 @@ export class Renderer {
         depthWrite: false, fog: true, blending: THREE.NormalBlending,
       }));
       m.renderOrder = -2;
+      this.mistMesh = m;
       this.scene.add(m);
     }
 
@@ -2165,9 +2365,14 @@ export class Renderer {
     // costs two draw calls. Stacked tapering boxes read as conifer at this
     // camera without a single triangle of foliage detail.
     const trunks = [], canopy = [];
+    const treeBlobs = [];
     const addTree = (x, z, scale) => {
       const th = (3.2 + rng() * 2.6) * scale;
       const gy = moundY(x, z);       // a tree on a bank stands ON the bank
+      // one bounding blob per tree, for the occluder test. Radius is in NDC
+      // and approximate on purpose: it only has to be roughly the size of the
+      // thing on screen.
+      treeBlobs.push({ x, y: gy + th * 0.9, z, r: 0.085 + scale * 0.055 });
       trunks.push({ g: box(0.62 * scale, th, 0.62 * scale), x, y: gy + th / 2, z });
       let r = 2.5 * scale, y = gy + th * 0.86;
       for (let i = 0; i < 4; i++) {
@@ -2193,11 +2398,15 @@ export class Renderer {
       color: PAL.bark, roughness: 1, flatShading: true,
     }));
     trunkMesh.castShadow = !this.low;
+    trunkMesh.userData.blobs = treeBlobs;
+    this.occluders.push(trunkMesh);
     this.scene.add(trunkMesh);
     const leafMesh = new THREE.Mesh(assemble(canopy), windify(new THREE.MeshStandardMaterial({
       color: PAL.leaf, roughness: 1, flatShading: true,
     }), 0.022));
     leafMesh.castShadow = !this.low;
+    leafMesh.userData.blobs = treeBlobs;
+    this.occluders.push(leafMesh);
     this.scene.add(leafMesh);
 
     // --- undergrowth: bushes, ferns, stumps, fallen logs, mushrooms
@@ -3185,6 +3394,8 @@ export class Renderer {
     // laid out by the World, and the Renderer is made without one.
     if (!this.brazierFx && world.braziers) this._buildBraziers(world);
     this._stepBraziers(dt, world);
+    this._stepSky(dt);
+    this._stepOccluders(world);
 
     // --- camera: chase, high, smoothed. Yaw is the player's to steer.
     // The two cameras are blended rather than switched, so entering and
@@ -3512,7 +3723,15 @@ export class Renderer {
       const gy = groundY(fx, fz);
       let y = f.y + gy;
       if (f.dead && f.corpseT > 0) y -= (1 - f.corpseT / 0.75) * 0.55;
-      let lean = 0, sc = 1, lunge = 0;
+      let lean = 0, sc = 1, lunge = 0, roll = 0;
+      // IDLE. A little breath and sway, on each foe's own phase, so a rank
+      // standing at a wall is a crowd of bodies rather than a row of statues.
+      // Renderer-only and tiny — it must never be mistaken for a windup.
+      if (!f.dead && f.swingK <= 0 && f.stagT <= 0) {
+        const ph = f.id * 0.7;
+        roll += Math.sin(this.t * 1.3 + ph) * 0.035;
+        sc *= 1 + Math.sin(this.t * 2.1 + ph) * 0.012;
+      }
       // The gait phase advances with GROUND COVERED, not with the clock, so a
       // foe held at a wall stops stepping instead of jogging on the spot.
       const gdx = f.x - (f.gx == null ? f.x : f.gx);
@@ -3569,7 +3788,22 @@ export class Renderer {
         // an object being deleted.
         if (f.dead && f.corpseT > 0) {
           const k = 1 - (f.corpseT / 0.75);          // 0 at the moment of death
-          lean += k * 1.5;                            // topples forward
+          // HOW it died decides how it falls. Forty deaths a minute all
+          // toppling forward identically reads as one animation playing over
+          // and over; three shapes is enough for it to read as a fight.
+          if (f.deathBy === 'ward') {
+            // punched off its feet by a bolt: thrown BACK, spun by the impact
+            lean -= k * 1.9;
+            roll += k * 0.9 * (f.deathSpin || 1);
+          } else if (f.deathBy === 'self' || f.deathBy === 'fire') {
+            // burned or blown up: it drops where it stands and crumples
+            sc *= Math.max(0.05, 1 - k * 0.85);
+            lean += k * 0.5;
+          } else {
+            // cut down: topples forward, turning with the swing
+            lean += k * 1.5;
+            roll += k * 0.5 * (f.deathSpin || 1);
+          }
           sc *= Math.max(0.05, 1 - k * 0.55);
         }
         // STAGGER: it reels. This is the difference between a hit that
@@ -3604,7 +3838,7 @@ export class Renderer {
         lean -= k * 0.22;
         sc *= 1 + k * 0.05;                 // and squashed by the impact
       }
-      _q.setFromEuler(new THREE.Euler(lean, ang, 0, 'YXZ'));
+      _q.setFromEuler(new THREE.Euler(lean, ang, roll, 'YXZ'));
       _s.set(sc, sc, sc);
       // lunge is along the foe's own facing, so a strike visibly travels
       const lx = f.def.flying && f.faceX != null ? f.faceX : Math.sin(ang);
@@ -3827,7 +4061,9 @@ export class Renderer {
 
     this._stepFireflies();
     this._stepEmbers(dt, Math.max(0, world.stone.hp / world.stone.maxHp));
-    for (const u of WIND_UNIFORMS) u.value = this.t;
+    // the wind runs FASTER in bad weather, so a late wave visibly blows
+    this._windT = (this._windT || 0) + dt * (this.windGain || 1);
+    for (const u of WIND_UNIFORMS) u.value = this._windT;
     this._stepShocks(dt);
     this._stepFans(dt);
     this._stepTrail(dt);
@@ -4021,8 +4257,13 @@ export class Renderer {
   _buildSolids() {
     const rng = makeRng(5150);
     const rock = [], bark = [], leaf = [];
+    const blobs = [];
     for (const p of solidProps()) {
       const gy = groundY(p.x, p.z);
+      // Every solid prop is a potential occluder. These are the ones actually
+      // standing in the clearing — the treeline ring is behind you.
+      blobs.push({ x: p.x, y: gy + (p.r > 1.0 ? 3.4 : 1.0), z: p.z,
+                   r: p.r > 1.0 ? 0.16 : 0.085 });
       if (p.r > 1.0) {
         // a tree: trunk plus canopy, sized to its own collider
         const th = 4.5 + rng() * 3.5;
@@ -4055,6 +4296,8 @@ export class Renderer {
       }));
       m.castShadow = !this.low;
       m.receiveShadow = !this.low;
+      m.userData.blobs = blobs;
+      this.occluders.push(m);
       this.scene.add(m);
     };
     add(rock, 0.95);

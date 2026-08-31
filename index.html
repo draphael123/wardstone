@@ -704,6 +704,24 @@
     #armoury .it .s{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:#7f7768}
     #armoury .aNone{font-size:12px;color:#7d7466;padding:8px 2px}
   
+  
+    /* DAMAGE DIRECTION.
+       A chase camera cannot show you what is behind you, so the one thing the
+       HUD owes you when you are hit is WHERE FROM. Eight wedges around the
+       screen edge; the one facing the blow lights and fades. */
+    #hurtRing{position:fixed;inset:0;z-index:30;pointer-events:none;overflow:hidden}
+    #hurtRing i{position:absolute;left:50%;top:50%;width:230px;height:230px;
+      margin:-115px 0 0 -115px;border-radius:50%;opacity:0;
+      transform-origin:50% 50%;transition:opacity .5s ease;
+      background:conic-gradient(from -26deg,
+        rgba(210,60,50,.5) 0deg, rgba(210,60,50,.16) 30deg, transparent 52deg);
+      -webkit-mask:radial-gradient(circle, transparent 62%, #000 78%);
+      mask:radial-gradient(circle, transparent 62%, #000 78%)}
+    #hurtRing i.on{opacity:1;transition:opacity .06s ease}
+    /* the bars belong WITH the things that spend them */
+    #hpWrap{position:absolute;left:max(14px,env(safe-area-inset-left));
+      bottom:calc(max(14px,env(safe-area-inset-bottom)) + 132px);
+      top:auto;width:210px}
   </style>
 </head>
 <body>
@@ -795,6 +813,7 @@
     <div class="act" id="blockChip"><i class="ak"></i><i class="ai">&#128737;</i><i class="an">Block</i><i class="ac"></i></div>
     <div class="act" id="abil"><i class="ak"></i><i class="ai">&#9878;</i><i class="an">Bash</i><i class="ac"></i><i class="cd"></i></div>
   </div>
+  <div id="hurtRing"></div>
   <div id="hpWrap">
     <div id="hpTrack"><i id="hpGhost"></i><i id="hpFill"></i><b id="hpNum"></b></div>
     <div id="enTrack"><i id="enFill"></i><i id="enCharge"></i></div>

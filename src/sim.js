@@ -905,6 +905,16 @@ export class World {
     f.dead = true;
     f.corpseT = CORPSE_TIME;
     this.stats.kills[f.kind] = (this.stats.kills[f.kind] || 0) + 1;
+    // HOW it died, so the renderer can drop it differently. Everything used to
+    // fall the same way regardless of whether a sword, a bolt or a fire had
+    // done it, which makes forty deaths a minute read as one animation.
+    f.deathBy = by;
+    // Derived from the foe's own id, NOT drawn from this.rng. Taking a number
+    // from the world's stream here shifted every later draw in the run and cost
+    // two wins on a purely cosmetic change — the same mistake the braziers
+    // taught, made again three features later.
+    // See [[world-setup-needs-own-rng]].
+    f.deathSpin = ((f.id * 2654435761) % 1000) / 500 - 1;
     if (!f.def.inert) {
       this.waveLog.kills[f.kind] = (this.waveLog.kills[f.kind] || 0) + 1;
       this.waveLog.killed++;
@@ -950,7 +960,7 @@ export class World {
     const p = this.player;
     if (p.alive) {
       const pd = Math.hypot(p.x - f.x, p.z - f.z);
-      if (pd < b.radius) this.hurtPlayer(b.player * (1 - 0.5 * (pd / b.radius)));
+      if (pd < b.radius) this.hurtPlayer(b.player * (1 - 0.5 * (pd / b.radius)), b.x, b.z);
     }
     const ds = Math.hypot(f.x, f.z);
     if (ds < b.radius + WARDSTONE.radius) this.hurtStone(b.stone || b.player, f.kind);
@@ -972,8 +982,12 @@ export class World {
     }
   }
 
-  hurtPlayer(amount) {
+  // `fromX/fromZ` is where the blow came FROM. Nothing used to record it, so
+  // the HUD could say you had been hit but never from which direction — the
+  // one piece of information a chase camera cannot give you.
+  hurtPlayer(amount, fromX, fromZ) {
     const p = this.player;
+    this._hurtFrom = (fromX != null) ? { x: fromX, z: fromZ } : null;
     if (!p.alive) return;
     if (p.invuln > 0) return;         // rolling through it
     if (p.blocking && p.weapon === 'sword') {
@@ -993,7 +1007,9 @@ export class World {
     }
     p.hp -= amount;
     p.hurtT = 0.25;
-    this.emit({ type: 'playerHurt', amount });
+    this.emit({ type: 'playerHurt', amount,
+      fromX: this._hurtFrom ? this._hurtFrom.x : null,
+      fromZ: this._hurtFrom ? this._hurtFrom.z : null });
     if (p.hp <= 0) {
       p.alive = false;
       p.hp = 0;
@@ -2289,7 +2305,7 @@ export class World {
         this.emit({ type: 'foeSwing', x: f.x, y: f.y, z: f.z, at: f.targetKind });
       } else if (f.atkCd <= 0) {
         if (hitPlayer) {
-          this.hurtPlayer(def.playerDamage);
+          this.hurtPlayer(def.playerDamage, f.x, f.z);
           f.atkCd = def.attackCd;
           this.emit({ type: 'foeSwing', x: f.x, y: f.y, z: f.z, at: 'player' });
         } else if (f.targetKind === 'ward' && f.target && !f.target.dead) {
@@ -2740,7 +2756,7 @@ export class World {
         if (!t) { b.dead = true; continue; }
         const reach = b.radius + (b.targetKind === 'player' ? 0.7 : 0.9);
         if (Math.hypot(t.x - b.x, t.z - b.z) < reach) {
-          if (b.targetKind === 'player') this.hurtPlayer(b.damage);
+          if (b.targetKind === 'player') this.hurtPlayer(b.damage, b.x, b.z);
           else if (b.targetKind === 'ward' && !t.dead) this.hurtWard(t, b.damage);
           else if (b.targetKind === 'stone') this.hurtStone(b.damage, 'archer');
           b.dead = true;
