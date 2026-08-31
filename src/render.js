@@ -17,7 +17,7 @@ import {
 } from './defs.js';
 import {
   LANES, ARENA, CELL, cellOf, cellCenter, laneAt, nearestLane, isBuildableCell,
-  currentMap, groundY, solidProps,
+  currentMap, groundY, moundY, solidProps,
 } from './arena.js';
 import { makeRng } from './rand.js';
 import { AGGRO, STAGGER } from './defs.js';
@@ -1165,15 +1165,16 @@ export class Renderer {
       const r = H - 2 + rng() * 13;
       const x = Math.cos(ang) * r, z = Math.sin(ang) * r;
       const th = 5.5 + rng() * 4;
-      birch.push({ g: box(0.42, th, 0.42), x, y: th / 2, z, c: 0xcfc9b4 });
+      const gy = moundY(x, z);
+      birch.push({ g: box(0.42, th, 0.42), x, y: gy + th / 2, z, c: 0xcfc9b4 });
       // the dark bands that make a birch a birch
       for (let b = 0; b < 4; b++) {
         birch.push({
           g: box(0.46, 0.16, 0.46), x, z,
-          y: th * (0.22 + b * 0.18), c: 0x3a3830,
+          y: gy + th * (0.22 + b * 0.18), c: 0x3a3830,
         });
       }
-      let ry = th * 0.9, rr = 2.2;
+      let ry = gy + th * 0.9, rr = 2.2;
       for (let k = 0; k < 3; k++) {
         birchLeaf.push({ g: box(rr, 1.3, rr), x, y: ry, z, ry: rng() * 0.8, c: 0x6a7f3a });
         ry += 1.0; rr *= 0.74;
@@ -1198,7 +1199,7 @@ export class Renderer {
         ferns.push({
           g: box(0.16 * sc, 0.07, len),
           x: x + Math.cos(fa) * len * 0.42,
-          y: 0.34 + rng() * 0.2,
+          y: moundY(x, z) + 0.34 + rng() * 0.2,
           z: z + Math.sin(fa) * len * 0.42,
           ry: -fa, rx: -0.5 - rng() * 0.3,
           c: rng() < 0.3 ? 0x4c6b32 : 0x3f5c2c,
@@ -1217,8 +1218,9 @@ export class Renderer {
       if (!clear(x, z, 3.9, 7)) continue;
       const c = FCOL[(rng() * FCOL.length) | 0];
       const h = 0.24 + rng() * 0.2;
-      flowers.push({ g: box(0.05, h, 0.05), x, y: 0.16 + h / 2, z, c: 0x53703a });
-      flowers.push({ g: box(0.17, 0.1, 0.17), x, y: 0.16 + h, z, ry: rng() * 3, c });
+      const gy = moundY(x, z);
+      flowers.push({ g: box(0.05, h, 0.05), x, y: gy + 0.16 + h / 2, z, c: 0x53703a });
+      flowers.push({ g: box(0.17, 0.1, 0.17), x, y: gy + 0.16 + h, z, ry: rng() * 3, c });
     }
     addMesh(flowers, { shadow: false });
 
@@ -1236,8 +1238,9 @@ export class Renderer {
         const a2 = (k / n) * Math.PI * 2 + rng() * 0.3;
         const x = cx + Math.cos(a2) * ring, z = cz + Math.sin(a2) * ring;
         const s = 0.09 + rng() * 0.09;
-        stems.push({ g: box(s * 0.4, s * 1.5, s * 0.4), x, y: 0.16 + s * 0.75, z, c: 0xdad3bd });
-        caps.push({ g: box(s * 1.6, s * 0.6, s * 1.6), x, y: 0.16 + s * 1.6, z, ry: rng() * 3, c: 0x7fd4c0 });
+        const gy = moundY(x, z);
+        stems.push({ g: box(s * 0.4, s * 1.5, s * 0.4), x, y: gy + 0.16 + s * 0.75, z, c: 0xdad3bd });
+        caps.push({ g: box(s * 1.6, s * 0.6, s * 1.6), x, y: gy + 0.16 + s * 1.6, z, ry: rng() * 3, c: 0x7fd4c0 });
       }
     }
     addMesh(stems, { shadow: false });
@@ -1251,7 +1254,7 @@ export class Renderer {
       const ang = rng() * Math.PI * 2, r = 14 + rng() * 20;
       const x = Math.cos(ang) * r, z = Math.sin(ang) * r;
       if (!clear(x, z, 6.2)) continue;
-      let y = 0.16, w = 1.15;
+      let y = 0.16 + moundY(x, z), w = 1.15;
       const n = 3 + ((rng() * 3) | 0);
       for (let k = 0; k < n; k++) {
         const h = 0.34 + rng() * 0.3;
@@ -1272,6 +1275,7 @@ export class Renderer {
       const ang = rng() * Math.PI * 2, r = 12 + rng() * 24;
       const x = Math.cos(ang) * r, z = Math.sin(ang) * r;
       if (!clear(x, z, 5.0)) continue;
+      const gy = moundY(x, z);
       if (rng() < 0.55) {
         const n = 2 + ((rng() * 3) | 0);
         for (let k = 0; k < n; k++) {
@@ -1279,15 +1283,15 @@ export class Renderer {
           const L = 1.1 + rng() * 1.3;
           roots.push({
             g: box(0.3, 0.24, L),
-            x: x + Math.cos(a2) * L * 0.4, y: 0.24, z: z + Math.sin(a2) * L * 0.4,
+            x: x + Math.cos(a2) * L * 0.4, y: gy + 0.24, z: z + Math.sin(a2) * L * 0.4,
             ry: -a2, rx: 0.1, c: 0x392f24,
           });
         }
       } else {
         const L = 2.0 + rng() * 2.2, ry = rng() * 3;
-        roots.push({ g: box(0.62, 0.62, L), x, y: 0.44, z, ry, c: 0x453729 });
+        roots.push({ g: box(0.62, 0.62, L), x, y: gy + 0.44, z, ry, c: 0x453729 });
         // moss on the upper face only — a log mossed all round reads as a tube
-        moss.push({ g: box(0.5, 0.14, L * 0.9), x, y: 0.76, z, ry, c: 0x5c7a3c });
+        moss.push({ g: box(0.5, 0.14, L * 0.9), x, y: gy + 0.76, z, ry, c: 0x5c7a3c });
       }
     }
     addMesh(roots);
@@ -1328,9 +1332,10 @@ export class Renderer {
     this._flySeeds = [];
     for (let i = 0; i < 90; i++) {
       const ang = rng() * Math.PI * 2, r = 8 + rng() * 26;
+      const fx = Math.cos(ang) * r, fz = Math.sin(ang) * r;
       this._flySeeds.push({
-        x: Math.cos(ang) * r, z: Math.sin(ang) * r,
-        y: 0.7 + rng() * 2.1, ph: rng() * 6.28, sp: 0.35 + rng() * 0.55,
+        x: fx, z: fz,
+        y: moundY(fx, fz) + 0.7 + rng() * 2.1, ph: rng() * 6.28, sp: 0.35 + rng() * 0.55,
         rad: 0.7 + rng() * 1.5,
       });
     }
@@ -1401,10 +1406,28 @@ export class Renderer {
     const H = ARENA.half;
     const rng = makeRng(4242);
 
+    // The floor is DISPLACED, not flat. A flat plane is why the clearing read
+    // as a floor with things standing on it: with nothing between you and the
+    // treeline, the eye has no reason to believe there is ground there at all.
+    //
+    // 0.5m resolution across the whole 76m floor. That is 23k verts once, at
+    // build time, for a horizon that moves — cheap for what it buys.
+    const relief = (geo) => {
+      geo.rotateX(-Math.PI / 2);
+      const pos = geo.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        pos.setY(i, pos.getY(i) + moundY(pos.getX(i), pos.getZ(i)));
+      }
+      pos.needsUpdate = true;
+      geo.computeVertexNormals();
+      return geo;
+    };
+
+    // The base reaches well past the playable floor (out to the far side of
+    // the treeline) because the rim climbs out there and trees stand on it.
     const grass = new THREE.Mesh(
-      new THREE.PlaneGeometry(H * 2, H * 2),
+      relief(new THREE.PlaneGeometry(H * 2.9, H * 2.9, 168, 168)),
       new THREE.MeshStandardMaterial({ color: PAL.grassDark, roughness: 1 }));
-    grass.rotation.x = -Math.PI / 2;
     grass.receiveShadow = !this.low;
     this.scene.add(grass);
 
@@ -1421,9 +1444,8 @@ export class Renderer {
     // A low sward over the base, then TUFTS. Big slabs read as cracked paving;
     // a scatter of small blades at this camera distance reads as grass.
     const sward = new THREE.Mesh(
-      new THREE.PlaneGeometry(H * 2, H * 2),
+      relief(new THREE.PlaneGeometry(H * 2, H * 2, 152, 152)),
       new THREE.MeshStandardMaterial({ color: PAL.grass, roughness: 1 }));
-    sward.rotation.x = -Math.PI / 2;
     sward.position.y = 0.16;
     sward.receiveShadow = !this.low;
     this.scene.add(sward);
@@ -1434,14 +1456,15 @@ export class Renderer {
       if (nearestLane(x, z).dist < 3.4) continue;      // tracks are worn bare
       const h = 0.14 + rng() * 0.26;
       const w = 0.09 + rng() * 0.11;
-      tufts.push({ g: box(w, h, w), x, y: 0.16 + h / 2, z, ry: rng() * 3 });
+      const gy = moundY(x, z);
+      tufts.push({ g: box(w, h, w), x, y: gy + 0.16 + h / 2, z, ry: rng() * 3 });
       // clump: a blade alone reads as a stick, three together read as grass
       const blades = 2 + ((rng() * 2) | 0);
       for (let b = 0; b < blades; b++) {
         const hh = h * (0.55 + rng() * 0.6);
         tufts.push({
           g: box(w * 0.85, hh, w * 0.85),
-          x: x + (rng() - 0.5) * 0.62, y: 0.16 + hh / 2, z: z + (rng() - 0.5) * 0.62,
+          x: x + (rng() - 0.5) * 0.62, y: gy + 0.16 + hh / 2, z: z + (rng() - 0.5) * 0.62,
           ry: rng() * 3, rz: (rng() - 0.5) * 0.45,
         });
       }
@@ -1490,8 +1513,9 @@ export class Renderer {
     const trunks = [], canopy = [];
     const addTree = (x, z, scale) => {
       const th = (3.2 + rng() * 2.6) * scale;
-      trunks.push({ g: box(0.62 * scale, th, 0.62 * scale), x, y: th / 2, z });
-      let r = 2.5 * scale, y = th * 0.86;
+      const gy = moundY(x, z);       // a tree on a bank stands ON the bank
+      trunks.push({ g: box(0.62 * scale, th, 0.62 * scale), x, y: gy + th / 2, z });
+      let r = 2.5 * scale, y = gy + th * 0.86;
       for (let i = 0; i < 4; i++) {
         canopy.push({ g: box(r, 1.5 * scale, r), x, y, z, ry: rng() * 0.7 });
         y += 1.15 * scale;
@@ -3021,11 +3045,12 @@ export class Renderer {
       const bob = Math.sin(this.t * 1.6 + c.spin) * 0.05;
       _q.setFromEuler(new THREE.Euler(0, c.spin, 0));
       const k = 0.75 + 0.25 * (c.hp / c.maxHp);      // splinters as it breaks
-      _m.compose(_v.set(c.x, bob, c.z), _q, _s.set(k, k, k));
+      const cgy = moundY(c.x, c.z);
+      _m.compose(_v.set(c.x, cgy + bob, c.z), _q, _s.set(k, k, k));
       this.cacheMesh.setMatrixAt(ci, _m);
       cflash.array[ci] = c.hitT > 0 ? Math.min(0.6, c.hitT * 6) : 0;
       _q.copy(this.camera.quaternion);
-      _m.compose(_v.set(c.x, 1.1 + bob, c.z), _q, _s.set(1, 1, 1));
+      _m.compose(_v.set(c.x, cgy + 1.1 + bob, c.z), _q, _s.set(1, 1, 1));
       this.cacheGlow.setMatrixAt(ci, _m);
       ci++;
     }
@@ -3039,7 +3064,7 @@ export class Renderer {
     let mi = 0;
     for (const m of world.motes) {
       if (m.taken || m.life <= 0 || mi >= 200) continue;
-      const y = (m.y || 0.6) + Math.sin(this.t * 3 + m.id) * 0.16;
+      const y = moundY(m.x, m.z) + (m.y || 0.6) + Math.sin(this.t * 3 + m.id) * 0.16;
       _q.setFromEuler(new THREE.Euler(this.t * 1.6 + m.id, this.t * 2.2, 0));
       // about to expire: shrink, so a dying mote is a visible loss
       const near = m.life < 4 ? 0.5 + 0.5 * Math.sin(this.t * 14) : 1;
@@ -3137,7 +3162,7 @@ export class Renderer {
         else { cr = 0.24; cg = 1.00; cb = 0.38; }                // free ground
         if (!affordable) { cr *= 0.34; cg *= 0.34; cb *= 0.34; }
         _q.identity();
-        _m.compose(_v.set(c.x, 0.34, c.z), _q, _s.set(1, 1, 1));
+        _m.compose(_v.set(c.x, groundY(c.x, c.z) + 0.18, c.z), _q, _s.set(1, 1, 1));
         this.gridMesh.setMatrixAt(n, _m);
         col[n * 3] = cr; col[n * 3 + 1] = cg; col[n * 3 + 2] = cb;
         n++;

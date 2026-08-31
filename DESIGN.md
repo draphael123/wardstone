@@ -1626,3 +1626,69 @@ visible rather than hidden.
 so light attacks cannot stagger it, and the charged heavy exists precisely to
 answer that — but the harness bot never charges a heavy. A human has a tool here
 that the measurement cannot see.
+
+---
+
+# Verticality
+
+The clearing was dead flat, so it read as a floor with things standing on it.
+Two separate pieces fix that, and neither can touch the balance.
+
+## The safety argument comes from the import graph, not from a re-run
+
+`sim.js` does not import `groundY`. The simulation's world is flat — only the
+RENDERER lifts things onto the ground. So the shape of the clearing cannot move
+the balance **by construction**. That is a much stronger claim than "we re-ran
+the harness and it looked the same", and it is why this could be a large visual
+change with no tuning attached.
+
+Two further invariants are asserted directly against the terrain function:
+
+| | measured |
+|---|---|
+| worst ground lift under any **lane** point | **0.0000 m** |
+| worst rim lift anywhere the **player** can walk | **0.0000 m** |
+| worst slope across a **build cell** | 0.245 m (4.9°) |
+
+## 1. Swells — the ground you fight on
+
+Twenty-two broad, low banks in the open ground, generated clear of every lane.
+Wide and shallow on purpose: 9–15 m across and 30–62 cm tall, so a swell rises
+about 8 cm over the 2 m of a build cell and a ward stands **on** one rather than
+tilting off it. 36% of the floor has relief.
+
+**They take the max, not the sum.** Summing the overlaps stacked them into 2.8 m
+spikes with cliff faces cutting across build cells — 334 cells over 20 cm.
+Taking the highest bank makes two that meet read as one longer ridge, which is
+both safe (36 cells over 20 cm, none over 25 cm) and the better shape.
+
+## 2. The rim — the horizon
+
+Ground beyond the arena climbs away into the treeline, so the wood stands on a
+rising bank rather than on the same plane you do: a bowl with a lip instead of a
+floor with a fence. 7 m of lift by the far treeline.
+
+**Measured on the square metric, not the radius.** The arena is a square, and a
+*radial* rim reaches 4.2 m under the corner build cells while leaving the edge
+cells alone — exactly backwards. On `max(|x|,|z|)` it starts at 36.5, half a
+metre outside the player's own bound, and touches nothing playable at all.
+
+## What had to be lifted with it
+
+Everything drawn at a fixed height was suddenly wrong. The ground mesh is
+displaced (0.5 m resolution), and trees, birches, tufts, ferns, flowers,
+mushrooms, cairns, roots, logs and fireflies all read the bank height at their
+own position.
+
+Three that were easy to miss, because they only break where a bank happens to
+be: **mana motes** hovered at a fixed 0.6 m and so sat *inside* a 62 cm bank;
+**mana caches** sat at world zero and sank; and worst, the **build grid** was a
+flat overlay at 0.34 m, so the cell you were aiming at simply stopped being
+drawn on any bank tall enough to swallow it.
+
+Draping the grid over the contour turned out to be the best thing in the pass —
+it is now the clearest read of the terrain in the game, better than the grass.
+
+The lane strips needed no change at all, which is the design checking itself: no
+bank is ever generated within 3 m of a lane, so `moundY` under every one of the
+289 sampled lane points is exactly zero.

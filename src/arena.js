@@ -103,6 +103,7 @@ export function setMap(id) {
   LANES = m.lanes.map(buildLane);
   LANE_BY_ID = Object.fromEntries(LANES.map(l => [l.id, l]));
   PROPS = null;                  // lanes moved; re-laid on next use
+  MOUNDS = null;
   return m;
 }
 
@@ -206,16 +207,97 @@ export function nearestLane(x, z) {
 export const SWARD_Y = 0.16;   // the grass plane
 export const LANE_Y = 0.285;   // the top face of a worn dirt track
 
+// Raised ground.
+//
+// The clearing was dead flat, which is why it read as a floor with things
+// standing on it rather than as a place. These are broad, low swells in the
+// open ground between the lanes.
+//
+// Two rules make them safe. They are generated clear of every lane, so no
+// metre of track changes height. And `sim.js` does not import groundY at all
+// — the simulation's world is flat and only the RENDERER lifts things onto
+// the ground — so the shape of the clearing cannot move the balance by
+// construction, not merely by measurement.
+//
+// Wide and shallow on purpose: a swell 12m across and 50cm tall rises about
+// 8cm over the 2m of a build cell, so a ward standing on one sits on it
+// rather than tilting off it. The verticality you read is the horizon
+// breaking up behind the fight, not a hill to climb.
+let MOUNDS = null;
+function buildMounds() {
+  const rng = makeRng(31337);
+  const out = [];
+  for (let i = 0; i < 90 && out.length < 22; i++) {
+    const a = rng() * Math.PI * 2;
+    const d = 14 + rng() * (ARENA.half - 16);
+    const x = Math.cos(a) * d, z = Math.sin(a) * d;
+    const r = 9 + rng() * 7;
+    const h = 0.30 + rng() * 0.34;
+    if (Math.hypot(x, z) < 13) continue;             // never under the fire
+    if (nearestLane(x, z).dist < r + 3) continue;    // never under a lane
+    out.push({ x, z, r, h });
+  }
+  return out;
+}
+export function mounds() {
+  if (MOUNDS === null) MOUNDS = buildMounds();
+  return MOUNDS;
+}
+
+// The bank height alone, with no lane blending. The ground MESH is displaced
+// by this, while the worn tracks are drawn as their own flat strips on top —
+// so the two must not both carry the lane term or the tracks would sit 12cm
+// inside the grass they are meant to be worn into.
+export function moundY(x, z) {
+  const ms = mounds();
+  let y = 0;
+  for (let i = 0; i < ms.length; i++) {
+    const m = ms[i];
+    const dx = x - m.x, dz = z - m.z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 >= m.r * m.r) continue;
+    const k = 1 - Math.sqrt(d2) / m.r;
+    // MAX, not sum. Summing stacked the overlaps into 2.8m spikes with cliff
+    // faces across build cells; taking the highest bank makes two that meet
+    // read as one longer ridge, which is also the better shape.
+    const v = m.h * (k * k * (3 - 2 * k));
+    if (v > y) y = v;
+  }
+  // The rim. The swells shape the ground you fight on; this is what gives the
+  // clearing a HORIZON. Ground beyond radius 35 climbs away into the treeline,
+  // so the wood stands on a rising bank rather than on the same flat plane you
+  // do, and the eye reads a bowl with a lip instead of a floor with a fence.
+  //
+  // It starts outside ARENA.wallInset (36) and is quadratic, so at the very
+  // edge of where the player can walk it is under 2cm — nothing that can be
+  // stood on, climbed, or built on ever leaves the flat.
+  //
+  // Measured on the SQUARE metric, not the radius, because the arena is a
+  // square: a radial rim reaches 4m under the corner build cells while leaving
+  // the edge cells alone, which is exactly backwards. On max(|x|,|z|) it
+  // starts at 36.5 — half a metre outside the player's own bound — so no cell
+  // anything can stand on, walk to, or build in is touched at all.
+  const sq = Math.max(Math.abs(x), Math.abs(z));
+  if (sq > 36.5) {
+    const k = Math.min(1, (sq - 36.5) / 13);
+    y += 7.0 * k * k;
+  }
+  return y;
+}
+
 export function groundY(x, z) {
+  let y = SWARD_Y + moundY(x, z);
   const n = nearestLane(x, z);
-  if (!n.lane) return SWARD_Y;
-  // Blended across the verge rather than a hard step: a 12cm cliff at the edge
-  // of every track would read as a stutter every time anything walked on.
-  const half = n.lane.width / 2;
-  const a = half - 0.5, b = half + 0.7;
-  const t = n.dist <= a ? 1 : (n.dist >= b ? 0 : 1 - (n.dist - a) / (b - a));
-  const e = t * t * (3 - 2 * t);            // smoothstep
-  return SWARD_Y + (LANE_Y - SWARD_Y) * e;
+  if (n.lane) {
+    // Blended across the verge rather than a hard step: a 12cm cliff at the edge
+    // of every track would read as a stutter every time anything walked on.
+    const half = n.lane.width / 2;
+    const a = half - 0.5, b = half + 0.7;
+    const t = n.dist <= a ? 1 : (n.dist >= b ? 0 : 1 - (n.dist - a) / (b - a));
+    const e = t * t * (3 - 2 * t);          // smoothstep
+    y += (LANE_Y - SWARD_Y) * e;
+  }
+  return y;
 }
 
 // ---------------------------------------------------------------------------
