@@ -125,6 +125,25 @@ export const WARDSTONE = {
 // SUFFERS this mechanic: it has no policy for baiting a breaker off a wall, so
 // it experiences the downside and never once uses the upside.
 // See [[sim-cannot-measure-a-strategy-the-bot-cannot-play]].
+// Getting hit has to CHANGE what a foe is doing, or combat reads as swinging at
+// scenery. But it must not change it every single time: if every blow staggers,
+// mashing beats blocking and rolling, and the defensive half of the game stops
+// existing. See [[hyperarmour-stops-mashing]].
+//
+// So: light foes stagger, on a per-foe COOLDOWN, and only from the player —
+// a ward that staggered would perma-lock a lane for free. Heavies have poise
+// and never stagger at all; their long readable windups are answered by moving,
+// not by out-damaging them.
+export const STAGGER = {
+  time: 0.32,       // s of interrupted, staggered-back reaction
+  cooldown: 1.15,   // s before the same foe can be staggered again
+  // Small. Swept over 21 seeds on both maps: a 0.55m shove costs real ground
+  // because the foe has to walk back into reach and the player follows it.
+  // 0.2m still reads as a jolt without turning every fight into a chase.
+  knock: 0.2,       // m shoved away from the blow
+  minDamage: 12,    // a graze does not stagger anything
+};
+
 export const AGGRO = {
   time: 3.2,        // s of interest after you hurt it, for the telegraph
   leash: 14,        // m from its lane position before it gives up and returns
@@ -407,12 +426,14 @@ export const FOES = [
     // hard enough to matter and slowly enough to answer, which is the point:
     // it is the foe Rally and the dodge roll exist for. Kill it, stagger it, or
     // step out of the arc — but do not stand in front of it and trade.
+    poise: true,          // never staggered — dodge it, do not trade with it
     id: 'bruiser', name: 'Bruiser',
     hp: 340, speed: 2.2, radius: 0.8, bounty: 22,
     damage: 60, playerDamage: 42, attackCd: 2.6, flying: false, height: 2.3,
     windup: 0.95,           // overrides AGGRO.windup — the tell is the defence
   },
   {
+    poise: true,          // never staggered — a wall buys the time, not your sword
     id: 'breaker', name: 'Breaker',
     hp: 1200, speed: 1.9, radius: 1.15, bounty: 40,
     damage: 320, playerDamage: 26, attackCd: 2.2, flying: false, height: 3.0,

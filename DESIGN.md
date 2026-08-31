@@ -1273,3 +1273,63 @@ anything once the ballista became a curve whose base is deliberately below
 everything — and raw dps never compared an aura to a piercing gun anyway. It now
 asserts the claim underneath: **the ward that reaches the sky pays for it**, with
 the shortest reach of any damage ward and only 55% of its damage landing upward.
+
+---
+
+# Clipping, and hits that do something
+
+## Ground foes had no collision at all
+
+`_separate()` began with `if (!f.def.flying) continue;`. Bodies walked straight
+through one another — a Bruiser is 0.8 m across and a Breaker 1.15 m. Reported
+as *"they clip a ton"*, and they did.
+
+It had been tried before and backed out as a **balance dial**: at full strength
+the glade became a walkover and the gauntlet fell 16/21 → 10/21, and a crowd
+pressed against the fire got shoved *off* the objective, which let an air-heavy
+ring win unattended.
+
+The mistake was the push, not the idea. A free push moves a foe **along** its
+lane, or **away** from what it is attacking — and those two quantities are what
+the balance is made of. So the push is now projected off whichever axis carries
+that information:
+
+- **walking a lane** → pushed only *across* it. Lane progress is untouched, so
+  arrival timing is bit-for-bit unchanged.
+- **attacking a ward** → pushed only *perpendicular to the line to its target*,
+  so a crowd spreads around it at constant range.
+- **on the objective** → not separated at all. Letting the scrum at the fire
+  fan out is exactly what handed the game to the air-heavy ring, and a crowd on
+  the fire *should* look like a scrum.
+
+At `SEPARATION = 1.0` — full body radii, no overlap where there is room to avoid
+it — overlapping pairs fall from **10.8% to 5.3%** and the deepest overlap from
+99% of combined radii (effectively coincident) to 77%. Glade 19/21, gauntlet
+14/21, premise intact. It is no longer a balance dial.
+
+## A hit now changes what a foe is doing
+
+Being hit was a 0.1 s flash and nothing else — grepping the whole sim for
+knock/stagger/recoil returned one match, and that was Rally. So you could hit a
+goblin mid-swing and it would finish the swing anyway. That is what "combat
+feels soft" actually was.
+
+Light foes now **stagger**: the windup is cut, they reel back, and they cannot
+move or attack for a third of a second.
+
+Gated three ways, because unrestricted hitstun would make mashing beat blocking
+and delete the defensive half of the game
+([[hyperarmour-stops-mashing]]):
+
+- **Heavies have poise.** A Breaker hit for 200 keeps swinging — verified. You
+  dodge a Bruiser, you do not out-damage it.
+- **A graze does not stagger** — 12 damage minimum.
+- **Per-foe cooldown of 1.15 s**, so a crowd cannot be chain-locked.
+- **Only the player staggers.** A ward that staggered would hold a lane for free.
+
+Knockback is deliberately small at 0.2 m: swept over 21 seeds, a 0.55 m shove
+costs real ground because the foe has to walk back in and the player follows it.
+
+The reel is visible — the body pitches back and compresses for the duration —
+and a stagger gets a ring, sparks and a beat of hitstop, because it is the
+moment the player finds out their swing did something.

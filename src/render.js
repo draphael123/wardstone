@@ -20,7 +20,7 @@ import {
   currentMap, groundY,
 } from './arena.js';
 import { makeRng } from './rand.js';
-import { AGGRO } from './defs.js';
+import { AGGRO, STAGGER } from './defs.js';
 const WINDUP = AGGRO.windup;
 // Display-only crowd fan-out: bucket size, and how far a packed bucket spreads.
 const BLOB_CAP = 220;
@@ -2673,6 +2673,14 @@ export class Renderer {
           const hk = f.hitT / 0.1;
           sc *= 1 + hk * 0.13;
           lean += hk * 0.16;
+        }
+        // STAGGER: it reels. This is the difference between a hit that
+        // registers and one that just tints the model for a frame — the body
+        // pitches back hard, drops, and holds there while it recovers.
+        if (f.stagT > 0) {
+          const k = f.stagT / STAGGER.time;
+          lean -= 0.85 * k;                 // thrown backwards
+          sc *= 1 - 0.08 * k;               // and compressed by the blow
         }
       }
       // 'YXZ': yaw FIRST, then pitch in the rotated frame. With the default

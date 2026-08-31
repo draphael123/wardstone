@@ -445,6 +445,16 @@ function drainEvents() {
         r.shock(e.x, 0.12, e.z, 0xa8b4c8, 0.5, 2.4, 0.3);
         r.addShake(0.06);
         break;
+      case 'stagger':
+        // A stagger is the loudest positive feedback in the game: it is the
+        // moment the player learns their swing did something. Give it the ring,
+        // the sparks and a beat of hitstop.
+        r.shock(e.x, e.y, e.z, 0xfff0c8, 0.5, 2.4, 0.3, Math.PI / 2);
+        r.spark(e.x, e.y, e.z, 0xfff4d8, 10, 6, 0.85, -4);
+        r.addShake(0.16);
+        state.hitstop = Math.max(state.hitstop, 0.06);
+        if (s) s.play('impact', 1.0, 0.8);
+        break;
       case 'dodge':
         r.ringBurst(e.x, 0.25, e.z, 0xbcd2f5, 1.5, 12);
         r.shock(e.x, 0.14, e.z, 0x9fc0f0, 0.5, 2.6, 0.34);   // dust off the push

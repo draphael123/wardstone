@@ -9,7 +9,7 @@
 // repair, ready) is a command the caller issues between steps.
 
 import {
-  PLAYER, WARDSTONE, ECON, WARDS, WARD_BY_ID, FOE_BY_ID, WAVES, AGGRO, UPGRADE, ABILITY, HEARTH, CACHE, DIFFICULTY,
+  PLAYER, WARDSTONE, ECON, WARDS, WARD_BY_ID, FOE_BY_ID, WAVES, AGGRO, UPGRADE, ABILITY, HEARTH, CACHE, DIFFICULTY, STAGGER,
 } from './defs.js';
 import {
   LANES, LANE_BY_ID, laneAt, cellOf, cellCenter, cellKey,
@@ -28,15 +28,21 @@ const STRIKE_TIME = 0.26;
 // How high above the player's feet the sword's arc reaches.
 const SWORD_TOP = 2.5;
 
-// How much of the combined body radii foes insist on keeping between them.
-// Below 1 they may touch, which is correct — a crowd SHOULD press.
+// How much of the combined body radii ground foes keep between them. At 1.0 two
+// bodies do not overlap at all when there is room to avoid it.
+//
+// This used to be a balance dial and is not any more, because the push is now
+// projected off the axis that carries balance information — see _separate.
+// Measured across 21 seeds on both maps at 0.6 / 0.85 / 1.0, every value holds
+// the premise and 1.0 is the best on every axis: overlapping pairs 10.8% -> 5.3%
+// and the deepest overlap 99% of combined radii -> 77%.
 //
 // Swept over 21 seeds on both maps, and it is a balance dial as much as a
 // visual one: at 0.85 the glade became a walkover and the gauntlet fell from
 // 16/21 to 10/21, because how tightly a wave bunches decides how much of it a
 // ward's area covers at once. 0.3 is the least separation that stops bodies
 // occupying the same point, which is all the visual problem ever needed.
-const SEPARATION = 0.3;
+const SEPARATION = 1.0;
 // Fliers are held much closer than walkers. They converge on ONE point by
 // design, and spreading them widely around the standoff ring puts more of
 // them inside more watchtower auras — which broke the premise test outright.
@@ -539,6 +545,7 @@ export class World {
       atkCd: this.rng.range(0, 0.4),
       target: null, targetKind: null, dead: false, hitT: 0,
       aggroT: 0, windT: 0, stunT: 0, slowT: 0, slowK: 1, strikeT: 0, swingK: 0,
+      stagT: 0, stagCd: 0, stagX: 0, stagZ: 0,
       fuseT: 0, blastTarget: null,
       // fliers cut the corner: they take the straight line to the stone
       fx: 0, fz: 0,
@@ -562,6 +569,21 @@ export class World {
     if (dealt > 4) f.hitT = 0.1;
     if (source === 'player' && dealt > 0) {
       f.aggroT = AGGRO.chaseTime;   // it noticed, and it is coming
+      // STAGGER. The blow has to interrupt what it was doing, or hitting things
+      // reads as swinging at scenery. Gated three ways so it cannot become a
+      // stunlock: heavies have poise, a graze does not count, and each foe has
+      // a cooldown before it can be rocked again.
+      if (!f.def.poise && dealt >= STAGGER.minDamage && f.stagCd <= 0) {
+        f.stagT = STAGGER.time;
+        f.stagCd = STAGGER.cooldown;
+        f.windT = 0;                // its swing is interrupted
+        f.strikeT = 0;
+        const p = this.player;
+        const kx = f.x - p.x, kz = f.z - p.z;
+        const kl = Math.hypot(kx, kz) || 1;
+        f.stagX = kx / kl; f.stagZ = kz / kl;
+        this.emit({ type: 'stagger', x: f.x, y: f.y + f.def.height * 0.6, z: f.z, foe: f.kind });
+      }
       this.emit({ type: 'dmg', x: f.x, y: f.y + f.def.height * 0.8, z: f.z, amount: dealt });
     }
     const bucket = this.stats.dmgToFoeBy[source];
@@ -1045,6 +1067,16 @@ export class World {
       // or the safe play is to park on top of the palisade and hold repair.
       if (f.aggroT > 0) f.aggroT -= dt;
       if (f.stunT > 0) { f.stunT -= dt; continue; }   // off its feet
+      if (f.stagCd > 0) f.stagCd -= dt;
+      if (f.stagT > 0) {
+        f.stagT -= dt;
+        // Shoved back along the blow while it recovers. Movement and attacks
+        // are both suspended, which is the whole point — a hit BUYS you time.
+        const k = Math.min(1, dt * 9);
+        f.x += f.stagX * STAGGER.knock * k;
+        f.z += f.stagZ * STAGGER.knock * k;
+        continue;
+      }
       if (f.fuseT > 0) {
         f.fuseT -= dt;
         if (f.fuseT <= 0) this._detonate(f);
@@ -1340,36 +1372,34 @@ export class World {
     if (ds < bd) { bd = ds; best = { kind: 'stone' }; }
     return best;
   }
-
   // Crowd separation.
   //
-  // Foes had none, so a lane backed up behind a wall collapsed into a single
-  // point — the world audit caught six of them inside a 0.25m circle. It reads
-  // as one goblin with too many limbs, and it is the single biggest source of
-  // "this looks unfinished" in a busy wave.
+  // Ground foes had NONE, so bodies walked straight through one another — a
+  // Bruiser is 0.8m across and a Breaker 1.15m, and they overlapped freely.
+  // Reported as "they clip a ton", and it was.
   //
-  // Deliberately gentle and positional rather than a force: one relaxation pass
-  // per step, half the overlap each, so it can never fight the lane and never
-  // accumulates velocity. A lane-walking foe has the push folded into its
-  // lateral OFFSET (clamped inside the lane) so it persists instead of being
-  // overwritten by the next `laneAt`; anything moving freely is pushed directly.
+  // It was tried before as a plain positional push and backed out, because it
+  // measured as a BALANCE dial rather than a visual one: at full strength the
+  // glade became a walkover and the gauntlet fell 16/21 -> 10/21, and a crowd
+  // pressed against the fire got shoved OFF the objective, which let an
+  // air-heavy ring win unattended.
+  //
+  // The reason was never separation itself — it was that a free push moves a
+  // foe ALONG its lane, or away from the thing it is attacking, and both of
+  // those are the quantities the balance is made of. So the push is now
+  // projected onto the one axis that carries no balance information:
+  //
+  //   walking a lane  -> push only ACROSS the lane. Lane progress is untouched,
+  //                      so arrival timing is bit-for-bit what it was.
+  //   engaged         -> push only PERPENDICULAR to the line to its target, so
+  //                      a crowd spreads around the fire at constant range
+  //                      instead of being pushed off it.
+  //
+  // Bodies stop overlapping; nothing that decides a fight moves.
   _separate(dt) {
     const near = this._scratch;
     for (const f of this.foes) {
       if (f.dead) continue;
-      // FLIERS ONLY, and this is a deliberate retreat from something broader.
-      //
-      // Ground separation was tried at four strengths and it is a BALANCE dial,
-      // not a visual one: how tightly a wave bunches decides how much of it a
-      // ward's area covers at once. At 0.85 the glade became a walkover and the
-      // gauntlet fell 16/21 -> 10/21; making engaged foes hold instead pushed
-      // the player down to 8/21 and 3/21; and letting separation act on a crowd
-      // pressed against the fire shoved them off the objective and let an
-      // air-heavy ring win unattended.
-      //
-      // Meanwhile both pileups the audit ever found were WISPS. So this fixes
-      // the problem that actually exists and leaves the one that does not.
-      if (!f.def.flying) continue;
       this.foeHash.query(f.x, f.z, f.def.radius * 2 + 0.6, near);
       let px = 0, pz = 0;
       for (let n = 0; n < near.length; n++) {
@@ -1403,17 +1433,39 @@ export class World {
         f.x += px; f.z += pz;
         // Height is where a flock gets its spread, not width. Auras key on
         // HORIZONTAL distance, so stacking wisps vertically separates them to
-        // the eye while changing nothing about which towers can reach them —
-        // pushing them apart sideways put more of them inside more auras and
-        // broke the premise test on the gauntlet.
-        const want = f.def.flyHeight + ((f.id % 7) - 3) * 0.42;
-        f.y += (want - f.y) * Math.min(1, dt * 1.5);
-      } else if (f.standing || f.targetKind || f.aggroT > 0) {
-        f.x += px; f.z += pz;                       // free-moving: push directly
+        // the eye while changing nothing about which towers can reach them.
+        const wantY = f.def.flyHeight + ((f.id % 7) - 3) * 0.42;
+        f.y += (wantY - f.y) * Math.min(1, dt * 1.5);
+        continue;
+      }
+
+      // --- ground: strip the component that would change a balance quantity
+      // A crowd already on the objective presses and does not spread. Letting
+      // it fan out around the fire measurably handed the game to an air-heavy
+      // ring on the gauntlet — the spread put more bodies inside more auras for
+      // longer. Foes at the fire are also the ones you can least afford to be
+      // "tidy" about: they should look like a scrum.
+      if (f.targetKind === 'stone') continue;
+      const tgt = f.targetKind === 'ward' && f.target && !f.target.dead ? f.target : null;
+      let ax, az;                                   // the axis to REMOVE
+      if (tgt) {
+        ax = tgt.x - f.x; az = tgt.z - f.z;         // keep range to the target
       } else {
-        // lane-walking: fold the sideways part into `off` so it survives
-        const q = laneAt(f.lane, f.dist, 0);
-        const nx = q.dz, nz = -q.dx;                // left normal
+        const q = laneAt(f.lane, f.dist, f.off);
+        ax = q.dx; az = q.dz;                       // keep progress along the lane
+      }
+      const al = Math.hypot(ax, az) || 1;
+      ax /= al; az /= al;
+      const along = px * ax + pz * az;
+      px -= ax * along;
+      pz -= az * along;
+
+      if (tgt) {
+        f.x += px; f.z += pz;                       // slides around it, not off it
+      } else {
+        // fold the sideways push into the lane offset so it survives the next
+        // laneAt, and stays inside the lane it belongs to
+        const nx = az, nz = -ax;                    // left normal of the tangent
         const lat = px * nx + pz * nz;
         const half = f.lane.width / 2 - f.def.radius - 0.15;
         f.off = Math.max(-half, Math.min(half, f.off + lat));
