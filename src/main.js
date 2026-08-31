@@ -333,46 +333,60 @@ function syncHud() {
   }
 
   const p = w.player;
-  const wp = $('weap');
-  if (wp) {
-    wp.textContent = p.weapon === 'crossbow'
-      ? 'Crossbow — hold to brace'
-      : PLAYER.weapons[p.weapon].name;
-    // Assigning className wholesale wiped any other class on this element
-    // every frame — which silently deleted the tutorial's pointer ring the
-    // instant it was added. Touch only the classes this actually owns.
-    wp.classList.toggle('sword', p.weapon === 'sword');
-    wp.classList.toggle('crossbow', p.weapon === 'crossbow');
-  }
-  // Chips carry their own key, so a rebind is visible where the control is
-  // rather than only in a settings list nobody reopens.
-  const bc = $('blockChip');
-  if (bc) {
-    const canBlock = w.weaponDef(p).kind === 'melee';
-    bc.classList.toggle('ready', canBlock && !p.blocking);
-    bc.classList.toggle('on', !!p.blocking);
-    bc.textContent = canBlock
-      ? `Block ${keyLabel(state.binds.block)}`
-      : 'Block — sword only';
-  }
-  const ab = $('abil');
-  if (ab) {
-    const ready = p.abilityCd <= 0;
-    ab.classList.toggle('ready', ready);
-    ab.style.setProperty('--k', ready ? 1 : (1 - p.abilityCd / ABILITY.cooldown));
-    ab.textContent = ready
-      ? `Bash ${keyLabel(state.binds.rally)}`
-      : Math.ceil(p.abilityCd) + 's';
-  }
-  const rl = $('roll');
-  if (rl) {
-    const ready = p.dodgeCd <= 0;
-    rl.classList.toggle('ready', ready);
-    rl.style.setProperty('--k', ready ? 1 : (1 - p.dodgeCd / PLAYER.dodge.cooldown));
-    rl.textContent = ready
-      ? `Roll ${keyLabel(state.binds.roll)}`
-      : Math.ceil(p.dodgeCd * 10) / 10 + 's';
-  }
+  // ---- the ability bar. Four slots that read like the ward bar: a key in
+  // the corner, an icon, a name, and THE COST ON ITS FACE. Nothing used to say
+  // what spends the energy bar, so the player had a resource and no idea what
+  // drew on it.
+  const slot = (el, o) => {
+    if (!el) return;
+    el.querySelector('.ak').textContent = o.key || '';
+    el.querySelector('.an').textContent = o.name;
+    el.querySelector('.ac').textContent = o.cost || '';
+    el.classList.toggle('ready', !!o.ready);
+    el.classList.toggle('on', !!o.on);
+    el.classList.toggle('poor', !!o.poor);
+    el.classList.toggle('dead', !!o.dead);
+    const cd = el.querySelector('.cd');
+    if (cd) cd.style.setProperty('--cd', o.cd == null ? 0 : Math.max(0, Math.min(1, o.cd)));
+  };
+
+  const isMelee = w.weaponDef(p).kind === 'melee';
+  const cb = PLAYER.weapons.crossbow;
+  slot($('weap'), {
+    key: keyLabel(state.binds.swap),
+    name: isMelee ? 'Sword' : 'Crossbow',
+    cost: isMelee ? `hold ${ENERGY.heavy}` : `hold ${cb.brace.energy}`,
+    ready: false,
+  });
+  $('weap').querySelector('.ai').innerHTML = isMelee ? '&#9876;' : '&#10142;';
+
+  slot($('roll'), {
+    key: keyLabel(state.binds.roll),
+    name: 'Roll',
+    cost: p.dodgeCd > 0 ? (Math.ceil(p.dodgeCd * 10) / 10) + 's' : 'free',
+    ready: p.dodgeCd <= 0,
+    cd: p.dodgeCd > 0 ? p.dodgeCd / PLAYER.dodge.cooldown : 0,
+  });
+
+  slot($('blockChip'), {
+    key: keyLabel(state.binds.block),
+    name: 'Block',
+    cost: isMelee ? `${PLAYER.block.energyPerSec}/s` : '',
+    ready: isMelee && !p.blocking && p.energy > 0,
+    on: !!p.blocking,
+    dead: !isMelee,
+    poor: isMelee && p.energy <= 0,
+  });
+
+  slot($('abil'), {
+    key: keyLabel(state.binds.rally),
+    name: 'Bash',
+    cost: p.abilityCd > 0 ? Math.ceil(p.abilityCd) + 's' : `${ENERGY.bash}`,
+    ready: p.abilityCd <= 0 && p.energy >= ENERGY.bash && isMelee,
+    poor: p.abilityCd <= 0 && p.energy < ENERGY.bash,
+    dead: !isMelee,
+    cd: p.abilityCd > 0 ? p.abilityCd / ABILITY.cooldown : 0,
+  });
 }
 
 // short-lived line in the hint slot, for one-off confirmations

@@ -2412,3 +2412,32 @@ raise the camera to solve it, which is exactly the escape hatch that did not
 exist before, so this is a smaller problem than the one it replaced. It is the
 obvious next thing if the low angle turns out to be where the game wants to
 live. See [[fixed-iso-camera-needs-occluder-fade]].
+
+---
+
+# The ability bar
+
+There was already a real **tower bar** — numbered slots, icon, name, mana and
+unit cost, lock state, click to select. The abilities were four text chips in a
+row that *reported state*: "Roll Space", "Block C", "Bash V", and a countdown in
+seconds when something was cooling.
+
+Two halves of the same game looked like two different games. Worse: **nothing
+ever told you what spends the energy bar.** The player had a resource and no
+indication of what drew on it.
+
+The four abilities are slots now, in the ward bar's language — key in the
+corner, icon, name, and **the cost on the face**:
+
+| slot | reads |
+|---|---|
+| Sword / Crossbow | `Q · hold 34` — what a charged attack costs, in whichever hand |
+| Roll | `Space · free`, or the seconds left |
+| Block | `C · 16/s` |
+| Bash | `V · 30`, or the seconds left |
+
+Cooldowns are a **sweep rising from the bottom of the slot** rather than a
+number, so "nearly ready" is a shape you catch in peripheral vision. A slot you
+cannot afford greys and turns its cost red; one that needs the sword greys out
+entirely when the crossbow is in your hands, instead of saying "Block — sword
+only" in text.
