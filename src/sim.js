@@ -14,7 +14,7 @@ import {
 import {
   LANES, LANE_BY_ID, laneAt, cellOf, cellCenter, cellKey,
   isBuildableCell, clampToArena, nearestLane, distToLane, ARENA, currentMap, solidProps,
-  HALL, clampToHall, nearestStation,
+  HALL, clampToHall, nearestStation, canStep, terraceY,
   widthAt,
 } from './arena.js';
 import { makeRng } from './rand.js';
@@ -54,6 +54,9 @@ const HALL_SOLIDS = [
   { x: -12.0, z: 406.0, r: 1.0 },  // barrels
   { x: 11.8, z: 406.5, r: 1.0 },
 ];
+
+// How much further a ward on a terrace can reach.
+const HIGH_GROUND = 1.22;
 
 const WANDER_RATE = 0.28;
 const WANDER_AMT = 0.85;
@@ -275,9 +278,21 @@ export class World {
   // scale reach, rate and pierce with level, not just damage — the ballista
   // does, because its problem was that a LEVEL 1 one already reached across the
   // map. Anything without `up` behaves exactly as before.
+  // HIGH GROUND. A gun on a terrace sees further.
+  //
+  // This is what stops the terraces being purely the body's business. Without
+  // it the raised ground is somewhere YOU stand and nothing more, and the
+  // player who never walks up there is not making a decision — they are
+  // ignoring scenery. A ballista on the lip of a terrace overlooking a lane is
+  // a real reason to spend units on the high cells.
+  //
+  // Range only. Not damage, not rate: height should decide WHAT a gun can see,
+  // which is the thing height actually means, and a flat power bonus would just
+  // be "build here, it is better".
   wardRange(w) {
     const u = w.def.up;
-    return u && u.range ? w.def.range * Math.pow(u.range, w.level - 1) : w.def.range;
+    const base = u && u.range ? w.def.range * Math.pow(u.range, w.level - 1) : w.def.range;
+    return base * (terraceY(w.x, w.z) > 0.9 ? HIGH_GROUND : 1);
   }
 
   wardCooldown(w) {
@@ -1312,6 +1327,8 @@ export class World {
       p.x = nx; p.z = nz;
       return;
     }
+    // Terraces. You may drop off one anywhere; you may only get up by a ramp.
+    { const r = World.slide(p.x, p.z, nx, nz); nx = r.x; nz = r.z; }
 
     // Solid scenery is solid for the player too. Same push-out as a ward, so a
     // boulder behaves exactly like something you built.
@@ -1616,8 +1633,8 @@ export class World {
         const d = Math.hypot(dx, dz) || 1;
         const stop = stoneStandoff(def);
         if (d > stop) {
-          f.x += (dx / d) * spd * dt;
-          f.z += (dz / d) * spd * dt;
+          const r = World.slide(f.x, f.z, f.x + (dx / d) * spd * dt, f.z + (dz / d) * spd * dt);
+          f.x = r.x; f.z = r.z;
           // Boulders and trunks are solid to it. This is what turns the scenery
           // into CHOKE POINTS: a Wall Goblin walks a straight line to the fire,
           // so a rock in that line funnels it somewhere predictable, and the
@@ -1790,8 +1807,8 @@ export class World {
           // walk at the player directly, in world space, off the lane
           const cx = p.x - f.x, cz = p.z - f.z;
           const cl = Math.hypot(cx, cz) || 1;
-          f.x += (cx / cl) * spd * dt;
-          f.z += (cz / cl) * spd * dt;
+          const r = World.slide(f.x, f.z, f.x + (cx / cl) * spd * dt, f.z + (cz / cl) * spd * dt);
+          f.x = r.x; f.z = r.z;
           f.targetKind = null;
         } else if (planted) {
           // PLANTED. In reach of the player, or committed to a windup: stand
@@ -1900,6 +1917,20 @@ export class World {
       if (q.hitT > 0) q.hitT -= dt;
       if (q.comboT > 0) { q.comboT -= dt; if (q.comboT <= 0) q.combo = 0; }
     }
+  }
+
+  // Move from (x0,z0) toward (nx,nz), refusing to climb.
+  //
+  // Up is gated by a ramp, down is free. When the straight move is refused it
+  // is retried on each axis alone, which makes a body SLIDE along the foot of a
+  // terrace instead of standing still against it — and because it keeps
+  // pressing toward its goal, sliding walks it round to a ramp. That is the
+  // whole reason terraces funnel: they are chokepoints with a view.
+  static slide(x0, z0, nx, nz) {
+    if (canStep(x0, z0, nx, nz)) return { x: nx, z: nz };
+    if (canStep(x0, z0, nx, z0)) return { x: nx, z: z0 };
+    if (canStep(x0, z0, x0, nz)) return { x: x0, z: nz };
+    return { x: x0, z: z0 };
   }
 
   // How far off its lane's centre this foe may sit, where it currently is.

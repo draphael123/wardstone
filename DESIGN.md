@@ -1976,3 +1976,61 @@ Nothing, and that is checkable rather than measured: the hall runs `_stepHall`,
 which ticks the player's own timers and the pell, and touches no foe, no ward
 and no wave clock. 34/34, 12/12, fuzz clean, glade 13/21 and gauntlet 17/21 —
 identical to before it existed.
+
+---
+
+# Terraces — the raised ground you fight ON
+
+The earlier verticality pass was swells and a rim: relief you could see and
+nothing could stand on. This is the thing that was actually asked for. A terrace
+is a rectangle of ground about a metre up, and the only way onto it is a **ramp**.
+
+**Up is gated, down is free.** That asymmetry is the whole mechanic:
+
+- you can hold the top of a stair against a crowd, because they arrive in single
+  file instead of surrounding you
+- you can be flanked, because every terrace has more than one way up
+- retreating *upward* costs you the walk to a ramp; retreating *downward* is
+  instant and always available — to you and to whatever is chasing you
+
+## Placement was measured, not chosen
+
+The first draft hand-placed three 13×12m terraces and one of them sat on a lane.
+A clearance search over every square metre of each pad **and its ramp aprons**,
+against each lane's own local width, showed that nothing bigger than **9×8**
+fits beside a road on this map. Two of the three sit right beside a lane, close
+enough to shoot down onto it; the third is behind the fire where the off-lane
+Wall Goblins converge.
+
+Asserted, on both maps: **highest raised ground under any lane point or verge =
+0.0000m.** If that ever moves, the wave's route has changed and every balance
+number swept before it is void.
+
+## Sliding is what makes them funnel
+
+When a straight move is refused it is retried on each axis alone, so a body
+**slides along the foot of a terrace** instead of standing against it. Because it
+keeps pressing toward its goal, sliding walks it round to a ramp. A Wall Goblin
+walking blind for the fire routes around a terrace and arrives — measured over
+40 seconds, **0 frames fully stuck**.
+
+## High ground has to be worth taking for your wards too
+
+A ward on a terrace gets **+22% range**. Without it the raised ground is somewhere
+*you* stand and nothing more, and a player who never walks up there is not making
+a decision, they are ignoring scenery. Range only — not damage, not rate —
+because height should decide what a gun can *see*, which is what height means.
+
+46 build cells sit on terraces.
+
+## Two things that cost real time
+
+**Terraces belong to a MAP, exactly as lanes do.** They were module-level at
+first and applied to every map, so the glade's three landed wherever they fell on
+the gauntlet — on its lanes, as it turned out, quietly rerouting that map's waves
+and taking it from 17/21 to 10/21.
+
+**Terrain should change how a fight is fought, not how hard it is.** Rerouting
+every off-lane foe and changing where the body can stand cost one win, so waves
+3-6 came down to 94%. Final: 36/36 assertions, glade 16/21, gauntlet 20/21,
+T19 6/10.

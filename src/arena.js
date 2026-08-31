@@ -84,6 +84,23 @@ export const MAPS = {
         points: [[-34, -2], [-30, -2], [-26, -2], [-24, -2], [-16, -6], [-8, -6], [-3, -2], [0, 0]],
         widths: [2.8, 2.8, 3.2, 4.2, 7, 7.5, 7, 6] },
     ],
+    terraces: [
+    // Positions are not hand-picked; they came out of a clearance search that
+    // measures every square metre of the pad AND its ramp aprons against every
+    // lane's own local width. Nothing bigger than this fits beside a lane, which
+    // is why they are 9x8 rather than the 13x12 the first draft assumed — a
+    // terrace that overlaps a track would change the wave's route, and the whole
+    // point is that it does not.
+    //
+    // Two of the three sit right beside a road, close enough to shoot down onto
+    // it. The third is behind the fire, where the off-lane Wall Goblins converge.
+    { x: -14, z: -20, rx: 4.5, rz: 4.0, h: 1.15,
+      ramps: [{ side: 'w', at: 0, w: 3.0 }, { side: 'n', at: 0, w: 3.0 }] },
+    { x: 24, z: -10, rx: 4.5, rz: 4.0, h: 1.15,
+      ramps: [{ side: 'e', at: 0, w: 3.0 }, { side: 'n', at: 0, w: 3.0 }] },
+    { x: -10, z: 14, rx: 4.5, rz: 4.0, h: 1.45,
+      ramps: [{ side: 's', at: 0, w: 3.2 }, { side: 'w', at: 0, w: 3.0 }] },
+    ],
   },
 
   // The asymmetric test: one long winding approach worth ~3x the walking time
@@ -171,6 +188,8 @@ export function setMap(id) {
   LANE_BY_ID = Object.fromEntries(LANES.map(l => [l.id, l]));
   PROPS = null;                  // lanes moved; re-laid on next use
   PROP_CELLS = null;
+  TERRACES = MAPS[id].terraces || [];
+  RAMPS = null;
   MOUNDS = null;
   return m;
 }
@@ -368,8 +387,90 @@ export function moundY(x, z) {
   return y;
 }
 
+
+// ---------------------------------------------------------------------------
+// TERRACES — the raised ground you fight ON.
+//
+// The earlier verticality pass was swells and a rim: relief you could see and
+// nothing could stand on. This is the other thing entirely. A terrace is a
+// rectangle of ground about a metre up, and the only way onto it is a RAMP.
+//
+// That single rule is what makes height a position rather than a decoration:
+//
+//   * you can hold the top of a ramp against a crowd, because they arrive in
+//     single file instead of surrounding you
+//   * you can be flanked up there, because every terrace has more than one
+//   * you can drop off an edge for free, but you cannot climb one — so
+//     retreating upward costs you the walk to a ramp, and retreating downward
+//     is instant
+//
+// Lane foes are untouched: no terrace is ever placed on a lane, so the wave
+// still walks its polyline and the whole balance sweep carries over. What the
+// terraces change is where the BODY fights — you, and the things that come off
+// the road after you.
+// ---------------------------------------------------------------------------
+export const STEP_UP = 0.34;    // the most any body may climb without a ramp
+
+// Authored, not generated. Three terraces is a shape you can learn; a random
+// scatter of them is a cluttered field with nowhere in particular to stand.
+// Each is placed in the open ground BETWEEN two lanes, which is exactly where
+// the off-lane foes walk and where the player has no wall to hide behind.
+// Terraces belong to a MAP, exactly as lanes do.
+//
+// They were module-level at first and applied to every map, so the glade's
+// three landed wherever they happened to fall on the gauntlet — on its lanes,
+// as it turned out, which quietly rerouted that map's waves and took it from
+// 17/21 to 10/21. The clearance search that placed them was run against the
+// glade's roads and means nothing anywhere else.
+export let TERRACES = MAPS.glade.terraces || [];
+
+// A ramp as a world-space box, plus the direction "up" points.
+function rampBox(t, r) {
+  const L = 4.2;                      // how far the slope runs out from the edge
+  if (r.side === 'e') return { x0: t.x + t.rx, x1: t.x + t.rx + L, z0: t.z + r.at - r.w / 2, z1: t.z + r.at + r.w / 2, ax: 'x', dir: -1 };
+  if (r.side === 'w') return { x0: t.x - t.rx - L, x1: t.x - t.rx, z0: t.z + r.at - r.w / 2, z1: t.z + r.at + r.w / 2, ax: 'x', dir: 1 };
+  if (r.side === 'n') return { x0: t.x + r.at - r.w / 2, x1: t.x + r.at + r.w / 2, z0: t.z - t.rz - L, z1: t.z - t.rz, ax: 'z', dir: 1 };
+  return { x0: t.x + r.at - r.w / 2, x1: t.x + r.at + r.w / 2, z0: t.z + t.rz, z1: t.z + t.rz + L, ax: 'z', dir: -1 };
+}
+
+let RAMPS = null;
+export function ramps() {
+  if (RAMPS === null) {
+    RAMPS = [];
+    for (const t of TERRACES) for (const r of t.ramps) RAMPS.push({ ...rampBox(t, r), h: t.h, t });
+  }
+  return RAMPS;
+}
+
+// How high the walkable surface is here, above the sward. Flat on top of a
+// terrace, sloped on a ramp, zero everywhere else.
+export function terraceY(x, z) {
+  for (const t of TERRACES) {
+    if (Math.abs(x - t.x) <= t.rx && Math.abs(z - t.z) <= t.rz) return t.h;
+  }
+  for (const r of ramps()) {
+    if (x < r.x0 || x > r.x1 || z < r.z0 || z > r.z1) continue;
+    // 0 at the outer end, full height where it meets the terrace
+    const u = r.ax === 'x'
+      ? (r.dir > 0 ? (x - r.x0) / (r.x1 - r.x0) : (r.x1 - x) / (r.x1 - r.x0))
+      : (r.dir > 0 ? (z - r.z0) / (r.z1 - r.z0) : (r.z1 - z) / (r.z1 - r.z0));
+    return r.h * Math.max(0, Math.min(1, u));
+  }
+  return 0;
+}
+
+// Can a body at (x0,z0) step to (x1,z1)?
+//
+// Up is gated, down is free. That asymmetry IS the mechanic: holding a terrace
+// means holding its ramps, and bailing off the side is always available to you
+// and to everything chasing you.
+export function canStep(x0, z0, x1, z1) {
+  const a = terraceY(x0, z0), b = terraceY(x1, z1);
+  return b - a <= STEP_UP;
+}
+
 export function groundY(x, z) {
-  let y = SWARD_Y + moundY(x, z);
+  let y = SWARD_Y + moundY(x, z) + terraceY(x, z);
   const n = nearestLane(x, z);
   if (n.lane) {
     // Blended across the verge rather than a hard step: a 12cm cliff at the edge

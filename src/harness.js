@@ -23,7 +23,7 @@ import {
 } from './defs.js';
 import {
   LANES, LANE_BY_ID, laneAt, distToLane, cellOf, cellCenter,
-  isBuildableCell, CELL, setMap, MAPS, MAP_ID, widthAt,
+  isBuildableCell, CELL, setMap, MAPS, MAP_ID, widthAt, TERRACES, terraceY, ramps, canStep,
 } from './arena.js';
 
 const DT = 1 / 60;
@@ -1103,6 +1103,55 @@ export function runTests(log = console.log) {
     ok('T32 and every throat is somewhere you would fight anyway, not deep in',
       deepest < 0.5,
       `the deepest throat sits ${(deepest * 100).toFixed(0)}% along its lane (must stay in the near half)`);
+  }
+
+  // --------------------------------------------------------------- terraces
+  {
+    log('');
+    log('[terraces]');
+    // Raised ground may never touch a road. If it did, the wave's route would
+    // change and every balance number swept before it would be void.
+    let worst = 0;
+    for (const id of ['glade', 'gauntlet']) {
+      setMap(id);
+      const q = { x: 0, z: 0 };
+      for (const L of LANES) {
+        for (let d = 0; d <= L.total; d += 0.25) {
+          const half = widthAt(L, d) / 2 + 1.2;
+          for (let o = -half; o <= half; o += 0.5) {
+            laneAt(L, d, o, q);
+            worst = Math.max(worst, terraceY(q.x, q.z));
+          }
+        }
+      }
+    }
+    setMap('glade');
+    ok('T33 no terrace or ramp touches a lane on any map',
+      worst < 1e-6,
+      `highest raised ground under any lane point or verge: ${worst.toFixed(4)}m`);
+
+    // The rule that makes height a POSITION: up is gated, down is free.
+    let climbable = 0, droppable = 0, rampUp = 0;
+    for (const t of TERRACES) {
+      for (const [ex, ez, dx, dz] of [
+        [t.x, t.z - t.rz, 0, -1], [t.x, t.z + t.rz, 0, 1],
+        [t.x - t.rx, t.z, -1, 0], [t.x + t.rx, t.z, 1, 0]]) {
+        // a point just outside the lip, and just inside it
+        const ox = ex + dx * 0.6, oz = ez + dz * 0.6;
+        const ix = ex - dx * 0.6, iz = ez - dz * 0.6;
+        if (terraceY(ox, oz) > 0.9) continue;              // that side is a ramp
+        if (canStep(ox, oz, ix, iz)) climbable++;
+        if (canStep(ix, iz, ox, oz)) droppable++;
+      }
+    }
+    for (const r of ramps()) {
+      const mx = (r.x0 + r.x1) / 2, mz = (r.z0 + r.z1) / 2;
+      if (canStep(mx, mz, mx + (r.ax === 'x' ? r.dir * 0.5 : 0),
+                          mz + (r.ax === 'z' ? r.dir * 0.5 : 0))) rampUp++;
+    }
+    ok('T34 you cannot climb a terrace wall, but you may always drop off one',
+      climbable === 0 && droppable > 0,
+      `${climbable} climbable walls (must be 0), ${droppable} droppable edges, ${rampUp}/${ramps().length} ramps walkable upward`);
   }
 
 

@@ -17,7 +17,7 @@ import {
 } from './defs.js';
 import {
   LANES, ARENA, CELL, cellOf, cellCenter, laneAt, nearestLane, isBuildableCell,
-  currentMap, groundY, moundY, solidProps, widthAt, HALL,
+  currentMap, groundY, moundY, solidProps, widthAt, HALL, TERRACES, ramps,
 } from './arena.js';
 import { makeRng } from './rand.js';
 import { AGGRO, STAGGER } from './defs.js';
@@ -748,6 +748,7 @@ export class Renderer {
       this._buildForest();
       this._buildScenery();
       this._buildSolids();
+      this._buildTerraces();
       this._buildHearth();
     }
     else { this._buildArena(); this._buildStone(); }
@@ -762,6 +763,67 @@ export class Renderer {
     this.laneFlash = new Map();   // lane id -> seconds remaining
   }
 
+
+  // -------------------------------------------------------------- terraces
+  // Raised ground you can stand on, and the STAIRS that are the only way up.
+  //
+  // The retaining wall is deliberately the loudest thing about a terrace: dark,
+  // banded, and a different material from everything around it, because the one
+  // fact a player has to read at a glance is "you cannot climb this". The
+  // stairs are pale and catch the light, because they are the answer.
+  _buildTerraces() {
+    const rock = [], face = [], step = [];
+    const SW = 0.16;                       // the sward the terrace stands on
+    for (const t of TERRACES) {
+      const top = SW + t.h;
+      // the pad
+      // Turf on top, noticeably lighter than the wall below it. The first
+      // version used one mid-green for pad and face alike and the whole thing
+      // read as a black hole this far from the fire — a terrace is somewhere
+      // you are meant to FIGHT, so it has to be legible at the edge of the
+      // light rather than only under it.
+      rock.push({ g: box(t.rx * 2, 0.34, t.rz * 2), x: t.x, y: top - 0.17, z: t.z, c: 0x84955f });
+      // retaining walls, banded so the height is legible from any angle
+      const wallY = (top - 0.34) / 2;
+      face.push({ g: box(t.rx * 2 + 0.3, top - 0.34, 0.5), x: t.x, y: wallY, z: t.z - t.rz, c: 0x4a4438 });
+      face.push({ g: box(t.rx * 2 + 0.3, top - 0.34, 0.5), x: t.x, y: wallY, z: t.z + t.rz, c: 0x4a4438 });
+      face.push({ g: box(0.5, top - 0.34, t.rz * 2 + 0.3), x: t.x - t.rx, y: wallY, z: t.z, c: 0x4a4438 });
+      face.push({ g: box(0.5, top - 0.34, t.rz * 2 + 0.3), x: t.x + t.rx, y: wallY, z: t.z, c: 0x4a4438 });
+      // a coping course along the lip, which is what makes the edge read as an
+      // edge rather than as a colour change on a flat floor
+      for (const [cx, cz, sx, sz] of [
+        [t.x, t.z - t.rz, t.rx * 2 + 0.5, 0.62], [t.x, t.z + t.rz, t.rx * 2 + 0.5, 0.62],
+        [t.x - t.rx, t.z, 0.62, t.rz * 2 + 0.5], [t.x + t.rx, t.z, 0.62, t.rz * 2 + 0.5]]) {
+        rock.push({ g: box(sx, 0.22, sz), x: cx, y: top + 0.05, z: cz, c: 0x9c9884 });
+      }
+    }
+    // stairs, cut into each ramp's footprint
+    for (const r of ramps()) {
+      const N = 6;
+      const along = r.ax === 'x' ? (r.x1 - r.x0) : (r.z1 - r.z0);
+      const wide = r.ax === 'x' ? (r.z1 - r.z0) : (r.x1 - r.x0);
+      for (let k = 0; k < N; k++) {
+        const h = r.h * ((k + 1) / N);
+        // k = 0 is the outer end when dir > 0 runs toward increasing coordinate
+        const u0 = k / N, u1 = (k + 1) / N;
+        const mid = (u0 + u1) / 2;
+        const t0 = r.dir > 0 ? mid : 1 - mid;
+        const cx = r.ax === 'x' ? r.x0 + along * t0 : (r.x0 + r.x1) / 2;
+        const cz = r.ax === 'x' ? (r.z0 + r.z1) / 2 : r.z0 + along * t0;
+        const dx = r.ax === 'x' ? along / N : wide;
+        const dz = r.ax === 'x' ? wide : along / N;
+        step.push({ g: box(dx, SW + h, dz), x: cx, y: (SW + h) / 2, z: cz, c: k % 2 ? 0xa8a390 : 0x999480 });
+      }
+    }
+    const add = (parts, c) => {
+      const m = new THREE.Mesh(assemble(parts), new THREE.MeshStandardMaterial({
+        color: 0xffffff, vertexColors: true, flatShading: true, roughness: 0.95,
+      }));
+      m.castShadow = !this.low; m.receiveShadow = !this.low;
+      this.scene.add(m);
+    };
+    add(rock); add(face); add(step);
+  }
 
   // ------------------------------------------------------------------- hall
   // THE HALL. The home room.
