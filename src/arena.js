@@ -484,6 +484,27 @@ export function groundY(x, z) {
   return y;
 }
 
+// Where each lane is cheapest to wall, as a position rather than a number.
+//
+// The pinches were authored and measured and completely invisible: the road
+// narrows, but nothing on the ground says "a wall here costs two units and one
+// twenty metres on costs six". A pair of standing stones at each throat turns a
+// width change into a PLACE — somewhere you can decide to hold, and recognise
+// again next wave.
+export function laneThroats() {
+  const out = [];
+  for (const lane of LANES) {
+    let best = null;
+    for (let d = 4; d <= lane.total - 6; d += 0.5) {
+      let w = 0;
+      for (let t = d - 1.2; t <= d + 1.2; t += 0.4) w = Math.max(w, widthAt(lane, t));
+      if (!best || w < best.w) best = { d, w };
+    }
+    if (best) out.push({ lane, d: best.d, w: best.w });
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Solid scenery.
 //

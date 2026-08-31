@@ -807,10 +807,10 @@ function initDoors() {
   for (const lane of LANES) {
     const el = document.createElement('div');
     el.className = 'door';
-    el.innerHTML = '<div class="cnt"></div><div class="pips"></div><div class="nm"></div>';
+    el.innerHTML = '<div class="cnt"></div><div class="pips"></div><div class="nm"></div><div class="seal"></div>';
     host.appendChild(el);
     DOORS.set(lane.id, { el, cnt: el.querySelector('.cnt'), pips: el.querySelector('.pips'),
-      nm: el.querySelector('.nm'), lane });
+      nm: el.querySelector('.nm'), seal: el.querySelector('.seal'), lane });
   }
 }
 
@@ -835,6 +835,15 @@ function stepDoors() {
     const sy = (-_dp.y * 0.5 + 0.5) * innerHeight;
     d.el.style.left = Math.max(56, Math.min(innerWidth - 56, sx)).toFixed(0) + 'px';
     d.el.style.top = Math.max(118, Math.min(innerHeight - 190, sy)).toFixed(0) + 'px';
+    // SHUT or OPEN. The blockade rule is the centre of the game and had no
+    // feedback whatever: you could leave a one-cell gap you cannot see from a
+    // chase camera and only find out during the wave.
+    const sealed = w.laneSealed(d.lane) !== null;
+    d.el.classList.toggle('shut', sealed);
+    if (d.seal) {
+      const th = w.laneThroat(d.lane);
+      d.seal.textContent = sealed ? 'shut' : (th ? `${th.units}u to shut` : '');
+    }
     if (d.cnt.textContent !== String(info.total)) {
       d.cnt.textContent = info.total;
       d.nm.textContent = d.lane.name;

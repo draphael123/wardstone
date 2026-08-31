@@ -1741,6 +1741,61 @@ export class World {
     }
   }
 
+  // ------------------------------------------------------- reading a lane
+  // How many units a wall across this lane costs HERE, and whether the lane is
+  // already shut.
+  //
+  // The whole blockade rule — goblins stop and hack rather than route around —
+  // had no feedback at all. You could build three palisades, leave a one-cell
+  // gap you could not see from a chase camera, and find out during the wave.
+  // And the chokepoints the lanes were reshaped around were invisible: the
+  // road narrows, but nothing says "this is where a wall is cheap".
+  sealCost(lane, d) {
+    let w = 0;
+    for (let t = d - 1.2; t <= d + 1.2; t += 0.4) w = Math.max(w, widthAt(lane, t));
+    const half = w / 2 + 0.6;
+    const need = new Set();
+    for (let o = -half; o <= half + 1e-6; o += 0.5) {
+      const q = laneAt(lane, d, o);
+      const c = cellOf(q.x, q.z);
+      if (isBuildableCell(c.i, c.j)) need.add(cellKey(c.i, c.j));
+    }
+    return need;
+  }
+
+  // The cheapest place to wall this lane, and what it costs. Cached: the answer
+  // only changes when the map does.
+  laneThroat(lane) {
+    if (!this._throats) this._throats = new Map();
+    let t = this._throats.get(lane.id);
+    if (t) return t;
+    let best = null;
+    for (let d = 4; d <= lane.total - 6; d += 0.5) {
+      const n = this.sealCost(lane, d).size;
+      if (!best || n < best.units) best = { d, units: n };
+    }
+    this._throats.set(lane.id, best);
+    return best;
+  }
+
+  // Is this lane shut? Returns the distance it is shut at, or null.
+  laneSealed(lane) {
+    const solid = new Set();
+    for (const w of this.wards) {
+      if (w.dead || w.def.kind !== 'blockade') continue;
+      solid.add(cellKey(w.i, w.j));
+    }
+    if (!solid.size) return null;
+    for (let d = 3; d <= lane.total - 3; d += 0.5) {
+      const need = this.sealCost(lane, d);
+      if (!need.size) continue;
+      let all = true;
+      for (const k of need) if (!solid.has(k)) { all = false; break; }
+      if (all) return d;
+    }
+    return null;
+  }
+
   // What you are standing close enough to use.
   station() {
     return this.hub ? nearestStation(this.player.x, this.player.z) : null;

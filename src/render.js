@@ -17,7 +17,7 @@ import {
 } from './defs.js';
 import {
   LANES, ARENA, CELL, cellOf, cellCenter, laneAt, nearestLane, isBuildableCell,
-  currentMap, groundY, moundY, solidProps, widthAt, HALL, TERRACES, ramps,
+  currentMap, groundY, moundY, solidProps, widthAt, HALL, TERRACES, ramps, laneThroats,
 } from './arena.js';
 import { makeRng } from './rand.js';
 import { AGGRO, STAGGER } from './defs.js';
@@ -796,6 +796,7 @@ export class Renderer {
       this._buildScenery();
       this._buildSolids();
       this._buildTerraces();
+      this._buildThroats();
       this._buildHearth();
     }
     else { this._buildArena(); this._buildStone(); }
@@ -811,6 +812,40 @@ export class Renderer {
   }
 
 
+
+  // ----------------------------------------------------------- lane throats
+  // A pair of leaning standing stones either side of each lane's narrowest
+  // point. They are the cheapest wall in the game marked on the ground, and
+  // they exist because a 2.8m throat and a 7m stretch of the same dirt road
+  // look identical from a chase camera.
+  //
+  // Deliberately NOT solid, and set outside the verge: a throat you cannot
+  // build across is not a chokepoint, it is a wall we placed for you.
+  _buildThroats() {
+    const parts = [];
+    for (const t of laneThroats()) {
+      for (const side of [-1, 1]) {
+        const q = laneAt(t.lane, t.d, side * (t.w / 2 + 1.15));
+        const gy = groundY(q.x, q.z);
+        const h = 2.5 + (t.d % 3) * 0.2;
+        const lean = side * 0.09;
+        parts.push({ g: box(0.78, h, 0.62), x: q.x, y: gy + h / 2, z: q.z,
+                     ry: Math.atan2(q.x - t.lane.segs[0].ax, q.z - t.lane.segs[0].az),
+                     rz: lean, c: 0x6f6a5b });
+        parts.push({ g: box(0.9, 0.26, 0.74), x: q.x, y: gy + h - 0.1, z: q.z,
+                     rz: lean, c: 0x8d8778 });
+        // a band of the same pale stone at eye height on both, so the PAIR
+        // reads as a gate rather than as two rocks that happen to be opposite
+        parts.push({ g: box(0.86, 0.2, 0.7), x: q.x, y: gy + h * 0.55, z: q.z,
+                     rz: lean, c: 0x9c9684 });
+      }
+    }
+    const m = new THREE.Mesh(assemble(parts), new THREE.MeshStandardMaterial({
+      color: 0xffffff, vertexColors: true, flatShading: true, roughness: 0.95,
+    }));
+    m.castShadow = !this.low; m.receiveShadow = !this.low;
+    this.scene.add(m);
+  }
 
   // -------------------------------------------------------------- braziers
   // Iron baskets on legs, dark and cold until you walk fire out to them.

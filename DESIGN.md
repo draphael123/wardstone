@@ -2538,3 +2538,41 @@ that happens to you.
 Like the braziers: an idle ward build can never mark anything, because marking
 requires a body to land a deliberate blow. T42 asserts it directly rather than
 measuring it, which is the stronger claim.
+
+---
+
+# The chokepoints were already there. You could not see them.
+
+Asked for chokepoints, found they had shipped weeks ago and measured fine:
+
+| lane | cheapest wall | dearest |
+|---|---|---|
+| The Stair | **2 units** at 10m | 6 units at 32m |
+| The Undercroft | **2 units** at 10m | 5 units at 28m |
+| The Sluice | **3 units** at 4m | 7 units at 28m |
+
+A three-fold price difference on where you wall, invisible to the player,
+because a 2.8m throat and a 7m stretch of the same dirt road look identical from
+a chase camera.
+
+## And the blockade rule had no feedback at all
+
+This was the worse discovery. The centre of the game is *goblins stop and hack
+rather than route around* — and **nothing anywhere told you whether a lane was
+actually shut.** You could build three palisades, leave a one-cell gap invisible
+from the camera, and find out during the wave.
+
+Each gate marker now reads **"shut"** in green, or **"2u to shut"** in amber —
+the price of closing that lane at its cheapest point. `laneSealed()` walks the
+lane looking for a distance where every cell across the local width is a
+blockade, so it catches the one-cell gap the eye cannot.
+
+## Standing stones at each throat
+
+A pair of leaning stones either side of every lane's narrowest point, banded so
+the pair reads as a gate rather than as two rocks that happen to be opposite.
+They turn a width change into a **place** — somewhere you can decide to hold,
+and recognise again next wave.
+
+Deliberately **not solid**, and set outside the verge. A throat you cannot build
+across is not a chokepoint; it is a wall we placed for you.
