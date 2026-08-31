@@ -2441,3 +2441,57 @@ number, so "nearly ready" is a shape you catch in peripheral vision. A slot you
 cannot afford greys and turns its cost red; one that needs the sword greys out
 entirely when the crossbow is in your hands, instead of saying "Block — sword
 only" in text.
+
+---
+
+# Flank, kill-energy, lock-on, and a bar that says what it costs
+
+## Flank damage
+
+Every foe already carried a facing vector so the Shield Goblin's front arc could
+work. Making it universal cost almost nothing: a blow arriving from outside a
+120-degree front arc does **×1.35**. Measured on the same 100-damage swing —
+front 100, 90° 135, behind 135, 45° 100.
+
+It changes what fighting a crowd *is*. Swinging at the nearest body becomes
+moving **through** the bodies, because the same swing is worth more from the
+side, and the Shield Goblin's lesson is now the rule everywhere rather than one
+enemy's gimmick.
+
+Player melee only, deliberately: a ballista shooting something in the back is
+not a decision anyone made.
+
+## Energy on a kill
+
+A bad fight left you with no heavy, no bash and no block for several seconds —
+exactly when you need them. **+7 per kill** means pressing an advantage pays for
+the next swing.
+
+## Lock-on
+
+The aim snap picks well from a direction, but it picks **afresh every swing**,
+so in a crowd the thing you were most of the way through killing is not
+necessarily what your next blow lands on, and a fight becomes chip damage spread
+over eight bodies.
+
+A held lock outranks the snap for both weapons, so swapping weapons no longer
+swaps targets. It drops when the target dies or leaves 22m. The bracket that
+marks it is bigger, brighter and drifts, so it never reads as the hover mark.
+
+The sim owns only *which* foe. The camera is the renderer's business, so the two
+can never fight over the yaw.
+
+## The bars
+
+The ward bar greyed out identically whether you were short 30 mana or one unit —
+and units are the scarce resource, since the cap *is* the premise. The half you
+cannot pay now turns red, and each slot shows **how many of that ward are
+standing**, which is arithmetic the player was doing in their head every wave
+against a hard cap of 32.
+
+## What the harness can and cannot see
+
+Flank and kill-energy cost **nothing** in the sweep: 13/21 and 20/21 before and
+after. That is not evidence they are free — it is evidence the bot never flanks
+deliberately and never spends the refund. Both are player-facing gains this
+instrument is structurally blind to, and they should be judged by hand.

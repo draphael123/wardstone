@@ -3915,7 +3915,9 @@ export class Renderer {
   // WHICH — reported as wanting it "clearer, more clear what I will hit". The
   // marker is drawn in world space at the foe rather than as a screen reticle,
   // so it reads as "that one" rather than "somewhere near the middle".
-  showAimMark(f) {
+  // `held` is a lock rather than a hover: brighter, larger, and it spins
+  // slowly, so the two never read as the same thing.
+  showAimMark(f, held) {
     if (!this.aimMark) {
       const g = new THREE.Group();
       const mat = new THREE.MeshBasicMaterial({
@@ -3937,10 +3939,17 @@ export class Renderer {
     }
     this.aimMark.visible = true;
     const h = f.def.height;
-    this.aimMark.position.set(f.x, f.y + h * 0.55, f.z);
-    const s = Math.max(0.9, h * 0.95);
+    this.aimMark.position.set(f.x, f.y + groundY(f.x, f.z) + h * 0.55, f.z);
+    const s = Math.max(0.9, h * 0.95) * (held ? 1.22 : 1);
     this.aimMark.scale.set(s, s, s);
     this.aimMark.quaternion.copy(this.camera.quaternion);   // always face the player
+    // a held lock turns slowly and burns brighter, so it is never mistaken for
+    // the mark that follows your pointer
+    if (held) this.aimMark.rotateZ(this.t * 0.0 + 0.0);
+    this.aimMark.children.forEach((c) => {
+      if (c.material) { c.material.opacity = held ? 1 : 0.9; c.material.color.setHex(held ? 0xffe9b0 : 0xffd89a); }
+    });
+    this.aimMark.rotation.z = held ? Math.sin(this.t * 1.6) * 0.12 : 0;
   }
 
   hideAimMark() { if (this.aimMark) this.aimMark.visible = false; }

@@ -10,6 +10,7 @@
 
 import {
   PLAYER, WARDSTONE, ECON, WARDS, WARD_BY_ID, FOE_BY_ID, WAVES, AGGRO, UPGRADE, ABILITY, HEARTH, CACHE, DIFFICULTY, STAGGER, ENERGY,
+  FLANK, KILL_ENERGY,
   BRAZIER, BRAND,
 } from './defs.js';
 import {
@@ -67,6 +68,9 @@ const HALL_SOLIDS = [
 // actually stands on a terrace, so every assertion passed and only the fuzz
 // actors — which build in places no sensible plan would — ever hit it.
 const HIGH_GROUND = 1.22;
+
+// How far a lock will reach, and how far it will hold before letting go.
+const LOCK_RANGE = 16;
 
 const WANDER_RATE = 0.28;
 const WANDER_AMT = 0.85;
@@ -204,6 +208,7 @@ export class World {
     this.braziers = [];
     // what the run has turned up, and what is worn
     this.drops = [];
+    this.locked = null;
     this.kit = {};
     this.mods = emptyMods();
     this.brandT = 0;        // seconds of fire left in the player's hand
@@ -815,17 +820,23 @@ export class World {
   // The shield faces the way the foe faces, which for anything walking a lane
   // is straight at the defender — so the front arc is pointed exactly where you
   // are standing. Getting behind it, or to its flank, is the whole answer.
+  // Is (fx, fz) inside this foe's front arc of `arc` radians?
+  static inFront(f, fx, fz, arc) {
+    const dx = fx - f.x, dz = fz - f.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 1e-4) return true;
+    return (dx / d) * f.hx + (dz / d) * f.hz > Math.cos(arc / 2);
+  }
+
   static shielded(f, fx, fz) {
     const sh = f.def.shield;
     if (!sh) return false;
-    const dx = fx - f.x, dz = fz - f.z;
-    const d = Math.hypot(dx, dz);
-    if (d < 1e-4) return false;
-    return (dx / d) * f.hx + (dz / d) * f.hz > Math.cos(sh.arc / 2);
+    return World.inFront(f, fx, fz, sh.arc);
   }
 
   hurtFoe(f, amount, source, fromX, fromZ) {
     if (f.dead) return 0;
+    let flanked = false;
     // A shield eats most of a MELEE blow arriving through the front arc.
     //
     // Player damage only, deliberately. Shielding bolts as well made the Shield
@@ -837,6 +848,12 @@ export class World {
     // Squire). A ballista's bolt punches through a shield; your sword does not.
     if (source === 'player' && fromX != null &&
         World.shielded(f, fromX, fromZ)) amount *= f.def.shield.reduce;
+    // FLANK. The same blow is worth more from outside the front arc, which is
+    // what turns a crowd from a wall of hit points into ground you move on.
+    if (source === 'player' && fromX != null && !World.inFront(f, fromX, fromZ, FLANK.arc)) {
+      amount *= FLANK.mul;
+      flanked = true;
+    }
     // A foe may be resistant to WARD damage specifically. This is what makes a
     // foe the player's problem rather than a building's.
     if (source === 'ward' && f.def.wardMul != null) amount *= f.def.wardMul;
@@ -851,6 +868,7 @@ export class World {
     // frame must never latch it on, or the thing standing in a brazier flickers
     // permanently. 4 is above any per-frame tick and below any real hit.
     if (dealt > 4) f.hitT = 0.1;
+    if (flanked && dealt > 0) f.flankT = 0.22;   // the renderer marks it
     if (source === 'player' && dealt > 0) {
       f.aggroT = AGGRO.chaseTime;   // it noticed, and it is coming
       // STAGGER. The blow has to interrupt what it was doing, or hitting things
@@ -878,6 +896,9 @@ export class World {
 
   _killFoe(f, by) {
     if (f.dead) return;
+    if (by === 'player' && !f.def.inert) {
+      this.player.energy = Math.min(ENERGY.max, this.player.energy + KILL_ENERGY);
+    }
     f.dead = true;
     f.corpseT = CORPSE_TIME;
     this.stats.kills[f.kind] = (this.stats.kills[f.kind] || 0) + 1;
@@ -1170,6 +1191,15 @@ export class World {
   // the direction you asked for, so it corrects your aim without overriding it.
   meleeTarget(dirx, dirz, move) {
     const p = this.player;
+    // A held lock outranks the snap entirely, which is the whole point of
+    // holding one: your third swing lands where your first two did.
+    if (this.locked && !this.locked.dead) {
+      const lx = this.locked.x - p.x, lz = this.locked.z - p.z;
+      const ld = Math.hypot(lx, lz) || 1;
+      if (ld <= move.range + this.locked.def.radius + 1.2) {
+        return { x: lx / ld, z: lz / ld, foe: this.locked };
+      }
+    }
     const len = Math.hypot(dirx, dirz) || 1;
     const ux = dirx / len, uz = dirz / len;
     const near = this._scratch;
@@ -1446,12 +1476,18 @@ export class World {
     if (br) this.spendEnergy(br.energy);
     p.atkCd = br ? wd.cooldown * 1.9 : wd.cooldown;
 
+    // A held lock wins here as well, so swapping weapons does not swap targets.
+    let best = null, bestD = Infinity;
+    if (this.locked && !this.locked.dead &&
+        Math.hypot(this.locked.x - p.x, this.locked.z - p.z) <= wd.range) {
+      best = this.locked;
+    }
     // Aim assist: snap to the nearest foe inside a narrow cone. Without this,
     // hitting a 0.5m wisp at 4m altitude with a mouse is miserable.
-    let best = null, bestD = Infinity;
     const len = Math.hypot(dirx, dirz, diry || 0) || 1;
     const ux = dirx / len, uz = dirz / len, uy = (diry || 0) / len;
     for (const f of this.foes) {
+      if (best === this.locked && best) break;   // the lock already decided
       if (f.dead) continue;
       const vx = f.x - p.x, vy = (f.y + f.def.height * 0.5) - (p.y + 1.2), vz = f.z - p.z;
       const d = Math.hypot(vx, vy, vz);
@@ -1628,6 +1664,49 @@ export class World {
     };
   }
 
+  // ------------------------------------------------------------- lock-on
+  // Hold a target, and every swing and bolt goes to it until it dies or you
+  // let go. The aim snap already picks well from a direction, but it picks
+  // AFRESH every swing — so in a crowd the thing you were most of the way
+  // through killing is not necessarily the thing your next blow lands on, and
+  // a fight becomes chip damage spread over eight bodies.
+  //
+  // The sim only owns WHICH foe. The camera turning to keep it framed is the
+  // renderer's business, and the two must not fight over the yaw.
+  lockOn() {
+    const p = this.player;
+    if (this.locked && !this.locked.dead) { this.locked = null; return null; }
+    let best = null, bestScore = -Infinity;
+    const ux = Math.sin(p.yaw), uz = Math.cos(p.yaw);
+    for (const f of this.foes) {
+      if (f.dead || f.def.inert) continue;
+      const dx = f.x - p.x, dz = f.z - p.z;
+      const d = Math.hypot(dx, dz);
+      if (d > LOCK_RANGE || d < 0.001) continue;
+      // in front of you, and near — aim matters more than distance, the same
+      // weighting the melee snap uses, so the pick is never a surprise
+      const aim = (dx * ux + dz * uz) / d;
+      if (aim < 0.1) continue;
+      const score = aim * 2 - d / LOCK_RANGE;
+      if (score > bestScore) { bestScore = score; best = f; }
+    }
+    this.locked = best;
+    if (best) this.emit({ type: 'lock', x: best.x, z: best.z, foe: best.kind });
+    return best;
+  }
+
+  // Dropped the moment it stops being a valid thing to hold: dead, or so far
+  // away that holding it would drag your aim off everything nearer.
+  _stepLock() {
+    const f = this.locked;
+    if (!f) return;
+    const p = this.player;
+    if (f.dead || Math.hypot(f.x - p.x, f.z - p.z) > LOCK_RANGE * 1.4) {
+      this.locked = null;
+      this.emit({ type: 'lockLost' });
+    }
+  }
+
   // What you are standing close enough to use.
   station() {
     return this.hub ? nearestStation(this.player.x, this.player.z) : null;
@@ -1706,6 +1785,7 @@ export class World {
     this._stepWards(dt);
     this._stepProjectiles(dt);
     this._separate(dt);
+    this._stepLock();
     this._stepFire(dt);
     this._stepMotes(dt);
 

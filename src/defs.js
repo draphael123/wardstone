@@ -208,6 +208,29 @@ export const WARDSTONE = {
 // a ward that staggered would perma-lock a lane for free. Heavies have poise
 // and never stagger at all; their long readable windups are answered by moving,
 // not by out-damaging them.
+// FLANK. A blow that arrives from outside a foe's front arc hits harder.
+//
+// The Shield Goblin already taught this lesson in one place — get behind it —
+// and every foe already carries a facing vector so that shield can work. Making
+// it universal costs almost nothing and changes what fighting a crowd IS:
+// swinging at the nearest body becomes moving THROUGH the bodies, because the
+// same swing is worth more from the side.
+//
+// Player melee only, deliberately. A ballista shooting something in the back is
+// not a decision anyone made; a knight standing behind it is.
+export const FLANK = {
+  arc: 2.1,        // radians of FRONT that is not a flank (~120 degrees)
+  mul: 1.35,
+};
+
+// What a kill puts back in your hands.
+//
+// A bad fight used to leave you with no heavy, no bash and no block for several
+// seconds, which is the moment you most need them. A refund per kill means
+// pressing an advantage pays for the next swing, and it makes the light chain
+// feel like it is building toward something rather than just filling time.
+export const KILL_ENERGY = 7;
+
 export const STAGGER = {
   time: 0.32,       // s of interrupted, staggered-back reaction
   cooldown: 1.15,   // s before the same foe can be staggered again

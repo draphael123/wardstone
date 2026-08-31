@@ -54,6 +54,7 @@ const ACTIONS = [
   { id: 'left', name: 'Move left', def: 'a' },
   { id: 'right', name: 'Move right', def: 'd' },
   { id: 'swap', name: 'Swap weapon', def: 'q' },
+  { id: 'lock', name: 'Lock on / release', def: 't' },
   { id: 'roll', name: 'Roll', def: ' ' },
   { id: 'jump', name: 'Jump', def: 'shift' },
   // NOT Control. Block was bound to it, forward is W, and holding block while
@@ -194,7 +195,8 @@ function buildBar() {
       `<div class="k">${w.key}</div>` +
       `<div class="ic">${icons[w.id]}</div>` +
       `<div class="nm">${w.name}</div>` +
-      `<div class="cost mono">${w.cost}<s>${w.du}u</s></div>` +
+      `<div class="cost mono"><b class="cm">${w.cost}</b><s class="cu">${w.du}u</s></div>` +
+      `<div class="have mono"></div>` +
       `<div class="lock"></div>`;
     el.title = w.blurb;
     el.addEventListener('click', (e) => {
@@ -325,9 +327,23 @@ function syncHud() {
   for (const el of document.querySelectorAll('.ward')) {
     const d = WARD_BY_ID[el.dataset.id];
     const locked = !w.isUnlocked(d.id);
+    // WHICH resource you are short of, not just that you are short.
+    // The slot greyed out identically whether you lacked 30 mana or one unit,
+    // and units are the scarce one — the cap is the premise. Now the half you
+    // cannot pay turns red, and the unit cap is legible from the bar instead of
+    // from the opposite corner of the screen.
+    const noMana = w.mana < d.cost;
+    const noUnits = w.du + d.du > ECON.duBudget;
     el.classList.toggle('locked', locked);
-    el.classList.toggle('poor', !locked &&
-      (w.mana < d.cost || w.du + d.du > ECON.duBudget));
+    el.classList.toggle('poor', !locked && (noMana || noUnits));
+    const cm = el.querySelector('.cm'), cu = el.querySelector('.cu');
+    if (cm) cm.classList.toggle('short', !locked && noMana);
+    if (cu) cu.classList.toggle('short', !locked && noUnits);
+    // and how many of this ward are standing, which is arithmetic the player
+    // was doing in their head every wave against a hard cap of 32
+    const up = w.wards.filter(x => !x.dead && x.def.id === d.id).length;
+    const hv = el.querySelector('.have');
+    if (hv) hv.textContent = up ? `${up} up` : '';
     const lk = el.querySelector('.lock');
     if (lk) lk.textContent = locked ? `wave ${(d.unlockWave || 0) + 1}` : '';
   }
@@ -951,6 +967,11 @@ function bindInput() {
       }
     }
     if (act === 'swap') state.world.swapWeapon();
+    if (act === 'lock') {
+      const got = state.world.lockOn();
+      state.snd.play(got ? 'select' : 'hover', 0.8);
+      if (!got && !state.world.locked) toast('Nothing in front of you to hold');
+    }
     if (act === 'build') { e.preventDefault(); toggleOverhead(); }
     if (act === 'roll') { e.preventDefault(); state.wantDodge = true; }
     if (act === 'jump') { e.preventDefault(); state.wantJump = true; }
@@ -1448,10 +1469,15 @@ function applyInput(dt) {
   // What the next bolt will hit, marked on the foe itself. Shown whenever the
   // ranged weapon is out, not only while firing, so aiming is something you can
   // do deliberately instead of discovering after the shot.
-  const aimAt = (w.weaponDef(p).kind === 'ranged' && !state.selected && !state.overhead)
-    ? (state.pointer.has ? r.foeUnderPointer(w, state.pointer.x, state.pointer.y) : null)
-    : null;
-  if (aimAt) r.showAimMark(aimAt); else r.hideAimMark();
+  // A HELD LOCK outranks the hover mark, and shows on both weapons — the
+  // bracket is the answer to "what am I actually hitting", so it has to follow
+  // the thing the sim will actually hit.
+  const aimAt = (w.locked && !w.locked.dead)
+    ? w.locked
+    : ((w.weaponDef(p).kind === 'ranged' && !state.selected && !state.overhead)
+      ? (state.pointer.has ? r.foeUnderPointer(w, state.pointer.x, state.pointer.y) : null)
+      : null);
+  if (aimAt) r.showAimMark(aimAt, aimAt === w.locked); else r.hideAimMark();
 
   // Rally's reach, while the player is thinking about it
   if (state.showAbil) r.showAbilityRing(p.x, p.z, ABILITY.range, w.canRally());
