@@ -29,7 +29,7 @@ const COL = {
   wardHurt: '#e0a04a',
   husk: '#b9b3a0',
   runner: '#8fbf6a',
-  wisp: '#63e6ff',
+  climber: '#a8c95e',
   breaker: '#ff6a5a',
 };
 
@@ -129,7 +129,7 @@ export class Minimap {
       if (f.dead) continue;
       const [px, py] = this._p(f.x, f.z);
       ctx.fillStyle = COL[f.kind] || '#fff';
-      const r = f.kind === 'breaker' ? 3.6 : (f.kind === 'wisp' ? 2.1 : 1.7);
+      const r = f.kind === 'breaker' ? 3.6 : (f.kind === 'climber' ? 2.1 : 1.7);
       ctx.beginPath();
       ctx.arc(px, py, r, 0, Math.PI * 2);
       ctx.fill();
@@ -178,7 +178,7 @@ export class Minimap {
         ctx.fillText(String(info.total), cx, cy + 0.5);
         // a pip per foe type that door is sending
         let ox = cx - 8;
-        for (const k of ['husk', 'runner', 'wisp', 'breaker']) {
+        for (const k of ['husk', 'runner', 'climber', 'breaker']) {
           if (!info.kinds[k]) continue;
           ctx.fillStyle = COL[k];
           ctx.fillRect(ox, cy + 8, 4, 2.5);

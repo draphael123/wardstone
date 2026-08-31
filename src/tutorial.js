@@ -7,7 +7,7 @@
 //
 // The order is the order the game's ideas depend on each other: move, build a
 // wall, put something behind it, shoot, swap, roll, then the two lessons that
-// are the whole premise — wisps ignore your wall, and a breaker outpaces your
+// are the whole premise — Wall Goblins ignore your lanes, and a Giant Goblin outpaces your
 // hammer. Nothing here teaches a control the player will not need in wave one.
 
 import { LANE_BY_ID, distToLane, nearestLane } from './arena.js';
@@ -86,15 +86,17 @@ export const STEPS = [
     check: (w, s) => s.motes >= 1,
   },
   {
-    id: 'wisp',
-    point: '#weap',
-    title: 'This one does not walk',
-    text: 'A will-o-wisp. It flies <b>straight over every wall you own</b>. Only the Watchtower can reach one, ' +
-          'and it is bad at it — so mostly this is your job. ' +
-          'Press <b>Q</b> for your crossbow and shoot it down.',
-    touch: 'A will-o-wisp — it flies <b>over</b> your walls. Tap <b>Swap</b> for the crossbow and shoot it.',
-    spawn: [['north', 'wisp']],
-    check: (w, s) => (s.killsByKind.wisp || 0) >= 1,
+    // The lesson the whole game rests on. It used to be the will-o-wisp; with
+    // the air gone, the Wall Goblin carries it — same job, on the ground.
+    id: 'climber',
+    point: null,
+    title: 'This one does not use the road',
+    text: 'A <b>Wall Goblin</b>. It comes over the rocks instead of down a track, so it never meets ' +
+          'the wall you built or the gun behind it — everything you build sits on a <b>lane</b>, ' +
+          'and this has no lane. Your wards barely scratch it. <b>Kill it yourself.</b>',
+    touch: 'A <b>Wall Goblin</b> — it comes over the rocks, past everything you built. Kill it yourself.',
+    spawn: [['north', 'climber'], ['east', 'climber']],
+    check: (w, s) => (s.killsByKind.climber || 0) >= 1,
   },
   {
     id: 'mend',

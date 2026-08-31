@@ -131,7 +131,7 @@ const state = {
   musicOn: true, soundOn: true, dmgNums: false,
   musVol: 0.34, sfxVol: 0.9, difficulty: 'knight', paused: false,
   shakeAmt: 1, sens: 1, fov: 62, minimap: true, calm: false,
-  autoPause: true, fps: false,
+  autoPause: true, fps: false, autoWave: false,
   hpBars: true, shake: true, tutorial: true, tut: null,
 };
 
@@ -172,7 +172,7 @@ function cellAhead() {
 function buildBar() {
   const bar = $('bar');
   bar.innerHTML = '';
-  const icons = { palisade: '&#9776;', ballista: '&#10142;', archers: '&#9670;', caltrops: '&#9678;' };
+  const icons = { palisade: '&#9776;', ballista: '&#10142;' };
   for (const w of WARDS) {
     const el = document.createElement('div');
     el.className = 'ward';
@@ -224,6 +224,11 @@ function syncHud() {
   if (w.phase === 'build') {
     $('phase').innerHTML = `Muster &mdash; <b>${Math.ceil(w.phaseTimer)}s</b>`;
     $('ready').classList.remove('gone');
+    // The countdown lives ON the button. It used to sit in the corner while the
+    // button said only "Ready", so the two never looked related.
+    $('ready').textContent = `Ready · ${Math.ceil(w.phaseTimer)}s`;
+    // Auto-start: skip the wait entirely once there is nothing left to spend on.
+    if (state.autoWave && w.phaseTimer > 1.5) w.phaseTimer = 1.5;
   } else if (w.phase === 'combat') {
     const left = w.spawnQueue.length + w.foes.length;
     $('phase').innerHTML = `<b>${left}</b> still coming`;
@@ -358,8 +363,10 @@ function showTally(e) {
   const d = (id) => (k[id] || 0) - (prev[id] || 0);
   state.tallyPrev = { ...k };
   const bits = [];
-  for (const [id, label] of [['husk', 'goblins'], ['runner', 'scouts'],
-                             ['wisp', 'wisps'], ['breaker', 'trolls']]) {
+  for (const [id, label] of [['husk', 'cutters'], ['runner', 'scouts'],
+                             ['climber', 'wall goblins'], ['slinger', 'slingers'],
+                             ['maul', 'mauls'], ['bruiser', 'bruisers'],
+                             ['breaker', 'giants']]) {
     if (d(id) > 0) bits.push(`<b>${d(id)}</b> ${label}`);
   }
   const lostNow = w.stats.wardLosses - (state.tallyWards || 0);
@@ -519,7 +526,7 @@ function drainEvents() {
       case 'kill': {
         const big = e.foe === 'breaker';
         r.spark(e.x, (e.y || 0) + 0.8, e.z,
-          e.foe === 'wisp' ? PAL.wisp : (big ? 0xff8060 : 0xc8b89a),
+          e.foe === 'climber' ? 0xc8e08a : (big ? 0xff8060 : 0xc8b89a),
           big ? 26 : 9, big ? 9 : 4.5, big ? 2.2 : 1);
         if (big) {
           r.addShake(0.65);
@@ -685,7 +692,10 @@ function stepDamageNumbers(dt) {
 // ---------------------------------------------------------------------------
 const DOORS = new Map();
 const _dp = new THREE.Vector3();
-const FOE_TINT = { husk: '#a8ae9c', runner: '#8fbf6a', wisp: '#8fe6c0', breaker: '#8a6a4a' };
+const FOE_TINT = {
+  husk: '#a8ae9c', runner: '#8fbf6a', climber: '#a8c95e',
+  slinger: '#a2bd5c', maul: '#8fae4a', bruiser: '#7d9c44', breaker: '#8a6a4a',
+};
 
 function initDoors() {
   const host = $('doors');
@@ -720,7 +730,7 @@ function stepDoors() {
       d.cnt.textContent = info.total;
       d.nm.textContent = d.lane.name;
       d.pips.innerHTML = '';
-      for (const k of ['husk', 'runner', 'wisp', 'breaker']) {
+      for (const k of ['husk', 'runner', 'climber', 'slinger', 'maul', 'bruiser', 'breaker']) {
         const n = info.kinds[k];
         if (!n) continue;
         for (let i = 0; i < Math.min(6, Math.ceil(n / 4)); i++) {
@@ -781,8 +791,8 @@ function endGame(won) {
   $('overS').innerHTML =
     `Wave reached <b>${Math.min(w.waveIndex + 1, WAVES.length)}</b> of ${WAVES.length} &nbsp;·&nbsp; ` +
     `Wardstone <b>${Math.max(0, Math.round(w.stone.hp))}</b>/${w.stone.maxHp}<br>` +
-    `Slain — husks <b>${k.husk || 0}</b>, runners <b>${k.runner || 0}</b>, ` +
-    `wisps <b>${k.wisp || 0}</b>, breakers <b>${k.breaker || 0}</b><br>` +
+    `Slain — cutters <b>${k.husk || 0}</b>, scouts <b>${k.runner || 0}</b>, ` +
+    `wall goblins <b>${k.climber || 0}</b>, giants <b>${k.breaker || 0}</b><br>` +
     `Wards lost <b>${w.stats.wardLosses}</b> &nbsp;·&nbsp; you fell <b>${w.stats.playerDeaths}</b> times`;
   $('over').classList.add('on');
 }
@@ -1674,7 +1684,7 @@ function syncResume() {
 // site data cannot break boot.
 // ---------------------------------------------------------------------------
 const SET_KEYS = ['musicOn', 'soundOn', 'dmgNums', 'hpBars', 'shake', 'low', 'tutorial',
-  'minimap', 'calm', 'autoPause', 'fps'];
+  'minimap', 'calm', 'autoPause', 'fps', 'autoWave'];
 const SET_NUMS = ['camDist', 'musVol', 'sfxVol'];
 function loadSettings() {
   try {
