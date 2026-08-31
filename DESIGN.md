@@ -2079,3 +2079,15 @@ cost an hour: a measurement that moved for a reason that was not the change.
 
 `this.seed` did not exist either — only `this.rng` and `this.propRng` — so the
 first version put every brazier in the same place on every seed.
+
+## Sparks where the blade lands
+
+The impact pass was already most of the way there — hitstop scaled by light /
+finisher / heavy, shake, a shockwave and a flash on a heavy, swing fans at the
+real arc and reach. One thing was wrong at the root: the spark burst fired at
+the SWING, which is the player's own feet.
+
+A hit now emits a `cleave` per body the blade passed through, at the contact
+point between the two, and a kill adds a darker second burst. A cleave through
+three goblins reads as three impacts instead of one louder one, and a blow reads
+as landing **on** something rather than as an animation happening near it.

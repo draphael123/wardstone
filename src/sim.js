@@ -1165,6 +1165,17 @@ export class World {
       // so the Shield Goblin has two answers and the player already owns both.
       if (move.breaksPoise) this.hurtFoe(f, move.damage, 'player');
       else this.hurtFoe(f, move.damage, 'player', p.x, p.z);
+      // Where the blade actually met the body, so the renderer can put the
+      // spark THERE. It used to spark at the player's own feet, which is why a
+      // hit read as an animation happening near a goblin rather than to one.
+      const cl = d || 1;
+      this.emit({
+        type: 'cleave',
+        x: p.x + (dx / cl) * Math.max(0.4, d - f.def.radius * 0.6),
+        y: f.y + f.def.height * 0.55,
+        z: p.z + (dz / cl) * Math.max(0.4, d - f.def.radius * 0.6),
+        kind: this.player.atkKind, foe: f.kind, killed: f.dead,
+      });
       hits++;
     }
 

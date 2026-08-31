@@ -455,6 +455,17 @@ function drainEvents() {
         state.hitstop = e.kind === 'heavy' ? 0.06 : 0.03;
         break;
       }
+      // One spark burst per BODY the blade passed through, at the contact
+      // point. A single burst at the swing's origin told you a swing happened;
+      // this tells you what it hit, and a cleave through three goblins now
+      // reads as three impacts rather than one louder one.
+      case 'cleave': {
+        const heavy = e.kind === 'heavy';
+        r.spark(e.x, e.y, e.z, heavy ? 0xffe6b0 : 0xffd28a,
+                heavy ? 9 : 5, heavy ? 7 : 4.5, heavy ? 0.9 : 0.6, -6);
+        if (e.killed) r.spark(e.x, e.y, e.z, 0xd8604a, 7, 5, 0.75, -7);
+        break;
+      }
       case 'swing':
         // show the wedge that was actually swept, at its real arc and reach
         if (e.arc) {
