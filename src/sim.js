@@ -14,6 +14,7 @@ import {
 import {
   LANES, LANE_BY_ID, laneAt, cellOf, cellCenter, cellKey,
   isBuildableCell, clampToArena, nearestLane, distToLane, ARENA, currentMap, solidProps,
+  HALL, clampToHall, nearestStation,
   widthAt,
 } from './arena.js';
 import { makeRng } from './rand.js';
@@ -40,6 +41,20 @@ const CORPSE_TIME = 0.75;
 const CLIMBER_FLOOR = 1.0;
 
 // How fast and how far a lane foe drifts across its own track.
+// The hall's furniture, as collision discs. Kept beside the sim rather than in
+// the renderer for the same reason the clearing's trees are: what you see and
+// what you bump into have to be one list, and last time they were not.
+const HALL_SOLIDS = [
+  { x: 0,    z: 388,   r: 1.9 },   // the portal arch's plinth
+  { x: -8.5, z: 400,   r: 0.8 },   // the pell
+  { x: 8.5,  z: 400,   r: 1.3 },   // the ward rack
+  { x: 6.8,  z: 407.6, r: 1.3 },   // the muster stone
+  { x: -6.0, z: 393.0, r: 1.5 },   // long table
+  { x: 7.2,  z: 393.0, r: 1.2 },   // the hearth
+  { x: -12.0, z: 406.0, r: 1.0 },  // barrels
+  { x: 11.8, z: 406.5, r: 1.0 },
+];
+
 const WANDER_RATE = 0.28;
 const WANDER_AMT = 0.85;
 
@@ -1057,6 +1072,23 @@ export class World {
         if (Math.hypot(f.x - p.x, f.z - p.z) <= move.range + 1.4) { airborneInReach = true; break; }
       }
     }
+    // The pell. It cannot be killed and it cannot hurt you; it is here so the
+    // moveset has somewhere to be learned, and it counts the chain back at you.
+    if (this.hub && this.pell) {
+      const st = nearestStation(p.x, p.z);
+      const dpx = -8.5 - p.x, dpz = 400 - p.z;
+      const dp = Math.hypot(dpx, dpz);
+      if (dp < move.range + 0.9 && (dp < 0.001 || (dpx * ux + dpz * uz) / dp >= cosHalf)) {
+        this.pell.hitT = 0.18;
+        this.pell.lastHit = move.damage;
+        this.pell.combo++;
+        this.pell.comboT = 1.6;
+        this.emit({ type: 'pell', x: -8.5, z: 400, damage: move.damage,
+                    kind: this.player.atkKind, combo: this.pell.combo });
+        hits++;
+      }
+    }
+
     for (const c of this.caches) {
       if (c.dead) continue;
       const dx = c.x - p.x, dz = c.z - p.z;
@@ -1263,8 +1295,23 @@ export class World {
         (p.atkPhase === 'startup' || p.atkPhase === 'active')) return;
     if (p.blocking && p.dodgeT <= 0) { vx *= PLAYER.block.slow; vz *= PLAYER.block.slow; }
     let nx = p.x + vx * dt, nz = p.z + vz * dt;
-    const c = clampToArena(nx, nz, PLAYER.radius);
+    const c = this.hub ? clampToHall(nx, nz, PLAYER.radius)
+                       : clampToArena(nx, nz, PLAYER.radius);
     nx = c.x; nz = c.z;
+    if (this.hub) {
+      // the furniture is solid in here too, or the room is a painted backdrop
+      // exactly the way the clearing's trees were
+      for (const q of HALL_SOLIDS) {
+        const dx = nx - q.x, dz = nz - q.z;
+        const d = Math.hypot(dx, dz);
+        const want = q.r + PLAYER.radius;
+        if (d >= want || d < 1e-4) continue;
+        nx = q.x + (dx / d) * want;
+        nz = q.z + (dz / d) * want;
+      }
+      p.x = nx; p.z = nz;
+      return;
+    }
 
     // Solid scenery is solid for the player too. Same push-out as a ward, so a
     // boulder behaves exactly like something you built.
@@ -1298,9 +1345,46 @@ export class World {
   }
 
   // ------------------------------------------------------------------- step
+  // Walk into the hall. The war is not running while you are in here — no
+  // wave clock, no foes, no fire burning down — but the KNIGHT is entirely
+  // live: the same body, the same moveset, the same energy bar. That is the
+  // point of a home room over a title screen. You can hit the pell with the
+  // real sword because it is the real sword.
+  enterHall() {
+    this.hub = true;
+    this.phase = 'build';
+    this.foes.length = 0;
+    this.projectiles.length = 0;
+    this.player.x = HALL.door.x;
+    this.player.z = HALL.door.z;
+    this.player.y = 0;
+    this.player.yaw = Math.PI;          // facing into the room
+    this.player.hp = this.player.maxHp;
+    this.player.energy = ENERGY.max;
+    // Sword in hand. You came home to practise, and the pell does not care
+    // about bolts — the first thing anyone did in here was swing a crossbow at
+    // it and conclude the post was broken.
+    this.player.weapon = 'sword';
+    this.player.swapT = 0;
+    this.pell = { hp: 1, maxHp: 1, hitT: 0, lastHit: 0, combo: 0, comboT: 0 };
+    this.events.length = 0;
+  }
+
+  leaveHall() {
+    this.hub = false;
+    this.player.x = 0;
+    this.player.z = 6;
+  }
+
+  // What you are standing close enough to use.
+  station() {
+    return this.hub ? nearestStation(this.player.x, this.player.z) : null;
+  }
+
   step(dt) {
     if (this.phase === 'won' || this.phase === 'lost') return;
     this.t += dt;
+    if (this.hub) return this._stepHall(dt);
 
     const p = this.player;
     if (p.atkCd > 0) p.atkCd -= dt;
@@ -1791,6 +1875,30 @@ export class World {
           this.emit({ type: 'foeSwing', x: f.x, y: f.y, z: f.z, at: 'stone' });
         }
       }
+    }
+  }
+
+  // The hall runs the PLAYER and nothing else. Everything the body owns still
+  // ticks — cooldowns, energy, the melee state machine, the jump — because the
+  // whole reason to have a room is to be the same character in it.
+  _stepHall(dt) {
+    const p = this.player;
+    this._dt = dt;
+    if (p.atkCd > 0) p.atkCd -= dt;
+    if (p.swapT > 0) p.swapT -= dt;
+    if (p.swingT > 0) p.swingT -= dt;
+    if (p.dodgeCd > 0) p.dodgeCd -= dt;
+    if (p.abilityCd > 0) p.abilityCd -= dt;
+    if (p.invuln > 0) p.invuln -= dt;
+    if (p.dodgeT > 0) p.dodgeT -= dt;
+    this._stepMelee(dt);
+    this._stepJump(dt);
+    this._stepEnergy(dt);
+    // the pell's hit flash and the combo readout it exists to teach
+    const q = this.pell;
+    if (q) {
+      if (q.hitT > 0) q.hitT -= dt;
+      if (q.comboT > 0) { q.comboT -= dt; if (q.comboT <= 0) q.combo = 0; }
     }
   }
 

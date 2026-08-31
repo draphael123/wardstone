@@ -361,7 +361,7 @@ export function moundY(x, z) {
   // starts at 36.5 — half a metre outside the player's own bound — so no cell
   // anything can stand on, walk to, or build in is touched at all.
   const sq = Math.max(Math.abs(x), Math.abs(z));
-  if (sq > 36.5) {
+  if (sq > 36.5 && sq < 120) {
     const k = Math.min(1, (sq - 36.5) / 13);
     y += 7.0 * k * k;
   }
@@ -534,4 +534,60 @@ export function clampToArena(x, z, r) {
 export function laneDoor(lane) {
   const p = lane.points[0];
   return { x: p[0], z: p[1] };
+}
+
+
+// ---------------------------------------------------------------------------
+// THE HALL.
+//
+// The home room. It lives in the same scene as the arena, 400m away — far past
+// the fog, so nothing of one is ever visible from the other — rather than in a
+// scene of its own.
+//
+// That is deliberate and it is the whole reason this was cheap: the player rig,
+// the camera, the controls, the sword, the damage numbers and the HUD are the
+// same objects doing the same job. A separate scene would have meant a second
+// copy of all of it, and the renderer has no teardown path to swap between two.
+// The bounded rim above is what makes it work — past 120m the ground is flat
+// again, so the hall does not sit 7m up the arena's earthworks.
+// ---------------------------------------------------------------------------
+export const HALL = {
+  x: 0, z: 400,           // where the room sits in world space
+  half: 15,               // interior half-extent, wall to wall
+  door: { x: 0, z: 409 }, // where you stand in
+};
+
+export function inHall(x, z) {
+  return Math.hypot(x - HALL.x, z - HALL.z) < 120;
+}
+
+export function clampToHall(x, z, r) {
+  const lim = HALL.half - (r || 0);
+  return {
+    x: HALL.x + Math.max(-lim, Math.min(lim, x - HALL.x)),
+    z: HALL.z + Math.max(-lim, Math.min(lim, z - HALL.z)),
+  };
+}
+
+// The things you can walk up to. Each is a PLACE rather than a menu entry,
+// which is the entire point of having a room at all: picking a difficulty is
+// standing at the muster stone, not ticking a box on a title screen.
+export const STATIONS = [
+  { id: 'portal',  name: 'The Glade',      x: 0,    z: 388,  r: 3.4,
+    prompt: 'March out' },
+  { id: 'dummy',   name: 'Pell',           x: -8.5, z: 400,  r: 2.6,
+    prompt: 'Practise' },
+  { id: 'rack',    name: 'The Ward Rack',  x: 8.5,  z: 400,  r: 2.6,
+    prompt: 'Inspect the wards' },
+  { id: 'muster',  name: 'The Muster Stone', x: 6.8, z: 407.6, r: 2.6,
+    prompt: 'Choose the watch' },
+];
+
+export function nearestStation(x, z) {
+  let best = null, bd = Infinity;
+  for (const s of STATIONS) {
+    const d = Math.hypot(x - s.x, z - s.z);
+    if (d < s.r && d < bd) { bd = d; best = s; }
+  }
+  return best;
 }

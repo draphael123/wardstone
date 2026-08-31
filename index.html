@@ -608,7 +608,23 @@
     #ready{bottom:calc(max(8px,env(safe-area-inset-bottom)) + 74px);
       right:auto;left:50%;transform:translateX(-50%);padding:8px 16px;font-size:10px}
   }
-</style>
+
+    /* The hall's "you are standing next to something" prompt. Bottom centre,
+       above the ward bar, because that is where the eye already is. */
+    #station{position:fixed;left:50%;bottom:172px;transform:translateX(-50%);
+      z-index:40;text-align:center;pointer-events:none;
+      padding:10px 22px;border-radius:4px;
+      background:linear-gradient(180deg,rgba(20,16,12,.86),rgba(12,10,8,.92));
+      border:1px solid rgba(200,168,96,.45);
+      box-shadow:0 6px 26px rgba(0,0,0,.55);}
+    #station.hidden{display:none}
+    #station .stName{font-family:Cinzel,Georgia,serif;letter-spacing:.13em;
+      text-transform:uppercase;font-size:15px;color:#e8c877}
+    #station .stSub{margin-top:3px;font-size:12.5px;color:#b9ad97}
+    /* the HUD's war furniture has nothing to say in the hall */
+    #hud.inHall #stoneBar,#hud.inHall #bar,#hud.inHall #map,#hud.inHall #topL,
+    #hud.inHall #ready,#hud.inHall #hint,#hud.inHall #ohBadge{display:none}
+  </style>
 </head>
 <body>
 <canvas id="stage"></canvas>
@@ -628,7 +644,7 @@
 
     <div class="menu">
       <button id="resume" class="mi gone"><em>Resume run</em><span id="resumeSub"></span></button>
-      <button id="begin" class="mi primary"><em>Light the fire</em><span>Six waves against the dark</span></button>
+      <button id="begin" class="mi primary"><em>Enter the hall</em><span>Your own fire, and a gate to the Glade</span></button>
       <button id="beginTut" class="mi"><em>Training</em><span>Learn the controls in the glade, at your own pace</span></button>
       <button id="openHow" class="mi"><em>How to play</em><span>Three rules, and they are the whole game</span></button>
       <button id="openSet" class="mi"><em>Settings</em><span>Sound, detail, and what the HUD shows</span></button>
@@ -796,7 +812,11 @@
   <div class="wpHint" id="wpHint"></div>
 </div>
 
-<div id="wardTip" class="hidden"></div>
+<div id="station" class="hidden">
+      <div class="stName"></div>
+      <div class="stSub"></div>
+    </div>
+    <div id="wardTip" class="hidden"></div>
 <div id="fps" class="hidden"></div>
 <div id="vig"></div>
 <div id="flash"></div>

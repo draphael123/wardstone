@@ -1917,3 +1917,62 @@ needs a player, brought it to **13/21 with both new foes fully present** and all
 3. **The bot's deaths were never the problem.** 2.5 a run with the new roster
    against **3.1 at baseline** — it dies constantly either way and wins anyway.
    The runs were being lost at the fire, not at the player.
+
+---
+
+# The Hall
+
+The home room, in the manner of Dungeon Defenders' tavern. Everything a menu
+could have done is a **place you stand** instead: you choose the watch at a
+stone, you look at your wards on a rack, you learn the moveset on a pell, and a
+run begins by walking through a gate.
+
+## It is in the same scene, 400m away
+
+Not a scene of its own. The hall is a group at `z = 400`, far past the fog, so
+neither room is ever visible from the other — and the player rig, the camera,
+the controls, the sword, the energy bar and the whole HUD are the *same objects
+doing the same job* in both places. A second scene would have meant a second
+copy of all of it, and the renderer has no teardown path to swap between two.
+
+This is also why the pell works: you hit it with the real sword, running the
+real melee state machine, so it reports the real numbers — **31 / 36 / 65** for
+the light chain, and the finisher lands hardest.
+
+The bounded rim from the verticality pass is what makes the address usable: past
+120m the ground is flat again, so the hall does not sit 7m up the arena's
+earthworks.
+
+## Four things that all had the same shape
+
+Every one of these was something pinned to the arena that had never had a reason
+to be anything else:
+
+1. **The camera target is clamped to `ARENA.half - 2.5`.** So it stayed at
+   z=35.5 while the player stood at z=412, and the first view of your own home
+   was the far side of the treeline, 400m away.
+2. **The clamp, once moved to the hall, was too tight.** Pinned to the room's
+   interior it sat 1.5m behind the player at the door, which points an 8m-high
+   chase camera almost straight down at his own head. The walls are 4.2m and
+   there is no roof, so the camera is allowed *outside* them and looks in over
+   the top.
+3. **A high chase camera and a ceiling cannot both exist.** Roof beams at 5.3m
+   put solid timber between the lens and the floor from every angle. The room is
+   read from above like a doll's house — which is also how all four stations are
+   visible at once.
+4. **The near wall is the fourth wall.** At full height it drew a solid black
+   band across the bottom third of the screen. It is a 1.2m balustrade instead.
+
+## Two smaller ones
+
+The lane doors kept drawing "THE STAIR" and "THE UNDERCROFT" over an empty room
+400m from the lanes they label. And the knight arrived holding the **crossbow**,
+so the first thing anyone did was shoot the pell and conclude the post was
+broken — `enterHall()` puts the sword in your hand now.
+
+## What it costs the balance
+
+Nothing, and that is checkable rather than measured: the hall runs `_stepHall`,
+which ticks the player's own timers and the pell, and touches no foe, no ward
+and no wave clock. 34/34, 12/12, fuzz clean, glade 13/21 and gauntlet 17/21 —
+identical to before it existed.

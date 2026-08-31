@@ -438,6 +438,23 @@ function drainEvents() {
           e.source === 'player' ? 11 : 5, e.source === 'player' ? 8 : 5, 0.9);
         if (e.source === 'player') { r.addShake(0.08); state.hitstop = Math.max(state.hitstop, 0.035); }
         break;
+      // The pell always shows its numbers, whatever the damage-number setting
+      // says. It is the one place in the game whose entire job is to tell you
+      // what your own moveset does, and hiding that would make it a post.
+      case 'pell': {
+        const d = DN.find(n => n.life <= 0);
+        if (d) {
+          d.life = d.max = 1.0;
+          d.x = e.x + (Math.random() - 0.5) * 0.5;
+          d.y = 2.4; d.z = e.z; d.vy = 1.5;
+          d.el.textContent = Math.round(e.damage);
+          d.el.className = 'dnum' + (e.kind === 'heavy' ? ' big' : '');
+        }
+        if (e.combo >= 3) banner('Three', 'The finisher lands hardest');
+        r.addShake(e.kind === 'heavy' ? 0.5 : 0.22);
+        state.hitstop = e.kind === 'heavy' ? 0.06 : 0.03;
+        break;
+      }
       case 'swing':
         // show the wedge that was actually swept, at its real arc and reach
         if (e.arc) {
@@ -709,6 +726,10 @@ function initDoors() {
   }
 }
 
+function hideDoors() {
+  for (const [, d] of DOORS) d.el.classList.remove('on');
+}
+
 function stepDoors() {
   const w = state.world, cam = state.rend.camera;
   const show = w.phase === 'build' && w.waveIndex < WAVES.length;
@@ -815,6 +836,13 @@ function bindInput() {
     }
     const acts = state.keyToAction[k];
     if (!acts) return;
+    // In the hall, MEND's key is the "use" key. It is the same verb — put your
+    // hand on the thing in front of you — and it means the room needs no key
+    // of its own to learn.
+    if (state.world.hub && acts.includes('mend')) {
+      e.preventDefault();
+      if (useStation()) { state.snd.play('click'); return; }
+    }
     for (const act of acts) {
     if (act === 'ward1' || act === 'ward2' || act === 'ward3' || act === 'ward4') {
       const wd = WARDS[+act.slice(4) - 1];
@@ -1369,7 +1397,10 @@ function frame(now) {
   syncWardPanel();
   stepVignette(dt);
   stepFps(dt);
-  if (state.running) stepDoors();
+  // The lane doors belong to the arena. In the hall they were floating
+  // 'THE STAIR / THE UNDERCROFT' labels over an empty room 400m away.
+  if (state.running && !state.world.hub) stepDoors();
+  else if (state.world.hub) hideDoors();
   if (flashT > 0) {
     flashT = Math.max(0, flashT - dt * 2.2);
     $('flash').style.opacity = flashT;
@@ -1406,6 +1437,10 @@ function frame(now) {
   // the clearing rather than sitting behind a player who is not there yet.
   if (state.running) state.rend.update(state.world, dt, { moving: state._moving });
   else state.rend.menuFrame(state.world, dt);
+  if (state.world.hub) {
+    state.rend.stepHall(dt, state.world);
+    syncStation();
+  }
   if (state.map) {
     // during the muster, show what each door is about to send
     const w = state.world;
@@ -1429,6 +1464,71 @@ function resize() {
   state.rend.lookAhead = aspect < 0.72 ? 4.5 : (aspect < 1.05 ? 4 : 3);
   state.rend.resize(w, h, dpr);
   if (state.map) state.map.resize();
+}
+
+// ---------------------------------------------------------------------------
+// The hall
+// ---------------------------------------------------------------------------
+// Everything a menu could have done is a place you stand instead. This is the
+// glue: what are you near, what does it say, and what happens when you use it.
+function syncStation() {
+  const el = $('station');
+  if (!el) return;
+  const st = state.world.station();
+  if (!st) { el.classList.add('hidden'); state._station = null; return; }
+  state._station = st;
+  let sub = st.prompt;
+  if (st.id === 'muster') sub = `${DIFFICULTY[state.difficulty].name} — press E to change`;
+  else if (st.id === 'dummy') sub = 'Swing. Hold to charge a heavy.';
+  else sub = `${st.prompt} — press E`;
+  el.querySelector('.stName').textContent = st.name;
+  el.querySelector('.stSub').textContent = sub;
+  el.classList.remove('hidden');
+}
+
+function useStation() {
+  const st = state._station;
+  if (!st) return false;
+  if (st.id === 'portal') {
+    state.world.leaveHall();
+    state.rend.setHall(false);
+    state.rend.snapCamera(state.world);
+    $('station').classList.add('hidden');
+    startRun(null);
+    return true;
+  }
+  if (st.id === 'muster') {
+    const order = ['squire', 'knight', 'warden'];
+    const i = (order.indexOf(state.difficulty) + 1) % order.length;
+    state.difficulty = order[i];
+    state.world.setDifficulty(state.difficulty);
+    saveSettings();
+    syncSettingsPanel();
+    banner(DIFFICULTY[state.difficulty].name, DIFFICULTY[state.difficulty].blurb);
+    return true;
+  }
+  if (st.id === 'rack') {
+    const lines = WARDS.map(w =>
+      `${w.name} — ${w.cost} mana, ${w.du} unit${w.du > 1 ? 's' : ''}. ${w.blurb}`);
+    banner('The Ward Rack', lines.join('  ·  '));
+    return true;
+  }
+  return false;
+}
+
+// Walk in. The war is not running while you are here.
+function enterHall() {
+  hideOverlay($('intro'), 420);
+  state.world.enterHall();
+  state.rend.setHall(true);
+  state.rend.snapCamera(state.world);
+  state.running = true;
+  state.paused = false;
+  $('hud').classList.remove('hide');
+  $('hud').classList.add('inHall');
+  if (isTouch) $('touch').classList.remove('hidden');
+  if (state.snd) { state.snd.unlock().catch(() => {}); state.snd.setMuted(!state.soundOn); }
+  banner('The Hall', 'Walk to the gate when you are ready');
 }
 
 // ---------------------------------------------------------------------------
@@ -1500,6 +1600,12 @@ document.addEventListener('visibilitychange', () => {
 // that way is why resume cannot drift out of sync with a new game.
 async function startRun(snap) {
   hideOverlay($('intro'), 520);
+  state.world.hub = false;
+  if (state.rend) state.rend.setHall(false);
+  $('hud').classList.remove('inHall');
+  const stEl = $('station');
+  if (stEl) stEl.classList.add('hidden');
+  state._station = null;
   $('hud').classList.remove('hide');
   if (isTouch) $('touch').classList.remove('hidden');
   if (state.map) state.map.resize();   // HUD is visible now, so it can measure
@@ -1535,7 +1641,10 @@ async function startRun(snap) {
   syncHud();
 }
 
-$('begin').addEventListener('click', () => { clearSave(); state.tutorial = false; startRun(null); });
+// The main action is now walking into your own hall, not starting a fight. A
+// run begins by going through the gate at the far end of it, which is the one
+// change that turns "pick a level from a list" into "leave home".
+$('begin').addEventListener('click', () => { clearSave(); state.tutorial = false; enterHall(); });
 // Training is its OWN mode rather than a toggle on a new game: it is a thing
 // you choose to do, and you can come back to it without starting a real run.
 $('beginTut').addEventListener('click', () => { clearSave(); state.tutorial = true; startRun(null); });

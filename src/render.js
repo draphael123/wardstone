@@ -17,7 +17,7 @@ import {
 } from './defs.js';
 import {
   LANES, ARENA, CELL, cellOf, cellCenter, laneAt, nearestLane, isBuildableCell,
-  currentMap, groundY, moundY, solidProps, widthAt,
+  currentMap, groundY, moundY, solidProps, widthAt, HALL,
 } from './arena.js';
 import { makeRng } from './rand.js';
 import { AGGRO, STAGGER } from './defs.js';
@@ -760,6 +760,271 @@ export class Renderer {
 
     this.wardViews = new Map();   // world ward id -> Object3D
     this.laneFlash = new Map();   // lane id -> seconds remaining
+  }
+
+
+  // ------------------------------------------------------------------- hall
+  // THE HALL. The home room.
+  //
+  // It is built into the SAME scene as the arena, 400m up the z axis. That is
+  // far past the fog, so neither is ever visible from the other, and it means
+  // the player rig, the camera, the controls, the sword and the whole HUD are
+  // the same objects doing the same job in both places. A separate scene would
+  // have meant a second copy of all of that, and the renderer has no teardown
+  // path to swap between two.
+  //
+  // Everything a menu could have done is a PLACE instead: you choose the watch
+  // by standing at a stone, you look at your wards on a rack, and you start the
+  // run by walking through a door. That is the difference between a home and a
+  // title screen.
+  _buildHall() {
+    const g = new THREE.Group();
+    const H = HALL.half;
+    const rng = makeRng(7788);
+    const wood = 0x4a3826, dark = 0x352a1d, stone = 0x6a6559, pale = 0x8b8477;
+
+    const add = (parts, opts = {}) => {
+      if (!parts.length) return null;
+      const m = new THREE.Mesh(assemble(parts), new THREE.MeshStandardMaterial({
+        color: 0xffffff, vertexColors: true, flatShading: true,
+        roughness: opts.rough == null ? 0.95 : opts.rough,
+        emissive: opts.emissive || 0x000000,
+        emissiveIntensity: opts.emissiveIntensity || 0,
+      }));
+      m.castShadow = !this.low && opts.shadow !== false;
+      m.receiveShadow = !this.low && opts.shadow !== false;
+      g.add(m);
+      return m;
+    };
+
+    // --- floor: flagstones with tone and height jitter, so it reads as a floor
+    // and not as a plane with a stone colour on it
+    const flags = [];
+    for (let i = -H; i < H; i += 2) {
+      for (let j = -H; j < H; j += 2) {
+        const s = 1.86 + rng() * 0.1;
+        flags.push({
+          g: box(s, 0.14 + rng() * 0.05, s),
+          x: i + 1 + (rng() - 0.5) * 0.06, y: 0.07,
+          z: j + 1 + (rng() - 0.5) * 0.06,
+          c: rng() < 0.3 ? 0x5d5950 : (rng() < 0.5 ? 0x6d6759 : 0x625d51),
+        });
+      }
+    }
+    add(flags, { rough: 1, shadow: false });
+
+    // --- walls: timber frame, with a gap at the near end for the door you
+    // came in by
+    const walls = [];
+    // `h` is the fourth-wall dial. The chase camera sits BEHIND the player, so
+    // the near wall is between the lens and the room and drew a solid black
+    // band across the bottom third of the screen. It is a low balustrade
+    // instead — the room still closes, and you can see over it.
+    const wallRun = (x0, z0, x1, z1, h) => {
+      const len = Math.hypot(x1 - x0, z1 - z0);
+      const ry = Math.atan2(x1 - x0, z1 - z0);
+      const wh = h == null ? 4.2 : h;
+      walls.push({ g: box(0.5, wh, len), x: (x0 + x1) / 2, y: wh / 2, z: (z0 + z1) / 2, ry, c: dark });
+      const n = Math.max(2, Math.round(len / 3.2));
+      for (let k = 0; k <= n; k++) {
+        const t = k / n;
+        walls.push({
+          g: box(0.62, wh + 0.3, 0.62),
+          x: x0 + (x1 - x0) * t, y: (wh + 0.3) / 2, z: z0 + (z1 - z0) * t, c: wood,
+        });
+      }
+    };
+    wallRun(-H, -H, H, -H);            // far wall, behind the portal
+    wallRun(-H, -H, -H, H);            // left
+    wallRun(H, -H, H, H);              // right
+    wallRun(-H, H, -4, H, 1.2);        // near wall: low, or it hides the room
+    wallRun(4, H, H, H, 1.2);
+    // NO ROOF. A high chase camera and a ceiling cannot both exist: beams at
+    // 5.3m put solid timber between the lens and the floor from every angle.
+    // The room is enclosed by its walls and read from above, like a doll's
+    // house — which is also how you can see all four stations at once.
+    // A wall plate along the top instead, so the walls end in something.
+    for (const wx of [-H, H]) walls.push({ g: box(0.7, 0.4, H * 2), x: wx, y: 4.3, c: wood });
+    walls.push({ g: box(H * 2, 0.4, 0.7), y: 4.3, z: -H, c: wood });
+    add(walls);
+
+    // --- the hearth. Same idea as the arena's fire: the room is lit by the
+    // thing the game is about.
+    const hearth = [
+      { g: box(3.4, 1.0, 2.6), x: 7.2, y: 0.5, z: -7.0, c: stone },
+      { g: box(3.8, 0.3, 3.0), x: 7.2, y: 1.1, z: -7.0, c: pale },
+      { g: box(1.0, 3.4, 1.0), x: 7.2, y: 2.8, z: -7.8, c: dark },
+    ];
+    for (let k = 0; k < 5; k++) {
+      hearth.push({
+        g: box(0.22, 0.22, 1.5), x: 7.2 + (rng() - 0.5) * 0.9, y: 1.3 + k * 0.14,
+        z: -7.0 + (rng() - 0.5) * 0.7, ry: rng() * 3, rx: 0.1, c: 0x3a2c1e,
+      });
+    }
+    add(hearth);
+    const flame = [];
+    for (let k = 0; k < 7; k++) {
+      const s = 0.5 - k * 0.055;
+      flame.push({
+        g: box(s, 0.34, s), x: 7.2, y: 1.5 + k * 0.26, z: -7.0,
+        ry: rng() * 3, c: k < 3 ? 0xffcf6a : 0xff8a3c, e: 1,
+      });
+    }
+    this.hallFire = add(flame, { emissive: 0xff9a40, emissiveIntensity: 1.1, shadow: false });
+
+    // --- the portal. A door you WALK THROUGH to start a run.
+    add([
+      { g: box(6.0, 0.7, 3.0), y: 0.35, z: -12.0, c: stone },
+      { g: box(1.1, 5.4, 1.1), x: -2.2, y: 2.7, z: -12.0, c: pale },
+      { g: box(1.1, 5.4, 1.1), x: 2.2, y: 2.7, z: -12.0, c: pale },
+      { g: box(5.6, 1.0, 1.3), y: 5.5, z: -12.0, c: pale },
+    ]);
+    this.hallGate = add([{ g: box(3.5, 4.4, 0.24), y: 2.9, z: -12.0, c: 0x7fd8c4, e: 1 }],
+      { emissive: 0x39a68d, emissiveIntensity: 1.2, shadow: false });
+    this.hallGate.material.transparent = true;
+    this.hallGate.material.opacity = 0.55;
+
+    // --- the pell. A post to hit with the real sword.
+    const pell = [
+      { g: box(1.7, 0.34, 1.7), x: -8.5, y: 0.17, c: stone },
+      { g: box(0.6, 2.5, 0.6), x: -8.5, y: 1.4, c: wood },
+      { g: box(1.9, 0.34, 0.34), x: -8.5, y: 2.3, c: dark },
+      { g: box(0.34, 0.34, 1.5), x: -8.5, y: 1.9, c: dark },
+      { g: box(0.8, 0.7, 0.6), x: -8.5, y: 2.85, c: 0x6b5a3f },
+    ];
+    for (let k = 0; k < 8; k++) {
+      pell.push({
+        g: box(0.12, 0.5, 0.12), x: -8.5 + (rng() - 0.5) * 0.8,
+        y: 2.9 + rng() * 0.3, z: (rng() - 0.5) * 0.6,
+        rz: (rng() - 0.5) * 0.7, c: 0xb9a468,
+      });
+    }
+    this.hallPell = add(pell);
+
+    // --- the ward rack: your two wards, standing where you can look at them.
+    // A character sheet you can walk up to. See [[scoria-project]].
+    add([
+      { g: box(3.0, 0.3, 1.4), x: 8.5, y: 0.15, c: wood },
+      { g: box(0.3, 2.6, 0.3), x: 7.2, y: 1.3, c: wood },
+      { g: box(0.3, 2.6, 0.3), x: 9.8, y: 1.3, c: wood },
+      { g: box(3.0, 0.26, 0.3), x: 8.5, y: 2.5, c: wood },
+      { g: box(0.34, 1.9, 0.34), x: 7.9, y: 1.05, z: 0.3, rx: 0.12, c: 0x5b4630 },
+      { g: box(0.34, 1.9, 0.34), x: 8.4, y: 1.05, z: 0.3, rx: 0.12, c: 0x644d35 },
+      { g: box(0.34, 1.9, 0.34), x: 8.9, y: 1.05, z: 0.3, rx: 0.12, c: 0x5b4630 },
+      { g: box(2.4, 0.16, 0.16), x: 8.5, y: 2.75, c: 0x8a8378 },
+      { g: box(0.16, 0.16, 1.1), x: 8.5, y: 2.75, c: 0x6b5a3f },
+    ]);
+
+    // --- the muster stone: where you choose the watch. Three notches.
+    add([
+      { g: box(2.2, 0.4, 2.2), x: 6.8, y: 0.2, z: 7.6, c: stone },
+      { g: box(1.3, 2.2, 1.3), x: 6.8, y: 1.3, z: 7.6, c: pale },
+      { g: box(1.5, 0.3, 1.5), x: 6.8, y: 2.5, z: 7.6, c: stone },
+    ]);
+    const notch = [];
+    for (let k = 0; k < 3; k++) {
+      notch.push({
+        g: box(0.26, 0.26, 0.12), x: 6.8 + (k - 1) * 0.42, y: 1.7, z: 6.95,
+        c: 0xffc65c, e: 1,
+      });
+    }
+    this.hallNotches = add(notch, { emissive: 0xffa02a, emissiveIntensity: 1.0, shadow: false });
+
+    // --- furniture. A room with nothing in it reads as a box.
+    const furn = [
+      { g: box(1.9, 0.22, 4.4), x: -6.0, y: 0.86, z: -7.0, c: 0x634d33 },
+      { g: box(0.7, 0.2, 4.0), x: -7.6, y: 0.5, z: -7.0, c: wood },
+      { g: box(0.7, 0.2, 4.0), x: -4.4, y: 0.5, z: -7.0, c: wood },
+      // things ON the table, which is what stops it reading as a plank
+      { g: box(0.34, 0.5, 0.34), x: -6.2, y: 1.22, z: -8.0, c: 0x7d6a4a },
+      { g: box(0.26, 0.34, 0.26), x: -5.6, y: 1.14, z: -6.6, c: 0x8a7a58 },
+      { g: box(0.9, 0.1, 0.7), x: -6.0, y: 1.02, z: -5.8, c: 0x6f5c40 },
+    ];
+    for (const [fx, fz] of [[-6.8, -8.8], [-5.2, -8.8], [-6.8, -5.2], [-5.2, -5.2]])
+      furn.push({ g: box(0.24, 0.86, 0.24), x: fx, y: 0.43, z: fz, c: wood });
+    for (const [bx, bz] of [[-12.0, 6.0], [11.8, 6.5], [-12.6, 4.3]]) {
+      furn.push({ g: box(1.3, 1.5, 1.3), x: bx, y: 0.75, z: bz, c: 0x5a4630 });
+      furn.push({ g: box(1.42, 0.16, 1.42), x: bx, y: 0.5, z: bz, c: 0x3f3222 });
+      furn.push({ g: box(1.42, 0.16, 1.42), x: bx, y: 1.15, z: bz, c: 0x3f3222 });
+    }
+    add(furn);
+    const ban = [];
+    for (const bx of [-H + 0.45, H - 0.45]) {
+      for (let k = -8; k <= 6; k += 7) {
+        ban.push({ g: box(0.12, 2.6, 1.5), x: bx, y: 3.4, z: k, c: 0x7a3b34 });
+        ban.push({ g: box(0.16, 0.24, 1.7), x: bx, y: 4.8, z: k, c: 0xc9a24a });
+      }
+    }
+    add(ban, { shadow: false });
+
+    // --- lights. The arena's key light is the wardstone 400m away, so without
+    // these the hall renders pitch black.
+    this.hallKey = new THREE.PointLight(0xffb066, 260, 60, 2);
+    this.hallKey.position.set(7.2, 2.6, -6.6);
+    g.add(this.hallKey);
+    this.hallFill = new THREE.PointLight(0xbfd0ff, 120, 70, 2);
+    this.hallFill.position.set(-3, 8.0, 2);
+    g.add(this.hallFill);
+    this.hallGateLight = new THREE.PointLight(0x5fd8bd, 110, 34, 2);
+    this.hallGateLight.position.set(0, 2.6, -11.4);
+    g.add(this.hallGateLight);
+    // a second warm lamp over the near half, or everything past the table
+    // falls off a cliff into black
+    const lamp = new THREE.PointLight(0xffc98a, 150, 52, 2);
+    lamp.position.set(2, 6.5, 8);
+    g.add(lamp);
+    g.add(new THREE.HemisphereLight(0x8d93b4, 0x3a3226, 1.5));
+
+    g.position.set(HALL.x, 0, HALL.z);
+    g.visible = false;
+    this.hall = g;
+    this.scene.add(g);
+  }
+
+  // Shown only while you are in it. The arena is 400m away and fully fogged so
+  // nothing else has to be hidden, but the hall's own lights would still reach
+  // across an empty scene, so the whole group goes with it.
+  setHall(on) {
+    if (!this.hall) this._buildHall();
+    this.hall.visible = !!on;
+  }
+
+  // The chase camera EASES toward the player, which is right for walking and
+  // catastrophic for a 400m teleport: entering the hall left the camera sitting
+  // in the arena, gliding across the gap, so the first thing you saw of your
+  // own home was the far side of the treeline. Anything that moves the player
+  // discontinuously has to move the camera with it.
+  snapCamera(world) {
+    const p = world.player;
+    const back = 12, up = 9.2;
+    this._camPos.set(
+      p.x - Math.sin(this.camYaw) * back,
+      up,
+      p.z - Math.cos(this.camYaw) * back);
+    this._camLook.set(p.x, 1.2, p.z);
+    this.camera.position.copy(this._camPos);
+    this.camera.lookAt(this._camLook);
+  }
+
+  stepHall(dt, world) {
+    if (!this.hall || !this.hall.visible) return;
+    const t = this.t;
+    if (this.hallFire) {
+      const f = 0.85 + Math.sin(t * 11) * 0.1 + Math.sin(t * 6.3) * 0.07;
+      this.hallFire.material.emissiveIntensity = 1.1 * f;
+      this.hallKey.intensity = 260 * f;
+      this.hallFire.scale.set(1, 0.94 + f * 0.1, 1);
+    }
+    if (this.hallGate) {
+      this.hallGate.material.opacity = 0.42 + Math.sin(t * 1.9) * 0.12;
+      this.hallGateLight.intensity = 100 + Math.sin(t * 1.9) * 26;
+    }
+    // the pell rocks when you hit it, which is the whole feedback loop of
+    // having something to practise on
+    if (this.hallPell && world && world.pell) {
+      const k = Math.max(0, world.pell.hitT) / 0.18;
+      this.hallPell.rotation.x = k * 0.16 * Math.sin(t * 40);
+    }
   }
 
   // ------------------------------------------------------------------ lights
@@ -2570,15 +2835,30 @@ export class Renderer {
     if (this.ohBlend > 0.999) this.ohBlend = 1;
     const ob = this.ohBlend * this.ohBlend * (3 - 2 * this.ohBlend);   // smoothstep
 
-    let tx = p.x - Math.sin(this.camYaw) * this.camDist;
-    let tz = p.z - Math.cos(this.camYaw) * this.camDist;
-    const lim = ARENA.half - 2.5;
-    tx = Math.max(-lim, Math.min(lim, tx));
-    tz = Math.max(-lim, Math.min(lim, tz));
+    // Indoors the chase camera has to come in and look down harder: at 11m
+    // back it stood outside the hall's own wall, filming the room through it.
+    const camDist = world.hub ? 10 : this.camDist;
+    const camHigh = world.hub ? 8.0 : this.camHeight;
+    let tx = p.x - Math.sin(this.camYaw) * camDist;
+    let tz = p.z - Math.cos(this.camYaw) * camDist;
+    // Kept inside the room you are actually in. This clamp is why the hall
+    // first rendered as the far side of the treeline: it pinned the camera to
+    // the ARENA's bounds, 35.5m from the origin, while the player stood 412m
+    // away — so the camera could never follow him out of the clearing at all.
+    const inHall = !!world.hub;
+    // Generous indoors, and deliberately OUTSIDE the walls. Clamping the
+    // camera to the room's interior pinned it 1.5m behind the player when he
+    // stood at the door, which points a 8m-high chase camera almost straight
+    // down at his own head. The walls are 4.2m and there is no roof, so a
+    // camera sitting past them still looks over the top into the room.
+    const lim = inHall ? HALL.half + 12 : ARENA.half - 2.5;
+    const cx = inHall ? HALL.x : 0, cz = inHall ? HALL.z : 0;
+    tx = cx + Math.max(-lim, Math.min(lim, tx - cx));
+    tz = cz + Math.max(-lim, Math.min(lim, tz - cz));
     const k = 1 - Math.pow(0.0016, dt);
     this._camPos.x += (tx - this._camPos.x) * k;
     this._camPos.z += (tz - this._camPos.z) * k;
-    this._camPos.y += (this.camHeight - this._camPos.y) * k;
+    this._camPos.y += (camHigh - this._camPos.y) * k;
     const la = this.lookAhead;
     const lx = p.x + Math.sin(this.camYaw) * la;
     const lz = p.z + Math.cos(this.camYaw) * la;
