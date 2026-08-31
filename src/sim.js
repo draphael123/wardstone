@@ -10,6 +10,7 @@
 
 import {
   PLAYER, WARDSTONE, ECON, WARDS, WARD_BY_ID, FOE_BY_ID, WAVES, AGGRO, UPGRADE, ABILITY, HEARTH, CACHE, DIFFICULTY, STAGGER, ENERGY,
+  BRAZIER, BRAND,
 } from './defs.js';
 import {
   LANES, LANE_BY_ID, laneAt, cellOf, cellCenter, cellKey,
@@ -144,10 +145,11 @@ let NEXT_ID = 1;
 
 export class World {
   constructor(opts = {}) {
-    this.rng = makeRng(opts.seed == null ? 12345 : opts.seed);
+    this.seed = opts.seed == null ? 12345 : opts.seed;
+    this.rng = makeRng(this.seed);
     // Separate stream for scenery and scatter, so adding or changing props
     // can never perturb the combat dice and invalidate a comparison.
-    this.propRng = makeRng((opts.seed == null ? 12345 : opts.seed) ^ 0x9e3779b9);
+    this.propRng = makeRng(this.seed ^ 0x9e3779b9);
     // Sandbox freezes the wave machine so a directed test can spawn exactly
     // one foe and watch exactly one rule. See [[asserts-must-fit-the-thing-tested]].
     this.sandbox = !!opts.sandbox;
@@ -190,12 +192,15 @@ export class World {
     this.projectiles = [];
     this.motes = [];
     this.caches = [];
+    this.braziers = [];
+    this.brandT = 0;        // seconds of fire left in the player's hand
     this.occupancy = new Map();  // cellKey -> ward
     this.granted = new Set();    // wards unlocked ahead of their wave
     this.spawnQueue = [];
     this.events = [];
 
     this.scatterCaches();
+    this._placeBraziers();
     this.events.length = 0;      // the opening scatter is not news
 
     this.foeHash = new Hash(4);
@@ -441,6 +446,89 @@ export class World {
     if (this.phase !== 'build') return false;
     this.phaseTimer = 0;
     return true;
+  }
+
+  // Braziers are laid out ONCE for the whole run, not per muster like caches.
+  // They are landmarks: "meet me at the west brazier" only means anything if it
+  // is in the same place next wave.
+  _placeBraziers() {
+    this.braziers.length = 0;
+    // Its OWN random stream. Drawing from `this.rng` shifted every later draw in
+    // the run — spawn jitter, cache placement, attack cooldowns — and the glade
+    // fell three wins on a feature the harness bot cannot even use. Anything
+    // added to world setup has to bring its own generator or it silently
+    // re-rolls the whole simulation.
+    const rng = makeRng((this.seed ^ 0x5b2a) >>> 0);
+    let guard = 0;
+    while (this.braziers.length < BRAZIER.count && guard++ < 600) {
+      const a = rng() * Math.PI * 2;
+      const d = BRAZIER.minFromFire + rng() * (BRAZIER.maxFromFire - BRAZIER.minFromFire);
+      const x = Math.cos(a) * d, z = Math.sin(a) * d;
+      if (Math.abs(x) > ARENA.buildInset || Math.abs(z) > ARENA.buildInset) continue;
+      // beside a road, not in it — a brazier in a lane would be a blockade you
+      // never paid units for
+      const n = nearestLane(x, z);
+      const gap = n.lane ? distToLane(n.lane, x, z) : 99;
+      if (gap < BRAZIER.minLaneDist + 1.5 || gap > 9) continue;
+      if (this.braziers.some(b => Math.hypot(b.x - x, b.z - z) < 11)) continue;
+      if (solidProps().some(q => Math.hypot(q.x - x, q.z - z) < q.r + 1.4)) continue;
+      this.braziers.push({ id: NEXT_ID++, x, z, fuel: 0, lit: false });
+    }
+  }
+
+  // Take fire from the hearth, or put it into a basket. One key, and which one
+  // it means is decided by what you are standing next to.
+  useFire() {
+    const p = this.player;
+    if (!p.alive) return null;
+    if (Math.hypot(p.x, p.z) < WARDSTONE.radius + 3.2) {
+      if (this.brandT > 0) return null;              // already carrying
+      this.brandT = BRAND.life;
+      this.emit({ type: 'brand', x: p.x, z: p.z, taken: true });
+      return 'took';
+    }
+    if (this.brandT <= 0) return null;
+    const b = this.nearBrazier();
+    if (!b || b.lit) return null;
+    b.lit = true;
+    b.fuel = BRAZIER.burn;
+    this.brandT = 0;
+    this.emit({ type: 'brazier', x: b.x, z: b.z, lit: true });
+    return 'lit';
+  }
+
+  nearBrazier() {
+    const p = this.player;
+    let best = null, bd = BRAZIER.reach;
+    for (const b of this.braziers) {
+      const d = Math.hypot(b.x - p.x, b.z - p.z);
+      if (d < bd) { bd = d; best = b; }
+    }
+    return best;
+  }
+
+  _stepFire(dt) {
+    if (this.brandT > 0) {
+      this.brandT -= dt;
+      if (this.brandT <= 0) this.emit({ type: 'brand', x: this.player.x, z: this.player.z, taken: false });
+    }
+    for (const b of this.braziers) {
+      if (!b.lit) continue;
+      b.fuel -= dt;
+      if (b.fuel <= 0) { b.lit = false; b.fuel = 0; this.emit({ type: 'brazier', x: b.x, z: b.z, lit: false }); continue; }
+      // it burns whatever is standing in it. No targeting, no cap: it is a fire.
+      const near = this._scratch;
+      this.foeHash.query(b.x, b.z, BRAZIER.radius, near);
+      for (let i = 0; i < near.length; i++) {
+        const f = near[i];
+        if (f.dead) continue;
+        if (Math.hypot(f.x - b.x, f.z - b.z) > BRAZIER.radius + f.def.radius) continue;
+        // credited to the PLAYER: a brazier is something a body walked out and
+        // lit, and the damage share tests have to see it that way or lighting
+        // fires would read as the wards doing the work.
+        this.hurtFoe(f, BRAZIER.dps * dt, 'player');
+      }
+    }
   }
 
   // Scatter caches for a muster. Off the roads, away from the fire, so that
@@ -827,6 +915,7 @@ export class World {
   swapWeapon(id) {
     const p = this.player;
     if (!p.alive || p.swapT > 0) return false;
+    if (this.brandT > 0) return false;      // both hands: brand and crossbow
     const next = id || (p.weapon === 'sword' ? 'crossbow' : 'sword');
     if (!PLAYER.weapons[next] || next === p.weapon) return false;
     p.weapon = next;
@@ -1149,8 +1238,11 @@ export class World {
   // and your attack for as long as you want the protection.
   setBlocking(on) {
     const p = this.player;
+    // A hand full of fire is a hand not on the shield. This is the price of
+    // carrying a brand, and it is why walking one across the field during a
+    // wave is a decision rather than an errand.
     const want = !!on && p.alive && p.weapon === 'sword' && p.dodgeT <= 0 &&
-      !p.atkPhase && p.energy > 0;
+      !p.atkPhase && p.energy > 0 && this.brandT <= 0;
     if (want !== p.blocking) {
       if (want) p.guardT = PLAYER.block.perfect;   // the window opens now
       this.emit({ type: 'block', on: want });
@@ -1471,6 +1563,7 @@ export class World {
     this._stepWards(dt);
     this._stepProjectiles(dt);
     this._separate(dt);
+    this._stepFire(dt);
     this._stepMotes(dt);
 
     // ---- cull

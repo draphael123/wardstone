@@ -1154,6 +1154,38 @@ export function runTests(log = console.log) {
       `${climbable} climbable walls (must be 0), ${droppable} droppable edges, ${rampUp}/${ramps().length} ramps walkable upward`);
   }
 
+  // ---------------------------------------------------------------- braziers
+  {
+    log('');
+    log('[braziers]');
+    const w = new World({ seed: 7 });
+    const b = w.braziers[0];
+    // 1. mana cannot light one. Only a body carrying fire can.
+    w.mana = 999999;
+    w.player.x = b.x + 1.2; w.player.z = b.z;
+    const withoutBrand = w.useFire();
+    // 2. and you have to fetch it from the hearth yourself
+    w.player.x = 0; w.player.z = 2;
+    const took = w.useFire();
+    w.player.x = b.x + 1.2; w.player.z = b.z;
+    const lit = w.useFire();
+    // 3. one brand, one brazier
+    const second = w.useFire();
+    ok('T35 a brazier can only be lit by a body that carried fire to it',
+      withoutBrand === null && took === 'took' && lit === 'lit' && second === null && b.lit,
+      `unlit with 999999 mana and no brand, lit after fetching one, and the brand is spent (a second attempt returns ${second})`);
+
+    // The premise depends on this: an idle ward build must never be able to
+    // reach one, and it cannot, because lighting is gated on the player's own
+    // position rather than on a resource.
+    const idle = new World({ seed: 7 });
+    idle.mana = 999999;
+    idle.player.x = 30; idle.player.z = 30;
+    ok('T36 and no brazier lights itself while the body stands off',
+      idle.useFire() === null && idle.braziers.every(q => !q.lit),
+      `${idle.braziers.length} braziers, all cold, with unlimited mana and the player 42m away`);
+  }
+
 
 
 

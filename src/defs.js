@@ -267,6 +267,39 @@ export const ABILITY = {
 //
 // They respawn every muster rather than being one-time, because a one-time
 // scatter only gives wave one a job and this game has six.
+// ---------------------------------------------------------------------------
+// BRAZIERS, and the BRAND you light them with.
+//
+// The clearing was somewhere you ran across. These are the reason to be in it.
+//
+// A brazier cannot be lit with mana, and that is the point. You take a BRAND
+// from the hearthfire, carry it out — one hand full, so no shield and no
+// crossbow while you do — and touch it to the basket. It is a journey away from
+// the line, and the cost is the seconds you are not fighting.
+//
+// It also makes the premise safe by construction rather than by tuning: a ward
+// build with nobody playing can never light one, because lighting requires a
+// body to walk fire across the field.
+//
+// And it is the thing that changes during a run. Wave one is dark. By wave four
+// the clearing you chose to light is lit, and every basket gutters out again
+// unless you keep going back.
+export const BRAZIER = {
+  count: 6,
+  radius: 6.8,        // how far the light and the heat reach
+  dps: 26,            // what standing in a fire costs a goblin
+  burn: 34,           // seconds a basket stays lit
+  reach: 2.6,         // how close you must be to use one
+  minLaneDist: 3.2,   // beside the road, never in it
+  minFromFire: 13,
+  maxFromFire: 30,
+};
+
+export const BRAND = {
+  life: 22,           // seconds before it burns down to your hand
+  radius: 3.4,        // the little light you carry
+};
+
 export const CACHE = {
   count: 7,          // per muster
   hp: 40,

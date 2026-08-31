@@ -12,7 +12,7 @@ import { Minimap } from './minimap.js';
 import { Tutorial, STEPS } from './tutorial.js';
 import {
   WARDS, WARD_BY_ID, ECON, WAVES, PLAYER, ABILITY, waveByLane, DIFFICULTY, UPGRADE,
-  ENERGY,
+  ENERGY, WARDSTONE,
 } from './defs.js';
 import {
   cellOf, cellCenter, isBuildableCell, ARENA, LANES, laneDoor, MAPS, currentMap,
@@ -843,6 +843,18 @@ function bindInput() {
       e.preventDefault();
       if (useStation()) { state.snd.play('click'); return; }
     }
+    // In the field the same key is FIRE when you are standing at the hearth or
+    // at a brazier, and mend everywhere else. One key, and what it means is
+    // decided by what you are next to — the same rule the hall uses.
+    if (!state.world.hub && acts.includes('mend')) {
+      const r = state.world.useFire();
+      if (r) {
+        e.preventDefault();
+        state.snd.play(r === 'lit' ? 'build' : 'click');
+        if (r === 'took') banner('A brand', 'Carry it to a brazier — no shield while you do');
+        return;
+      }
+    }
     for (const act of acts) {
     if (act === 'ward1' || act === 'ward2' || act === 'ward3' || act === 'ward4') {
       const wd = WARDS[+act.slice(4) - 1];
@@ -1440,6 +1452,8 @@ function frame(now) {
   if (state.world.hub) {
     state.rend.stepHall(dt, state.world);
     syncStation();
+  } else if (state.running) {
+    syncFirePrompt();
   }
   if (state.map) {
     // during the muster, show what each door is about to send
@@ -1471,6 +1485,30 @@ function resize() {
 // ---------------------------------------------------------------------------
 // Everything a menu could have done is a place you stand instead. This is the
 // glue: what are you near, what does it say, and what happens when you use it.
+// The same prompt chrome the hall uses, for the fire. It is the only thing in
+// the field you walk up to and USE, so it gets the same affordance as a station
+// rather than a line of hint text somewhere else on the screen.
+function syncFirePrompt() {
+  const el = $('station');
+  if (!el) return;
+  const w = state.world;
+  let name = null, sub = null;
+  if (w.brandT > 0) {
+    const b = w.nearBrazier();
+    if (b && !b.lit) { name = 'Brazier'; sub = 'Light it — press E'; }
+    else { name = 'Burning brand'; sub = `${Math.ceil(w.brandT)}s — carry it to a brazier`; }
+  } else if (Math.hypot(w.player.x, w.player.z) < WARDSTONE.radius + 3.2) {
+    name = 'The Hearthfire'; sub = 'Take a brand — press E';
+  } else {
+    const b = w.nearBrazier();
+    if (b) { name = 'Brazier'; sub = b.lit ? 'Burning' : 'Unlit — fetch a brand from the fire'; }
+  }
+  if (!name) { el.classList.add('hidden'); return; }
+  el.querySelector('.stName').textContent = name;
+  el.querySelector('.stSub').textContent = sub;
+  el.classList.remove('hidden');
+}
+
 function syncStation() {
   const el = $('station');
   if (!el) return;

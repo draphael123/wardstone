@@ -764,6 +764,96 @@ export class Renderer {
   }
 
 
+
+  // -------------------------------------------------------------- braziers
+  // Iron baskets on legs, dark and cold until you walk fire out to them.
+  //
+  // Unlit and lit have to be readable from across the clearing and from each
+  // other, because the whole feature is a decision about where to spend a walk.
+  // So an unlit basket is a black silhouette with a pale rim, and a lit one is
+  // the brightest thing in the field apart from the hearth itself.
+  _buildBraziers(world) {
+    const iron = [], coal = [];
+    for (const b of world.braziers) {
+      const gy = groundY(b.x, b.z);
+      // three legs, so it reads as a tripod rather than a bin
+      for (let k = 0; k < 3; k++) {
+        const a = (k / 3) * Math.PI * 2 + 0.4;
+        iron.push({
+          g: box(0.18, 1.25, 0.18), x: b.x + Math.cos(a) * 0.42, y: gy + 0.62,
+          z: b.z + Math.sin(a) * 0.42, rx: Math.sin(a) * 0.16, rz: -Math.cos(a) * 0.16,
+          c: 0x2e2a24,
+        });
+      }
+      iron.push({ g: box(1.15, 0.34, 1.15), x: b.x, y: gy + 1.32, z: b.z, c: 0x3a352c });
+      iron.push({ g: box(1.32, 0.16, 1.32), x: b.x, y: gy + 1.52, z: b.z, c: 0x8d8674 });
+      coal.push({ g: box(0.86, 0.2, 0.86), x: b.x, y: gy + 1.46, z: b.z, c: 0x1a1512 });
+    }
+    const mk = (parts) => {
+      if (!parts.length) return null;
+      const m = new THREE.Mesh(assemble(parts), new THREE.MeshStandardMaterial({
+        color: 0xffffff, vertexColors: true, flatShading: true, roughness: 0.85,
+      }));
+      m.castShadow = !this.low;
+      m.receiveShadow = !this.low;
+      this.scene.add(m);
+      return m;
+    };
+    mk(iron);
+    mk(coal);
+
+    // One flame mesh and one light PER brazier, shown only while it burns.
+    // Six lights is affordable; six lights always on would wash out the dark
+    // the whole game is about.
+    this.brazierFx = world.braziers.map((b) => {
+      const gy = groundY(b.x, b.z);
+      const parts = [];
+      for (let k = 0; k < 6; k++) {
+        const s = 0.72 - k * 0.09;
+        parts.push({
+          g: box(s, 0.3, s), y: 1.55 + k * 0.24, ry: k * 0.7,
+          c: k < 2 ? 0xffe08a : (k < 4 ? 0xffb04a : 0xff7a2c), e: 1,
+        });
+      }
+      const flame = new THREE.Mesh(assemble(parts), new THREE.MeshStandardMaterial({
+        color: 0xffffff, vertexColors: true, flatShading: true,
+        emissive: 0xff9a3c, emissiveIntensity: 1.3,
+      }));
+      flame.position.set(b.x, gy, b.z);
+      flame.visible = false;
+      this.scene.add(flame);
+
+      const light = new THREE.PointLight(0xffa050, 0, 20, 2);
+      light.position.set(b.x, gy + 2.0, b.z);
+      this.scene.add(light);
+      return { flame, light, b };
+    });
+  }
+
+  _stepBraziers(dt, world) {
+    if (!this.brazierFx) return;
+    const t = this.t;
+    for (let i = 0; i < this.brazierFx.length; i++) {
+      const fx = this.brazierFx[i];
+      const b = world.braziers[i];
+      if (!b || !b.lit) {
+        if (fx.flame.visible) { fx.flame.visible = false; fx.light.intensity = 0; }
+        continue;
+      }
+      fx.flame.visible = true;
+      // three incommensurate frequencies, same as the hearth, so a field of
+      // braziers does not pulse in unison like a string of bulbs
+      const ph = i * 1.7;
+      const f = 0.82 + Math.sin(t * 9.3 + ph) * 0.1 + Math.sin(t * 5.1 + ph * 1.6) * 0.08;
+      // guttering: the last four seconds visibly die, so "it is about to go out"
+      // is something you can see rather than something you have to remember
+      const dying = Math.min(1, b.fuel / 4);
+      fx.flame.scale.set(0.7 + 0.35 * f, (0.6 + 0.5 * f) * (0.4 + 0.6 * dying), 0.7 + 0.35 * f);
+      fx.flame.material.emissiveIntensity = 1.3 * f * dying;
+      fx.light.intensity = 44 * f * dying;
+    }
+  }
+
   // -------------------------------------------------------------- terraces
   // Raised ground you can stand on, and the STAIRS that are the only way up.
   //
@@ -2887,6 +2977,10 @@ export class Renderer {
   update(world, dt, input) {
     this.t += dt;
     const p = world.player;
+    // Built on the first frame rather than in the constructor: the braziers are
+    // laid out by the World, and the Renderer is made without one.
+    if (!this.brazierFx && world.braziers) this._buildBraziers(world);
+    this._stepBraziers(dt, world);
 
     // --- camera: chase, high, smoothed. Yaw is the player's to steer.
     // The two cameras are blended rather than switched, so entering and

@@ -2034,3 +2034,48 @@ and taking it from 17/21 to 10/21.
 every off-lane foe and changing where the body can stand cost one win, so waves
 3-6 came down to 94%. Final: 36/36 assertions, glade 16/21, gauntlet 20/21,
 T19 6/10.
+
+---
+
+# Braziers, and the brand you carry to them
+
+Three separate complaints — nothing to interact with, nothing changes during a
+run, and not enough for the player to DO — turned out to be one feature.
+
+## You cannot light one with mana
+
+You take a **brand** from the hearthfire, carry it out, and touch it to the
+basket. One hand is full while you do, so **no shield and no crossbow** — that
+is the price, and it is why walking fire across the field mid-wave is a decision
+rather than an errand. The brand burns for 22 seconds and lights exactly one
+brazier.
+
+This makes the premise safe **by construction rather than by tuning**: an idle
+ward build can never light one, because lighting is gated on where the player's
+body is, not on a resource. Asserted with 999999 mana and the player 42m away —
+six braziers, all cold.
+
+## It is also the thing that changes during a run
+
+Wave one is dark. By wave four the part of the clearing you *chose* to light is
+lit, and every basket gutters out again after 34 seconds unless you keep going
+back. The last four seconds of a burn visibly die down, so "it is about to go
+out" is something you see rather than something you have to remember.
+
+A lit brazier burns whatever stands in it — 26 dps in a 6.8m radius, credited to
+the **player**, because a brazier is something a body walked out and lit and the
+damage-share tests have to see it that way.
+
+## The bug that cost the most, again
+
+Placing the braziers drew from `this.rng`, which shifted **every later draw in
+the run** — spawn jitter, cache placement, attack cooldowns — and the glade fell
+from 16/21 to 13/21 on a feature the harness bot cannot even use. Given its own
+stream the numbers returned to exactly 16/21 and 20/21.
+
+**Anything added to world setup must bring its own generator or it silently
+re-rolls the entire simulation.** This is the third time this class of thing has
+cost an hour: a measurement that moved for a reason that was not the change.
+
+`this.seed` did not exist either — only `this.rng` and `this.propRng` — so the
+first version put every brazier in the same place on every seed.
