@@ -16,6 +16,7 @@
 // is not a trade-off until you measure it, and neither is a second system.
 
 import { World } from './sim.js';
+import { SLOTS, AFFIXES } from './loot.js';
 import {
   PLAYER, WARDS, WARD_BY_ID, FOES, FOE_BY_ID, WAVES, BREAKER_DPS,
   WARDSTONE as STONE, ECON, waveFoeCount,
@@ -382,7 +383,7 @@ export class Bot {
       }
       if (m) {
         const dx = m.x - p.x, dz = m.z - p.z, d = Math.hypot(dx, dz) || 1;
-        w.movePlayer((dx / d) * PLAYER.speed, (dz / d) * PLAYER.speed, dt);
+        w.movePlayer((dx / d) * PLAYER.speed * w.mods.speed, (dz / d) * PLAYER.speed * w.mods.speed, dt);
       } else if (w.phaseTimer > 2) {
         w.phaseTimer = 2;               // nothing left to do; ready up
       }
@@ -461,7 +462,7 @@ export class Bot {
     const dx = gox - p.x, dz = goz - p.z;
     const d = Math.hypot(dx, dz);
     if (d > standoff + 0.4) {
-      const s = PLAYER.speed;
+      const s = PLAYER.speed * w.mods.speed;
       w.movePlayer((dx / d) * s, (dz / d) * s, dt);
     }
 
@@ -522,6 +523,7 @@ export function playRun(opts = {}) {
     difficulty: opts.difficulty,
   });
   if (opts.rich) w.grantAll();
+  if (opts.kit) w.setKit(opts.kit);
   const bot = new Bot(w, opts);
   const maxT = opts.maxT || 1200;
   let guard = 0;
@@ -1154,6 +1156,46 @@ export function runTests(log = console.log) {
       `${climbable} climbable walls (must be 0), ${droppable} droppable edges, ${rampUp}/${ramps().length} ramps walkable upward`);
   }
 
+  // -------------------------------------------------------------------- loot
+  //
+  // Every premise assertion above is made by a NAKED knight. A knight in full
+  // gear is precisely the case most likely to break it, so the three-way test
+  // is repeated here at the ceiling: best affix, tier III, in all four slots.
+  {
+    log('');
+    log('[loot]');
+    const bodyKit = {
+      blade: { slot: 'blade', affix: 'dmg', tier: 3 },
+      guard: { slot: 'guard', affix: 'hp', tier: 3 },
+      cloak: { slot: 'cloak', affix: 'speed', tier: 3 },
+      sigil: { slot: 'sigil', affix: 'wrange', tier: 3 },
+    };
+    const wardKit = {
+      blade: { slot: 'blade', affix: 'dmg', tier: 3 },
+      guard: { slot: 'guard', affix: 'hp', tier: 3 },
+      cloak: { slot: 'cloak', affix: 'nrg', tier: 3 },
+      sigil: { slot: 'sigil', affix: 'wrange', tier: 3 },
+    };
+    setMap('glade');
+    const bodyOnly = playRun({ seed: 7, build: false, fight: true, kit: bodyKit, maxT: 900 });
+    ok('T37 a knight in FULL KIT still cannot hold the tracks alone',
+      bodyOnly.phase === 'lost',
+      `lost at wave ${bodyOnly.waveIndex + 1}/${WAVES.length}, stone ${Math.round(bodyOnly.stone.hp)} — best blade, guard, cloak and sigil, and no wards`);
+
+    const idleKits = ['balanced', 'airheavy', 'groundheavy'].filter(plan =>
+      playRun({ seed: 7, build: true, fight: false, rich: true, kit: wardKit, plan, maxT: 900 })
+        .phase === 'won').length;
+    ok('T38 nor does a FULL KIT ward build win with nobody driving it',
+      idleKits === 0,
+      `${idleKits}/3 idle plans won with the best sigil and unlimited mana`);
+
+    const lseeds = [1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 7];
+    const naked = lseeds.filter(sd => playRun({ seed: sd, build: true, fight: true }).phase === 'won').length;
+    const geared = lseeds.filter(sd => playRun({ seed: sd, build: true, fight: true, kit: bodyKit }).phase === 'won').length;
+    ok('T39 and a kit is worth wearing — gear beats no gear',
+      geared >= naked,
+      `${naked}/${lseeds.length} naked vs ${geared}/${lseeds.length} in full kit`);
+  }
   // ---------------------------------------------------------------- braziers
   {
     log('');

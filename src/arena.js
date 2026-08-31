@@ -686,8 +686,8 @@ export const STATIONS = [
     prompt: 'Look over the muster' },
   { id: 'dummy',   name: 'The Pells',        x: -9.3, z: 400,   r: 3.4,
     prompt: 'Practise' },
-  { id: 'rack',    name: 'The Ward Rack',    x: 8.5,  z: 400,   r: 2.6,
-    prompt: 'Inspect the wards' },
+  { id: 'armoury', name: 'The Armoury',      x: 8.5,  z: 400,   r: 2.9,
+    prompt: 'Look over what you carry' },
   { id: 'muster',  name: 'The Muster Stone', x: 6.8,  z: 407.6, r: 2.6,
     prompt: 'Choose the watch' },
 ];

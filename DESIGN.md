@@ -2242,3 +2242,67 @@ the game that moves a body, which is most of why it reads as heavier.
 
 One input path drives both weapons now, so the player learns one rule instead of
 two.
+
+---
+
+# The Kit — loot, and why it has a ward slot
+
+A run left nothing behind, so the hall was a well-dressed lobby. This is the
+thing every hub feature in Dungeon Defenders is downstream of: the forge, the
+shop, the item boxes and the pet all exist because you own things.
+
+## Four slots, and the fourth is load-bearing
+
+| slot | governs |
+|---|---|
+| Blade | sword damage / reach / recovery |
+| Guard | health / block / bash |
+| Cloak | speed / energy regen / roll cooldown |
+| **Sigil** | **ward range / rate / health** |
+
+Loot that only fed the body would tip a game whose whole claim is that neither
+half wins alone. **"Body alone LOSES" is an assertion, and a knight in full gear
+is exactly the case most likely to break it.** The sigil slot means gearing up
+feeds both halves, so getting stronger moves the hybrid along instead of tilting
+it.
+
+An item is one affix at one tier, so it reads in a line — *Keen Blade III, +18%
+sword damage* — and the sim reads it in one place: a `mods` object computed when
+the kit changes and never walked again during a frame.
+
+## The premise is asserted AT FULL KIT
+
+Every premise assertion in the suite is made by a naked knight, so three new
+ones repeat the three-way test at the ceiling — best affix, tier III, all four
+slots:
+
+- **T37** a knight in full kit still cannot hold the tracks alone — lost at wave 3
+- **T38** nor does a full-kit ward build win with nobody driving it — 0/3 plans
+- **T39** and gear is not a downgrade — 7/11 naked vs 7/11 geared
+
+T39 is deliberately a `>=` guard rather than a claim that gear wins runs: +18%
+damage does not flip many, and the bot cannot exploit speed or recovery the way
+a player does. It exists to catch a sign error, not to prove a feeling.
+
+The ceiling is small on purpose: about +18% on the body and +14% on the wards.
+This is a reason to come home, not a second progression system bolted onto a
+balance that took a fortnight to find.
+
+## Drops are events, not a stream
+
+Elites only — a Giant Goblin or a Bruiser, at 34% — plus one guaranteed for
+clearing any wave from the third on, so a run that ends badly still leaves you
+holding more than it started with. Common goblins never drop, or the rare one
+stops meaning anything.
+
+Tier odds shift with the wave, so wave six differs from wave one in what it
+hands you and not only in what it sends.
+
+Loot rolls on **their own random stream**, for the reason the braziers taught:
+sharing the world's `rng` re-rolls every later draw in the run.
+
+## The chest survives the browser closing
+
+Because the whole point of loot is that a run leaves something behind. The
+armoury is the old ward rack — you walk up to it, and what you carry is a place
+in the room rather than a menu the room went away for.

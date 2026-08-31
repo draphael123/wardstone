@@ -10,6 +10,7 @@ import { Renderer, PAL } from './render.js';
 import { Sound, playEvent } from './audio.js';
 import { Minimap } from './minimap.js';
 import { Tutorial, STEPS } from './tutorial.js';
+import { SLOTS, itemName, itemLine, LOOT } from './loot.js';
 import {
   WARDS, WARD_BY_ID, ECON, WAVES, PLAYER, ABILITY, waveByLane, DIFFICULTY, UPGRADE,
   ENERGY, WARDSTONE,
@@ -132,6 +133,8 @@ const state = {
   inspect: null, runFrom: null,
   // the party, as the game understands it today: you, and three open slots
   queue: { map: 'glade', ready: false }, boardOpen: false,
+  // the chest and what is worn out of it, both kept between runs
+  bag: [], kit: {}, armouryOpen: false,
   acc: 0, last: 0, lastFrame: 0, hitstop: 0,
   vel: { x: 0, z: 0 },
   hintShown: new Set(),
@@ -480,6 +483,17 @@ function drainEvents() {
         r.spark(e.x, e.y, e.z, heavy ? 0xffe6b0 : 0xffd28a,
                 heavy ? 9 : 5, heavy ? 7 : 4.5, heavy ? 0.9 : 0.6, -6);
         if (e.killed) r.spark(e.x, e.y, e.z, 0xd8604a, 7, 5, 0.75, -7);
+        break;
+      }
+      // A drop is an EVENT. It goes straight into the chest rather than lying
+      // on the floor waiting to be walked over — mana is the thing you leave
+      // cover for, and making loot a second pickup would blunt that.
+      case 'drop': {
+        takeItem(e.item);
+        r.spark(e.x, 1.2, e.z, 0xffd98a, 12, 5, 0.9, -2);
+        r.ringBurst(e.x, 0.4, e.z, 0xffd07a, 8, 16);
+        toast(`<b>${itemName(e.item)}</b> &mdash; ${itemLine(e.item)}`);
+        if (s) s.play('build', 0.9, 1.3);
         break;
       }
       case 'swing':
@@ -869,6 +883,7 @@ function bindInput() {
     state.keys.add(k);
     if (k === 'escape' || k === '0') {
       if (state.boardOpen) { closeBoard(); return; }
+      if (state.armouryOpen) { closeArmoury(); return; }
       if (state.inspect) { inspectWard(null); return; }
       state.selected = null; select(null);
       return;
@@ -1273,8 +1288,8 @@ function applyInput(dt) {
   const sin = Math.sin(r.camYaw), cos = Math.cos(r.camYaw);
   const fx = -sin, fz = -cos;          // camera forward on the ground plane
   const rx = cos, rz = -sin;           // camera right
-  const vx = (fx * -my + rx * mx) * PLAYER.speed;
-  const vz = (fz * -my + rz * mx) * PLAYER.speed;
+  const vx = (fx * -my + rx * mx) * PLAYER.speed * state.world.mods.speed;
+  const vz = (fz * -my + rz * mx) * PLAYER.speed * state.world.mods.speed;
 
   // Momentum. Snapping straight to full speed and to a dead stop is most of
   // what "movement feels off" was: there is no weight to a body that changes
@@ -1457,7 +1472,7 @@ function frame(now) {
     $('flash').style.opacity = flashT;
   }
 
-  if (state.running && !state.paused && !state.boardOpen) {
+  if (state.running && !state.paused && !state.boardOpen && !state.armouryOpen) {
     applyInput(dt);
     // Fixed timestep so the sim is identical to the one the harness measured.
     // Hitstop: the sim slows to a crawl for a few frames on a meaty connect
@@ -1490,7 +1505,7 @@ function frame(now) {
   else state.rend.menuFrame(state.world, dt);
   if (state.world.hub) {
     state.rend.stepHall(dt, state.world);
-    if (!state.boardOpen) syncStation();
+    if (!state.boardOpen && !state.armouryOpen) syncStation();
   } else if (state.running) {
     syncFirePrompt();
   }
@@ -1638,6 +1653,84 @@ function pendingMarch() {
   } catch (e) { return null; }
 }
 
+// ------------------------------------------------------------------ armoury
+// The chest survives the browser closing, because the whole point of loot is
+// that a run leaves something behind.
+const BAG_KEY = 'ws:bag';
+function loadBag() {
+  try {
+    const o = JSON.parse(localStorage.getItem(BAG_KEY) || 'null');
+    if (!o) return;
+    if (Array.isArray(o.bag)) state.bag = o.bag.slice(0, LOOT.keep);
+    if (o.kit && typeof o.kit === 'object') state.kit = o.kit;
+  } catch (e) { /* an empty chest is the normal case */ }
+}
+function saveBag() {
+  try {
+    localStorage.setItem(BAG_KEY, JSON.stringify({ bag: state.bag, kit: state.kit }));
+  } catch (e) { /* full or private: the run still works */ }
+}
+
+// Newest first, and the chest is capped — otherwise a long session turns the
+// armoury into a spreadsheet nobody reads.
+function takeItem(it) {
+  state.bag.unshift(it);
+  if (state.bag.length > LOOT.keep) state.bag.length = LOOT.keep;
+  saveBag();
+}
+
+function renderArmoury() {
+  const slotHost = $('aSlots');
+  slotHost.innerHTML = '';
+  for (const sl of SLOTS) {
+    const worn = state.kit[sl.id];
+    const el = document.createElement('div');
+    el.className = 'it worn' + (worn ? '' : ' empty');
+    el.innerHTML = worn
+      ? `<span class="n">${itemName(worn)}</span><span class="d">${itemLine(worn)}</span>`
+      : `<span class="n">${sl.name}</span><span class="s">empty &mdash; ${sl.of}</span>`;
+    if (worn) el.addEventListener('click', () => { delete state.kit[sl.id]; applyKit(); });
+    slotHost.appendChild(el);
+  }
+  const bagHost = $('aBag');
+  bagHost.innerHTML = '';
+  if (!state.bag.length) {
+    bagHost.innerHTML = '<div class="aNone">Nothing yet. Elites drop, and surviving a late wave drops.</div>';
+    return;
+  }
+  for (const it of state.bag) {
+    const el = document.createElement('div');
+    const worn = state.kit[it.slot] && state.kit[it.slot].id === it.id;
+    el.className = 'it' + (worn ? ' worn' : '');
+    el.innerHTML = `<span class="n">${itemName(it)}</span><span class="d">${itemLine(it)}</span>`;
+    el.addEventListener('click', () => {
+      if (worn) delete state.kit[it.slot];
+      else state.kit[it.slot] = it;
+      applyKit();
+    });
+    bagHost.appendChild(el);
+  }
+}
+
+function applyKit() {
+  state.world.setKit(state.kit);
+  saveBag();
+  renderArmoury();
+  syncHud();
+  if (state.snd) state.snd.play('click');
+}
+
+function openArmoury() {
+  renderArmoury();
+  $('armoury').classList.remove('hidden');
+  $('station').classList.add('hidden');
+  state.armouryOpen = true;
+}
+function closeArmoury() {
+  $('armoury').classList.add('hidden');
+  state.armouryOpen = false;
+}
+
 function useStation() {
   const st = state._station;
   if (!st) return false;
@@ -1654,12 +1747,7 @@ function useStation() {
     if (state.boardOpen) renderBoard();
     return true;
   }
-  if (st.id === 'rack') {
-    const lines = WARDS.map(w =>
-      `${w.name} — ${w.cost} mana, ${w.du} unit${w.du > 1 ? 's' : ''}. ${w.blurb}`);
-    banner('The Ward Rack', lines.join('  ·  '));
-    return true;
-  }
+  if (st.id === 'armoury') { openArmoury(); return true; }
   return false;
 }
 
@@ -1701,6 +1789,8 @@ function boot() {
   bindInput();
   bindSettings();
   loadSettings();
+  loadBag();
+  state.world.setKit(state.kit);
   if (!state.binds) state.binds = defaultBinds();
   rebuildKeymap();
   syncSettingsPanel();   // so the intro's difficulty buttons show what is stored
@@ -2212,6 +2302,7 @@ $('bReady').addEventListener('click', () => {
 });
 $('bGo').addEventListener('click', () => { if (state.queue.ready) marchOut(); });
 $('bClose').addEventListener('click', () => { closeBoard(); if (state.snd) state.snd.play('hover'); });
+$('aClose').addEventListener('click', () => { closeArmoury(); if (state.snd) state.snd.play('hover'); });
   $('pSettings').addEventListener('click', () => {
     // settings already pauses; opening it from here just swaps the overlay
     $('paused').classList.add('hidden');

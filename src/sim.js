@@ -19,6 +19,7 @@ import {
   widthAt,
 } from './arena.js';
 import { makeRng } from './rand.js';
+import { SLOTS, AFFIXES, LOOT, modsOf, emptyMods } from './loot.js';
 
 // The longest wall one drag may lay. Not a balance number — the unit budget
 // is what actually limits walls — just a guard against a stray drag across
@@ -201,6 +202,10 @@ export class World {
     this.motes = [];
     this.caches = [];
     this.braziers = [];
+    // what the run has turned up, and what is worn
+    this.drops = [];
+    this.kit = {};
+    this.mods = emptyMods();
     this.brandT = 0;        // seconds of fire left in the player's hand
     this.occupancy = new Map();  // cellKey -> ward
     this.granted = new Set();    // wards unlocked ahead of their wave
@@ -302,15 +307,28 @@ export class World {
   // Range only. Not damage, not rate: height should decide WHAT a gun can see,
   // which is the thing height actually means, and a flat power bonus would just
   // be "build here, it is better".
+  // Wear a kit. One object of multipliers, computed here and never walked
+  // again, so nothing in the sim reads an inventory during a frame.
+  setKit(kit) {
+    this.kit = kit || {};
+    this.mods = modsOf(this.kit);
+    const p = this.player;
+    const frac = p.maxHp > 0 ? p.hp / p.maxHp : 1;
+    p.maxHp = Math.round(PLAYER.hp * this.mods.hp);
+    p.hp = Math.min(p.maxHp, Math.max(1, Math.round(p.maxHp * frac)));
+    return this.mods;
+  }
+
   wardRange(w) {
     const u = w.def.up;
     const base = u && u.range ? w.def.range * Math.pow(u.range, w.level - 1) : w.def.range;
-    return base * (terraceY(w.x, w.z) > 0.9 ? HIGH_GROUND : 1);
+    return base * (terraceY(w.x, w.z) > 0.9 ? HIGH_GROUND : 1) * this.mods.wrange;
   }
 
   wardCooldown(w) {
     const u = w.def.up;
-    return u && u.rate ? w.def.cooldown * Math.pow(u.rate, w.level - 1) : w.def.cooldown;
+    const base = u && u.rate ? w.def.cooldown * Math.pow(u.rate, w.level - 1) : w.def.cooldown;
+    return base * this.mods.wrate;
   }
 
   wardPierce(w) {
@@ -345,7 +363,7 @@ export class World {
     const pw = (w.def.up && w.def.up.power) || UPGRADE.power;
     w.power = Math.pow(pw, w.level - 1);
     const frac = w.hp / w.maxHp;
-    w.maxHp = Math.round(w.def.hp * w.power);
+    w.maxHp = Math.round(w.def.hp * w.power * this.mods.whp);
     w.hp = Math.round(w.maxHp * Math.max(frac, 0.5));   // a top-up comes with it
     if (this.phase === 'combat') {
       w.buildT = UPGRADE.time;
@@ -454,6 +472,33 @@ export class World {
     if (this.phase !== 'build') return false;
     this.phaseTimer = 0;
     return true;
+  }
+
+  // Loot rolls on their OWN stream. Sharing the world's rng would re-roll every
+  // later draw in the run the moment an item dropped, which is how the braziers
+  // cost three wins on a feature the bot never touched.
+  lootRng() {
+    if (!this._lootRng) this._lootRng = makeRng((this.seed ^ 0x10c7) >>> 0);
+    return this._lootRng();
+  }
+
+  _rollItem() {
+    const r = this.lootRng();
+    const slot = SLOTS[Math.floor(this.lootRng() * SLOTS.length) % SLOTS.length];
+    const list = AFFIXES[slot.id];
+    const aff = list[Math.floor(this.lootRng() * list.length) % list.length];
+    const odds = LOOT.tierByWave[Math.min(LOOT.tierByWave.length - 1, this.waveIndex)];
+    let acc = 0, tier = 1;
+    for (let i = 0; i < odds.length; i++) { acc += odds[i]; if (r <= acc) { tier = i + 1; break; } }
+    return { id: NEXT_ID++, slot: slot.id, affix: aff.id, tier };
+  }
+
+  _dropItem(x, z) {
+    const it = this._rollItem();
+    it.x = x; it.z = z;
+    this.drops.push(it);
+    this.emit({ type: 'drop', x, z, item: it });
+    return it;
   }
 
   // Braziers are laid out ONCE for the whole run, not per muster like caches.
@@ -824,6 +869,13 @@ export class World {
     f.dead = true;
     f.corpseT = CORPSE_TIME;
     this.stats.kills[f.kind] = (this.stats.kills[f.kind] || 0) + 1;
+    // Elites drop. Not everything, and not a stream — a drop should be an
+    // event you look up for, which means the common goblins must never give
+    // one or the rare one stops meaning anything.
+    if ((f.def.poise || f.kind === 'breaker') && !f.def.inert &&
+        this.lootRng() < LOOT.eliteChance) {
+      this._dropItem(f.x, f.z);
+    }
     // Mana does not teleport into your pocket. It lands where the foe died and
     // has to be walked over — this is the whole reason the player leaves cover.
     this.motes.push({
@@ -894,7 +946,8 @@ export class World {
         this.emit({ type: 'perfect', x: p.x, z: p.z });
         return;
       }
-      amount *= PLAYER.block.reduce;
+      // a Warding guard leaves LESS through, so the multiplier divides
+      amount *= PLAYER.block.reduce / this.mods.block;
       this.emit({ type: 'blocked', x: p.x, z: p.z });
     }
     p.hp -= amount;
@@ -985,7 +1038,7 @@ export class World {
   _stepEnergy(dt) {
     const p = this.player;
     if (p.energyHold > 0) { p.energyHold -= dt; return; }
-    p.energy = Math.min(ENERGY.max, p.energy + ENERGY.regen * dt);
+    p.energy = Math.min(ENERGY.max, p.energy + ENERGY.regen * this.mods.nrg * dt);
   }
 
   // ------------------------------------------------------------------ melee
@@ -1019,7 +1072,7 @@ export class World {
       p.atkT = p.atkMove.active;
     } else if (p.atkPhase === 'active') {
       p.atkPhase = 'recover';
-      p.atkT = p.atkMove.recover;
+      p.atkT = p.atkMove.recover * this.mods.swift;
       // the chain window opens as recovery begins
       p.comboT = PLAYER.weapons.sword.chainWindow;
     } else {
@@ -1179,7 +1232,7 @@ export class World {
       }
       const dx = f.x - p.x, dz = f.z - p.z;
       const d = Math.hypot(dx, dz);
-      if (d > move.range + f.def.radius) continue;
+      if (d > move.range * this.mods.reach + f.def.radius) continue;
       if (d > 0.001 && (dx * ux + dz * uz) / d < cosHalf) continue;
       // A heavy is the only thing that goes through poise, which is what gives
       // the Bruiser and the Breaker an answer other than running away.
@@ -1194,8 +1247,9 @@ export class World {
       }
       // A charged heavy ignores the shield, exactly as it ignores poise —
       // so the Shield Goblin has two answers and the player already owns both.
-      if (move.breaksPoise) this.hurtFoe(f, move.damage, 'player');
-      else this.hurtFoe(f, move.damage, 'player', p.x, p.z);
+      const dealt = move.damage * this.mods.dmg;
+      if (move.breaksPoise) this.hurtFoe(f, dealt, 'player');
+      else this.hurtFoe(f, dealt, 'player', p.x, p.z);
       // Where the blade actually met the body, so the renderer can put the
       // spark THERE. It used to spark at the player's own feet, which is why a
       // hit read as an animation happening near a goblin rather than to one.
@@ -1229,7 +1283,7 @@ export class World {
       const d = Math.hypot(dx, dz);
       if (d > move.range + 0.9) continue;
       if (d > 0.001 && (dx * ux + dz * uz) / d < cosHalf) continue;
-      this.hurtCache(c, move.damage);
+      this.hurtCache(c, move.damage * this.mods.dmg);
       hits++;
     }
     this.emit({
@@ -1328,7 +1382,7 @@ export class World {
       }
       // The bash goes through a shield too: it is a shield being driven into
       // one, which is the one moment that ability stops being a panic button.
-      this.hurtFoe(f, ABILITY.damage, 'player');
+      this.hurtFoe(f, ABILITY.damage * this.mods.bash, 'player');
       hit++;
     }
     this.emit({ type: 'rally', x: p.x, z: p.z, hit, dx: ux, dz: uz });
@@ -1345,7 +1399,7 @@ export class World {
     else { ux /= len; uz /= len; }
     p.dodgeX = ux; p.dodgeZ = uz;
     p.dodgeT = PLAYER.dodge.time;
-    p.dodgeCd = PLAYER.dodge.cooldown;
+    p.dodgeCd = PLAYER.dodge.cooldown * this.mods.roll;
     p.invuln = PLAYER.dodge.iframes;
     this.emit({ type: 'dodge', x: p.x, z: p.z, dx: ux, dz: uz });
     return true;
@@ -1681,6 +1735,9 @@ export class World {
         this.phase = 'build';
         this.phaseTimer = ECON.interPhase;
         this.scatterCaches();
+        // Surviving a late wave is worth something on its own, so a run that
+        // ends badly still leaves you holding more than it started with.
+        if (this.waveIndex >= LOOT.waveClearWave) this._dropItem(0, WARDSTONE.radius + 3);
       }
     }
   }

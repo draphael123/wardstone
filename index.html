@@ -648,12 +648,36 @@
     #board .slot .st{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#7f7768}
     #board .slot.me.rdy .st{color:#7fd8a0}
     #board .bNote{font-size:11.5px;line-height:1.5;color:#7d7466;margin:6px 0 14px}
-    #board .bBtns{display:flex;gap:8px}
-    #board .bBtn{flex:1;padding:10px;cursor:pointer;font-family:inherit;font-size:12.5px;
+    #board .bBtns,#armoury .bBtns{display:flex;gap:8px;margin-top:14px}
+    #board .bBtn,#armoury .bBtn{flex:1;padding:10px;cursor:pointer;font-family:inherit;font-size:12.5px;
       letter-spacing:.1em;text-transform:uppercase;color:#d8cdb4;
       background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.14);border-radius:3px}
-    #board .bBtn:hover{background:rgba(255,255,255,.1)}
+    #board .bBtn:hover,#armoury .bBtn:hover{background:rgba(255,255,255,.1)}
     #board .bBtn.go{color:#1b1409;background:#d8b063;border-color:#e8c877;font-weight:700}
+  
+    /* The armoury. Same slate as the muster board, because they are both things
+       in the room rather than menus the room went away for. */
+    #armoury{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+      z-index:60;width:min(480px,94vw);max-height:86vh;overflow:auto;
+      padding:22px 26px 20px;
+      background:linear-gradient(180deg,rgba(26,21,16,.97),rgba(16,13,10,.98));
+      border:1px solid rgba(200,168,96,.42);border-radius:5px;
+      box-shadow:0 18px 60px rgba(0,0,0,.7);}
+    #armoury.hidden{display:none}
+    #armoury .aSlots{display:grid;gap:6px;margin:14px 0 4px}
+    #armoury .aHead{font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+      color:#8b8172;margin:16px 0 7px}
+    #armoury .aBag{display:grid;gap:5px;max-height:34vh;overflow:auto}
+    #armoury .it{display:flex;justify-content:space-between;align-items:center;gap:10px;
+      padding:8px 12px;border:1px solid rgba(255,255,255,.09);border-radius:3px;
+      background:rgba(255,255,255,.02);cursor:pointer}
+    #armoury .it:hover{background:rgba(255,255,255,.07);border-color:rgba(200,168,96,.4)}
+    #armoury .it.worn{border-color:rgba(200,168,96,.55);background:rgba(200,168,96,.09)}
+    #armoury .it.empty{cursor:default;opacity:.5}
+    #armoury .it .n{font-size:13px;color:#e4dcc9}
+    #armoury .it .d{font-size:11.5px;color:#8fbf7a;white-space:nowrap}
+    #armoury .it .s{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:#7f7768}
+    #armoury .aNone{font-size:12px;color:#7d7466;padding:8px 2px}
   </style>
 </head>
 <body>
@@ -842,7 +866,15 @@
   <div class="wpHint" id="wpHint"></div>
 </div>
 
-<div id="board" class="hidden">
+<div id="armoury" class="hidden">
+      <div class="bTitle">The Armoury</div>
+      <div class="bSub">What you carry, and what you have brought home</div>
+      <div class="aSlots" id="aSlots"></div>
+      <div class="aHead">In the chest</div>
+      <div class="aBag" id="aBag"></div>
+      <div class="bBtns"><button id="aClose" class="bBtn">Back</button></div>
+    </div>
+    <div id="board" class="hidden">
       <div class="bTitle">The Muster</div>
       <div class="bSub">Who is riding out, and where</div>
       <div class="bRow"><span class="bK">Road</span><span id="bRoad" class="bV"></span></div>
