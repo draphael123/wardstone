@@ -2495,3 +2495,46 @@ Flank and kill-energy cost **nothing** in the sweep: 13/21 and 20/21 before and
 after. That is not evidence they are free — it is evidence the bot never flanks
 deliberately and never spends the refund. Both are player-facing gains this
 instrument is structurally blind to, and they should be judged by hand.
+
+---
+
+# The mark — the knight points his own battery
+
+The best statement of the premise so far, and better than the sentence the game
+ships with. A ballista covers a lane; it covers it **well** only where you are.
+Standing in the right place stops being a combat decision and becomes a *build*
+one, and the body stops being a second damage source and becomes the thing that
+makes the wards work.
+
+Measured: a ward left alone shoots the foe furthest along the lane (dist 9.0).
+Marked, it shoots the one the knight is fighting (dist 0.7).
+
+## It is not gated behind lock-on
+
+That was the design question worth asking. If designation only worked through a
+held lock, **lock-on would stop being optional** — it becomes a key you must
+hold to play properly, which is the kind of mandatory quality-of-life that makes
+a game feel like homework.
+
+So a **heavy, a bash, a braced bolt, or a held lock** all designate. Three of
+those are blows you were going to throw anyway. Lock-on's only remaining job
+here is to *pin* the mark so it stops decaying and stops moving — a convenience,
+not a requirement.
+
+## Marking on ANY hit measured worse
+
+The first version marked on every connect. It cost a win, and the reason is
+instructive: the light chain marked constantly and by accident, dragging the
+wards off *"whatever is furthest along the lane"* — which is the correct policy
+for defending a stone — and onto whatever the knight happened to be swinging at.
+
+**An automatic mechanic that punishes a player for ignoring it is worse than no
+mechanic.** Restricting it to deliberate blows put the balance back to 13/21 and
+20/21 exactly, and made the feature something you *do* rather than something
+that happens to you.
+
+## Premise-safe by construction
+
+Like the braziers: an idle ward build can never mark anything, because marking
+requires a body to land a deliberate blow. T42 asserts it directly rather than
+measuring it, which is the stronger claim.

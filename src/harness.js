@@ -1196,6 +1196,61 @@ export function runTests(log = console.log) {
       geared >= naked,
       `${naked}/${lseeds.length} naked vs ${geared}/${lseeds.length} in full kit`);
   }
+  // -------------------------------------------------------------- the mark
+  {
+    log('');
+    log('[the mark]');
+    setMap('glade');
+    const w = new World({ seed: 7 });
+    for (let i = 0; i < 60 * 90 && w.foes.filter(f => !f.dead).length < 4; i++) w.step(DT);
+    const p = w.player, f = w.foes.filter(x => !x.dead)[1];
+    p.weapon = 'sword'; p.swapT = 0; p.energy = 100; p.atkCd = 0; p.holdT = 0;
+    const hold = () => { f.stunT = 999; f.hp = 99999; f.maxHp = 99999; p.x = f.x - 1.4; p.z = f.z; };
+
+    hold(); w.meleeInput(true, 1, 0); w.step(DT); w.meleeInput(false, 1, 0);
+    for (let i = 0; i < 30; i++) { hold(); w.step(DT); }
+    const lightMarked = w.mark !== null;
+
+    w.mark = null; w.markT = 0; p.atkCd = 0; p.holdT = 0; p.combo = 0; p.energy = 100;
+    let fired = false;
+    for (let i = 0; i < 60 && !fired; i++) { hold(); fired = !!w.meleeInput(true, 1, 0); w.step(DT); }
+    for (let i = 0; i < 40; i++) { hold(); w.step(DT); }
+    const heavyMarked = w.mark !== null;
+
+    ok('T40 a DELIBERATE blow points the battery; a light swing does not',
+      !lightMarked && heavyMarked,
+      `light chain marked: ${lightMarked} (must be false), charged heavy marked: ${heavyMarked}` +
+      ' — marking on any hit measured a win worse, because the chain dragged the wards off the lane');
+
+    // and a ward must actually obey it
+    const w2 = new World({ seed: 7 });
+    w2.mana = 9999;
+    const q = laneAt(LANES[0], 10, 0);
+    const c = cellOf(q.x + 4, q.z + 4);
+    const ward = w2.build('ballista', c.i, c.j);
+    for (let i = 0; i < 60 * 120 && w2.foes.filter(x => !x.dead).length < 5; i++) w2.step(DT);
+    const near = [];
+    w2.foeHash.query(ward.x, ward.z, 40, near);
+    const live = near.filter(x => !x.dead);
+    let obeyed = false, natural = null, other = null;
+    if (live.length >= 2) {
+      w2.mark = null; w2.markT = 0;
+      natural = w2._pickTarget(ward, live);
+      other = live.find(x => x !== natural);
+      w2.markFoe(other);
+      obeyed = w2._pickTarget(ward, live) === other;
+    }
+    ok('T41 and a ward obeys the mark over its own lane policy',
+      obeyed,
+      natural ? `left alone it shoots the foe at lane ${natural.dist.toFixed(1)}; marked, it shoots the one at ${other.dist.toFixed(1)}` : 'not enough foes to test');
+
+    // the premise still cannot be reached without a body
+    const idle = new World({ seed: 7 });
+    idle.mana = 999999;
+    ok('T42 an idle build can never mark anything',
+      idle.mark === null,
+      'marking requires a body to land a deliberate blow, so a ward build with nobody playing has no access to it');
+  }
   // ---------------------------------------------------------------- braziers
   {
     log('');

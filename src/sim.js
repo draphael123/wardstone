@@ -10,7 +10,7 @@
 
 import {
   PLAYER, WARDSTONE, ECON, WARDS, WARD_BY_ID, FOE_BY_ID, WAVES, AGGRO, UPGRADE, ABILITY, HEARTH, CACHE, DIFFICULTY, STAGGER, ENERGY,
-  FLANK, KILL_ENERGY,
+  FLANK, KILL_ENERGY, MARK,
   BRAZIER, BRAND,
 } from './defs.js';
 import {
@@ -209,6 +209,8 @@ export class World {
     // what the run has turned up, and what is worn
     this.drops = [];
     this.locked = null;
+    this.mark = null;      // the foe the battery is being pointed at
+    this.markT = 0;
     this.kit = {};
     this.mods = emptyMods();
     this.brandT = 0;        // seconds of fire left in the player's hand
@@ -869,6 +871,7 @@ export class World {
     // permanently. 4 is above any per-frame tick and below any real hit.
     if (dealt > 4) f.hitT = 0.1;
     if (flanked && dealt > 0) f.flankT = 0.22;   // the renderer marks it
+
     if (source === 'player' && dealt > 0) {
       f.aggroT = AGGRO.chaseTime;   // it noticed, and it is coming
       // STAGGER. The blow has to interrupt what it was doing, or hitting things
@@ -1284,7 +1287,7 @@ export class World {
       if (d > 0.001 && (dx * ux + dz * uz) / d < cosHalf) continue;
       // A heavy is the only thing that goes through poise, which is what gives
       // the Bruiser and the Breaker an answer other than running away.
-      if (move.breaksPoise) f.stagCd = 0;
+      if (move.breaksPoise) { f.stagCd = 0; this.markFoe(f); }
       const wasPoised = f.def.poise;
       if (move.breaksPoise && wasPoised) {
         f.stagT = STAGGER.time * 1.4;
@@ -1431,6 +1434,7 @@ export class World {
       // The bash goes through a shield too: it is a shield being driven into
       // one, which is the one moment that ability stops being a panic button.
       this.hurtFoe(f, ABILITY.damage * this.mods.bash, 'player');
+      this.markFoe(f);
       hit++;
     }
     this.emit({ type: 'rally', x: p.x, z: p.z, hit, dx: ux, dz: uz });
@@ -1691,12 +1695,42 @@ export class World {
       if (score > bestScore) { bestScore = score; best = f; }
     }
     this.locked = best;
-    if (best) this.emit({ type: 'lock', x: best.x, z: best.z, foe: best.kind });
+    if (best) { this.emit({ type: 'lock', x: best.x, z: best.z, foe: best.kind }); this.markFoe(best); }
     return best;
   }
 
   // Dropped the moment it stops being a valid thing to hold: dead, or so far
   // away that holding it would drag your aim off everything nearer.
+  // A DELIBERATE blow points the battery. Not every hit.
+  //
+  // Marking on any connect was the first version and it measured worse: the
+  // light chain marked constantly and by accident, dragging the wards off
+  // "whatever is furthest along the lane" — which is the right policy for
+  // defending a stone — and onto whatever the knight happened to be flailing
+  // at. An automatic mechanic that punishes a player for ignoring it is worse
+  // than no mechanic.
+  //
+  // A heavy, a bash, a braced bolt or a held lock. All four are things you
+  // chose, and none of them is a key you must hold to play.
+  markFoe(f) {
+    if (!f || f.dead || f.def.inert) return;
+    if (this.mark !== f) this.emit({ type: 'mark', x: f.x, z: f.z, foe: f.kind });
+    this.mark = f;
+    this.markT = MARK.life;
+  }
+
+  _stepMark(dt) {
+    // A held lock PINS the mark: it does not decay and it does not move. That
+    // is the only thing lock-on adds here, which keeps it optional.
+    if (this.locked && !this.locked.dead) {
+      this.mark = this.locked;
+      this.markT = MARK.life;
+      return;
+    }
+    if (this.markT > 0) this.markT -= dt;
+    if (this.mark && (this.mark.dead || this.markT <= 0)) { this.mark = null; this.markT = 0; }
+  }
+
   _stepLock() {
     const f = this.locked;
     if (!f) return;
@@ -1786,6 +1820,7 @@ export class World {
     this._stepProjectiles(dt);
     this._separate(dt);
     this._stepLock();
+    this._stepMark(dt);
     this._stepFire(dt);
     this._stepMotes(dt);
 
@@ -2438,9 +2473,16 @@ export class World {
       if (w.def.targets === 'ground' && f.def.flying) continue;
       const d = Math.hypot(f.x - w.x, f.z - w.z);
       if (d > w.def.range) continue;
-      const score = f.def.flying
+      let score = f.def.flying
         ? 400 - Math.hypot(f.x, f.z)
         : f.dist;
+      // THE MARK. Decisive rather than subtle: a ward that merely leans toward
+      // the knight's target is a ward whose behaviour the player cannot read.
+      // Range-limited so the order is local — you point the guns around you,
+      // not every gun on the map.
+      if (f === this.mark && Math.hypot(f.x - w.x, f.z - w.z) <= MARK.radius) {
+        score += MARK.bonus;
+      }
       if (score > bestScore) { bestScore = score; best = f; }
     }
     return best;
@@ -2669,6 +2711,7 @@ export class World {
         // a braced bolt SHOVES. It is the only ranged thing in the game that
         // moves a body, which is most of why it reads as heavier than a tap.
         if (b.knock) { f.x += b.dx * b.knock; f.z += b.dz * b.knock; }
+        if (b.braced) this.markFoe(f);
         this.emit({ type: 'impact', x: b.x, y: b.y, z: b.z, source: b.source });
         if (b.pierce && b.pierce > 1) {
           b.pierce--;

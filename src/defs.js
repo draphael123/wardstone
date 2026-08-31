@@ -231,6 +231,27 @@ export const FLANK = {
 // feel like it is building toward something rather than just filling time.
 export const KILL_ENERGY = 7;
 
+// THE MARK — the knight designating targets for his own battery.
+//
+// This is the premise stated better than the old sentence managed. A ballista
+// covers a lane; it covers it WELL only where you are. Standing in the right
+// place stops being a combat decision and becomes a BUILD one, and the body
+// stops being a second damage source and becomes the thing that makes the
+// wards work.
+//
+// It is NOT gated behind lock-on. Anything you hit is marked, so a player who
+// never learns the lock key gets the whole mechanic for free by fighting;
+// holding a lock only PINS the mark so it stops decaying and stops moving.
+// A mechanic you must hold a key to use is a key you must hold to play.
+//
+// Premise-safe by construction, in the way the braziers are: an idle ward build
+// can never mark anything, because marking requires a body to hit something.
+export const MARK = {
+  life: 4.0,        // seconds a mark survives after the blow that made it
+  radius: 18,       // how far from the marked foe a ward will take the order
+  bonus: 900,       // added to the ward's targeting score — decisive, not subtle
+};
+
 export const STAGGER = {
   time: 0.32,       // s of interrupted, staggered-back reaction
   cooldown: 1.15,   // s before the same foe can be staggered again
