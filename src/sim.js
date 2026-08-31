@@ -919,41 +919,54 @@ export class World {
 
   canRally() {
     const p = this.player;
-    return p.alive && p.abilityCd <= 0;
+    if (!p.alive || p.abilityCd > 0) return false;
+    // a shield needs a hand, and both are on the crossbow
+    if (ABILITY.needsSword && p.weapon !== 'sword') return false;
+    return true;
   }
 
   // The horn: shoves everything nearby off its feet and puts a burst of speed
   // through the wards behind you. One button, long cooldown, for the moment
   // two things need you at once.
-  rally() {
+  // Shield bash. Frontal, short, and on a rhythm rather than a timer you hoard.
+  rally(dirx, dirz) {
     const p = this.player;
     if (!this.canRally()) return false;
     p.abilityCd = ABILITY.cooldown;
-    p.rallyT = 0.6;
+    p.rallyT = 0.45;
+    // aimed where you face unless told otherwise
+    const len = Math.hypot(dirx || 0, dirz || 0);
+    const ux = len > 0.01 ? dirx / len : Math.sin(p.yaw);
+    const uz = len > 0.01 ? dirz / len : Math.cos(p.yaw);
+    p.yaw = Math.atan2(ux, uz);
+    const cosHalf = Math.cos(ABILITY.arc / 2);
     let hit = 0;
     for (const f of this.foes) {
-      if (f.dead) continue;
+      if (f.dead || f.def.flying) continue;
       const dx = f.x - p.x, dz = f.z - p.z;
       const d = Math.hypot(dx, dz);
-      if (d > ABILITY.radius) continue;
-      f.stunT = ABILITY.stun;
-      f.windT = 0;                       // its swing is interrupted
-      const k = ABILITY.knock * (1 - d / ABILITY.radius);
+      if (d > ABILITY.range + f.def.radius) continue;
+      if (d > 0.001 && (dx * ux + dz * uz) / d < cosHalf) continue;
+      // Interrupts and shoves, but does NOT break poise — that is the charged
+      // heavy's job, and two abilities doing it would make the heavy pointless.
+      if (!f.def.poise) {
+        f.stunT = ABILITY.stun;
+        f.windT = 0;
+        f.strikeT = 0;
+      }
+      const k = ABILITY.knock * (d > 0.01 ? 1 : 0);
       if (d > 0.01) {
         f.x += (dx / d) * k;
         f.z += (dz / d) * k;
         if (!f.def.flying) f.dist = Math.max(0, f.dist - k);
       }
+      this.hurtFoe(f, ABILITY.damage, 'player');
       hit++;
     }
-    for (const w of this.wards) {
-      if (w.dead || w.buildT > 0) continue;
-      if (Math.hypot(w.x - p.x, w.z - p.z) > ABILITY.wardRadius) continue;
-      w.buffT = ABILITY.buffTime;
-    }
-    this.emit({ type: 'rally', x: p.x, z: p.z, hit });
+    this.emit({ type: 'rally', x: p.x, z: p.z, hit, dx: ux, dz: uz });
     return true;
   }
+
 
   dodge(dirx, dirz) {
     const p = this.player;
@@ -1699,13 +1712,12 @@ export class World {
           const stack = fo[Math.min(f._auraN || 0, fo.length - 1)];
           f._auraN = (f._auraN || 0) + 1;
           this.hurtFoe(f, def.dps * power * airK * stack *
-            (w.buffT > 0 ? ABILITY.wardBuff : 1) * dt, 'ward');
+            dt, 'ward');
         }
         continue;
       }
 
-      if (w.buffT > 0) w.buffT -= dt;
-      const rate = w.buffT > 0 ? ABILITY.wardBuff : 1;
+      const rate = 1;
       if (w.cd > 0) w.cd -= dt * rate;
 
       if (def.kind === 'trap') {

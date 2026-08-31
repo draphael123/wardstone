@@ -212,16 +212,28 @@ export const UPGRADE = {
 // the pressure this game creates is "the wall is about to go and two things
 // need me at once", and an ability that does not answer that moment is just
 // another damage button.
+// The knight's ability: a SHIELD BASH.
+//
+// It replaces Rally, which was a panic button — a wide stun on a 24s timer that
+// you saved for a bad moment and otherwise forgot about. A knight's ability
+// should be something you use IN a fight, not instead of one, so this is short,
+// frontal, cheap and frequent: shove what is in front of you, interrupt its
+// swing, make room.
+//
+// It does not break poise. That belongs to the charged heavy, and giving two
+// things the same job would make the heavy pointless.
 export const ABILITY = {
-  id: 'rally', name: 'Rally',
-  cooldown: 24,
-  radius: 10,        // foes staggered
-  stun: 1.4,
-  knock: 2.2,        // metres shoved back
-  wardRadius: 13,
-  wardBuff: 1.7,     // rate multiplier on nearby wards
-  buffTime: 7,
+  id: 'bash', name: 'Shield Bash',
+  cooldown: 6.5,     // short enough to be part of your rhythm
+  range: 3.2,
+  arc: 1.7,          // radians, frontal — this is not the old radial stun
+  damage: 18,
+  stun: 0.55,
+  knock: 2.6,        // metres of shove, which is most of the point
+  needsSword: true,  // you cannot bash with a crossbow in both hands
 };
+
+
 
 // Breakable caches, scattered each muster. Dungeon Defenders' first map does
 // this with mana chests and it does three jobs at once: it gives the build

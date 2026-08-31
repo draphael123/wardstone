@@ -79,6 +79,7 @@ function defaultBinds() {
 }
 
 // action id -> key, and the reverse lookup rebuilt whenever it changes
+
 function rebuildKeymap() {
   state.keyToAction = {};
   for (const [id, key] of Object.entries(state.binds)) {
@@ -120,7 +121,7 @@ const state = {
   firing: false, mending: false, wantDodge: false, blocking: false,
   pointer: { x: 0, y: 0, has: false },
   ghostCell: null, ghostRot: null, overhead: false, showAbil: false, wantJump: false,
-  binds: null, keyToAction: {},
+  binds: defaultBinds(), keyToAction: {},
   inspect: null, runFrom: null,
   acc: 0, last: 0, lastFrame: 0, hitstop: 0,
   vel: { x: 0, z: 0 },
@@ -306,7 +307,7 @@ function syncHud() {
     ab.classList.toggle('ready', ready);
     ab.style.setProperty('--k', ready ? 1 : (1 - p.abilityCd / ABILITY.cooldown));
     ab.textContent = ready
-      ? `Rally ${keyLabel(state.binds.rally)}`
+      ? `Bash ${keyLabel(state.binds.rally)}`
       : Math.ceil(p.abilityCd) + 's';
   }
   const rl = $('roll');
@@ -781,7 +782,10 @@ function bindInput() {
     if (act === 'build') { e.preventDefault(); toggleOverhead(); }
     if (act === 'roll') { e.preventDefault(); state.wantDodge = true; }
     if (act === 'jump') { e.preventDefault(); state.wantJump = true; }
-    if (act === 'rally') state.world.rally();
+    if (act === 'rally') {
+      const yy = state.rend.camYaw;
+      state.world.rally(-Math.sin(yy), -Math.cos(yy));
+    }
     if (act === 'sell' && state.selected === null) sellUnderPointer();
     if (act === 'upgrade' && state.selected === null) {
       if (state.inspect) { upgradeInspected(); return; }
@@ -928,17 +932,23 @@ function bindInput() {
   tap($('bRoll'), () => state.wantDodge = true);
   tap($('bSwap'), () => state.world.swapWeapon());
   tap($('bView'), () => toggleOverhead());
-  tap($('bRally'), () => state.world.rally());
+  tap($('bRally'), () => {
+    const yy = state.rend.camYaw;
+    state.world.rally(-Math.sin(yy), -Math.cos(yy));
+  });
   // The chip was a read-only cooldown display. It is the knight's ONE ability
   // and the only way to use it was a key nothing mentioned, so it is now a
   // button, and hovering it draws what it will reach.
   const abil = $('abil');
   abil.style.pointerEvents = 'auto';
   abil.style.cursor = 'pointer';
-  abil.title = `Rally (V) — stagger and shove back every foe within ${ABILITY.radius}m, ` +
-    `and make nearby wards fire ${ABILITY.wardBuff}x faster for ${ABILITY.buffTime}s.`;
+  abil.title = `${ABILITY.name} (${keyLabel(state.binds.rally)}) — shove and interrupt ` +
+    `whatever is in front of you, out to ${ABILITY.range}m. Sword only.`;
   abil.addEventListener('click', () => {
-    if (!state.world.rally() && state.snd) state.snd.play('hover', 0.6, 0.7);
+    const yy = state.rend.camYaw;
+    if (!state.world.rally(-Math.sin(yy), -Math.cos(yy)) && state.snd) {
+      state.snd.play('hover', 0.6, 0.7);
+    }
   });
   abil.addEventListener('pointerenter', () => { state.showAbil = true; });
   abil.addEventListener('pointerleave', () => { state.showAbil = false; });
@@ -1243,7 +1253,7 @@ function applyInput(dt) {
   if (aimAt) r.showAimMark(aimAt); else r.hideAimMark();
 
   // Rally's reach, while the player is thinking about it
-  if (state.showAbil) r.showAbilityRing(p.x, p.z, ABILITY.radius, w.canRally());
+  if (state.showAbil) r.showAbilityRing(p.x, p.z, ABILITY.range, w.canRally());
   else r.hideAbilityRing();
 
   // A wall run in progress replaces the single-cell ghost with the whole line.
@@ -1365,7 +1375,6 @@ function boot() {
   initDamageNumbers();
   initDoors();
   bindInput();
-  state.binds = defaultBinds();
   bindSettings();
   loadSettings();
   if (!state.binds) state.binds = defaultBinds();
@@ -1748,7 +1757,10 @@ function openSettings() {
 }
 function closeSettings() {
   $('settings').classList.add('hidden');
-  setPaused(false);
+  // If the game is running, closing settings returns you to the pause screen
+  // rather than dumping you straight back into a fight you were not watching.
+  if (state.running && state.paused) $('paused').classList.remove('hidden');
+  else setPaused(false);
 }
 
 function bindSettings() {
@@ -1833,6 +1845,17 @@ function bindSettings() {
     state.rend.shock(w.x, 0.2, w.z, 0xe0b25c, 0.6, 2.6, 0.36);
     toast(`Sold &mdash; <b>${back}</b> mana back`);
     inspectWard(null);
+  });
+
+  $('pResume').addEventListener('click', () => setPaused(false));
+  $('pSettings').addEventListener('click', () => {
+    // settings already pauses; opening it from here just swaps the overlay
+    $('paused').classList.add('hidden');
+    openSettings();
+  });
+  $('pQuit').addEventListener('click', () => {
+    writeSave();                       // keep the run so Resume can find it
+    location.reload();
   });
 
   $('openHow').addEventListener('click', () => {
