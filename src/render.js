@@ -17,7 +17,7 @@ import {
 } from './defs.js';
 import {
   LANES, ARENA, CELL, cellOf, cellCenter, laneAt, nearestLane, isBuildableCell,
-  currentMap, groundY,
+  currentMap, groundY, solidProps,
 } from './arena.js';
 import { makeRng } from './rand.js';
 import { AGGRO, STAGGER } from './defs.js';
@@ -654,6 +654,7 @@ export class Renderer {
     if (this.theme === 'forest') {
       this._buildForest();
       this._buildScenery();
+      this._buildSolids();
       this._buildHearth();
     }
     else { this._buildArena(); this._buildStone(); }
@@ -3119,6 +3120,56 @@ export class Renderer {
   }
 
   hideAbilityRing() { if (this.abilRing) this.abilRing.visible = false; }
+
+  // The SOLID scenery, drawn from the same list the sim collides with.
+  //
+  // This is the whole point: decoration that you walk through is a painted
+  // backdrop, and collision you cannot see is worse than none. Every boulder
+  // and trunk here has a matching collider in arena.js, and the visual radius
+  // is the collider radius — so what looks solid is solid, exactly.
+  _buildSolids() {
+    const rng = makeRng(5150);
+    const rock = [], bark = [], leaf = [];
+    for (const p of solidProps()) {
+      const gy = groundY(p.x, p.z);
+      if (p.r > 1.0) {
+        // a tree: trunk plus canopy, sized to its own collider
+        const th = 4.5 + rng() * 3.5;
+        bark.push({ g: box(p.r * 1.3, th, p.r * 1.3), x: p.x, y: gy + th / 2, z: p.z, c: 0x3d3227 });
+        let cy = gy + th * 0.85, cr = p.r * 3.2;
+        for (let k = 0; k < 4; k++) {
+          leaf.push({ g: box(cr, 1.5, cr), x: p.x, y: cy, z: p.z, ry: rng() * 0.8, c: k % 2 ? 0x37552f : 0x2f4a29 });
+          cy += 1.15; cr *= 0.72;
+        }
+      } else {
+        // a boulder: stacked slabs so the silhouette is not a single cube
+        const n = 2 + ((rng() * 2) | 0);
+        let by = gy, bw = p.r * 2.0;
+        for (let k = 0; k < n; k++) {
+          const bh = p.r * (0.7 + rng() * 0.5);
+          rock.push({
+            g: box(bw, bh, bw * (0.85 + rng() * 0.3)),
+            x: p.x + (rng() - 0.5) * p.r * 0.3, y: by + bh / 2,
+            z: p.z + (rng() - 0.5) * p.r * 0.3,
+            ry: rng() * 3, c: rng() < 0.45 ? 0x6e6a5c : 0x5a5750,
+          });
+          by += bh * 0.82; bw *= 0.76;
+        }
+      }
+    }
+    const add = (parts, rough) => {
+      if (!parts.length) return;
+      const m = new THREE.Mesh(assemble(parts), new THREE.MeshStandardMaterial({
+        color: 0xffffff, vertexColors: true, flatShading: true, roughness: rough,
+      }));
+      m.castShadow = !this.low;
+      m.receiveShadow = !this.low;
+      this.scene.add(m);
+    };
+    add(rock, 0.95);
+    add(bark, 1);
+    add(leaf, 1);
+  }
 
   // Contact shadows.
   //

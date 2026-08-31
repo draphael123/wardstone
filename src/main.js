@@ -12,6 +12,7 @@ import { Minimap } from './minimap.js';
 import { Tutorial, STEPS } from './tutorial.js';
 import {
   WARDS, WARD_BY_ID, ECON, WAVES, PLAYER, ABILITY, waveByLane, DIFFICULTY, UPGRADE,
+  ENERGY,
 } from './defs.js';
 import {
   cellOf, cellCenter, isBuildableCell, ARENA, LANES, laneDoor, MAPS, currentMap,
@@ -265,6 +266,26 @@ function syncHud() {
     }
   }
   ghost.style.transform = `scaleX(${state._ghost})`;
+
+  // Energy, and the charge overlaid on it.
+  const ef = Math.max(0, Math.min(1, w.player.energy / ENERGY.max));
+  const en = $('enFill');
+  en.style.transform = `scaleX(${ef})`;
+  en.classList.toggle('low', w.player.energy < ENERGY.heavy);
+  // While a heavy is charging, a pale bar fills across exactly the slice of
+  // energy the swing will cost — so the meter shows both "how charged" and
+  // "what it will take" in one shape.
+  const hold = w.player.holdT;
+  const charging = hold > 0 && hold < 900 && !w.player.atkPhase &&
+    w.weaponDef(w.player).kind === 'melee';
+  const cg = $('enCharge');
+  if (charging) {
+    const k = Math.min(1, hold / PLAYER.weapons.sword.heavy.charge);
+    const slice = (ENERGY.heavy / ENERGY.max) * k;
+    cg.style.transform = `scaleX(${Math.min(ef, slice)})`;
+  } else {
+    cg.style.transform = 'scaleX(0)';
+  }
 
   const mf = Math.max(0, Math.min(1, w.mana / ECON.manaCap));
   $('mpFill').style.transform = `scaleX(${mf})`;

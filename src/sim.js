@@ -9,11 +9,11 @@
 // repair, ready) is a command the caller issues between steps.
 
 import {
-  PLAYER, WARDSTONE, ECON, WARDS, WARD_BY_ID, FOE_BY_ID, WAVES, AGGRO, UPGRADE, ABILITY, HEARTH, CACHE, DIFFICULTY, STAGGER,
+  PLAYER, WARDSTONE, ECON, WARDS, WARD_BY_ID, FOE_BY_ID, WAVES, AGGRO, UPGRADE, ABILITY, HEARTH, CACHE, DIFFICULTY, STAGGER, ENERGY,
 } from './defs.js';
 import {
   LANES, LANE_BY_ID, laneAt, cellOf, cellCenter, cellKey,
-  isBuildableCell, clampToArena, nearestLane, distToLane, ARENA, currentMap,
+  isBuildableCell, clampToArena, nearestLane, distToLane, ARENA, currentMap, solidProps,
 } from './arena.js';
 import { makeRng } from './rand.js';
 
@@ -145,6 +145,7 @@ export class World {
       dodgeT: 0, dodgeCd: 0, dodgeX: 0, dodgeZ: 0, invuln: 0,
       blocking: false, abilityCd: 0, rallyT: 0, warming: false,
       vy: 0, airT: 0, jumpCd: 0,
+      energy: ENERGY.max, energyHold: 0,
       atkPhase: null, atkT: 0, atkMove: null, atkKind: null,
       combo: 0, comboT: 0, holdT: 0,
     };
@@ -715,6 +716,22 @@ export class World {
     const link = wd.chain[Math.min(p.combo, wd.chain.length - 1)];
     return this._beginMelee(link, dirx, dirz, 'light');
   }
+  // Energy. Spending stalls the regen briefly, so it reads as a rhythm you
+  // manage rather than a tap you hold open.
+  spendEnergy(n) {
+    const p = this.player;
+    if (p.energy < n) return false;
+    p.energy -= n;
+    p.energyHold = ENERGY.delay;
+    return true;
+  }
+
+  _stepEnergy(dt) {
+    const p = this.player;
+    if (p.energyHold > 0) { p.energyHold -= dt; return; }
+    p.energy = Math.min(ENERGY.max, p.energy + ENERGY.regen * dt);
+  }
+
   // ------------------------------------------------------------------ melee
   // The sword is a small state machine rather than a cooldown, because the
   // complaint was about TIMING, and a cooldown has none: it gates when you may
@@ -777,6 +794,13 @@ export class World {
       // go is a worse feel than the blow simply happening.
       if (p.holdT >= wd.heavy.charge && this._meleeReady()) {
         p.holdT = -999;                    // consumed; will not re-trigger
+        // Not enough energy? The charge falls through to a light swing rather
+        // than doing nothing, because a held button that produces silence is
+        // indistinguishable from a broken one.
+        if (!this.spendEnergy(ENERGY.heavy)) {
+          const link = wd.chain[Math.min(p.combo, wd.chain.length - 1)];
+          return this._beginMelee(link, dirx, dirz, 'light');
+        }
         return this._beginMelee(wd.heavy, dirx, dirz, 'heavy');
       }
       return null;
@@ -911,7 +935,7 @@ export class World {
   setBlocking(on) {
     const p = this.player;
     const want = !!on && p.alive && p.weapon === 'sword' && p.dodgeT <= 0 &&
-      !p.atkPhase && this.mana > 0;
+      !p.atkPhase && p.energy > 0;
     if (want !== p.blocking) this.emit({ type: 'block', on: want });
     p.blocking = want;
     return want;
@@ -920,6 +944,7 @@ export class World {
   canRally() {
     const p = this.player;
     if (!p.alive || p.abilityCd > 0) return false;
+    if (p.energy < ENERGY.bash) return false;
     // a shield needs a hand, and both are on the crossbow
     if (ABILITY.needsSword && p.weapon !== 'sword') return false;
     return true;
@@ -932,6 +957,7 @@ export class World {
   rally(dirx, dirz) {
     const p = this.player;
     if (!this.canRally()) return false;
+    this.spendEnergy(ENERGY.bash);
     p.abilityCd = ABILITY.cooldown;
     p.rallyT = 0.45;
     // aimed where you face unless told otherwise
@@ -1067,6 +1093,17 @@ export class World {
     const c = clampToArena(nx, nz, PLAYER.radius);
     nx = c.x; nz = c.z;
 
+    // Solid scenery is solid for the player too. Same push-out as a ward, so a
+    // boulder behaves exactly like something you built.
+    for (const q of solidProps()) {
+      const dx = nx - q.x, dz = nz - q.z;
+      const d = Math.hypot(dx, dz);
+      const want = q.r + PLAYER.radius;
+      if (d >= want || d < 1e-4) continue;
+      nx = q.x + (dx / d) * want;
+      nz = q.z + (dz / d) * want;
+    }
+
     // Wards are solid. Push out of any we ended up inside — a simple circle
     // resolve is enough because everything is a disc on a 2m grid.
     for (const w of this.wards) {
@@ -1105,11 +1142,12 @@ export class World {
     // Blocking is paid for out of the build purse. Run it dry and the shield
     // drops on its own, which is a much clearer lesson than a greyed-out button.
     if (p.blocking) {
-      this.mana = Math.max(0, this.mana - PLAYER.block.manaPerSec * dt);
-      this.stats.manaSpent += PLAYER.block.manaPerSec * dt;
-      if (this.mana <= 0) this.setBlocking(false);
+      p.energy = Math.max(0, p.energy - PLAYER.block.energyPerSec * dt);
+      p.energyHold = ENERGY.delay;
+      if (p.energy <= 0) this.setBlocking(false);
     }
     this._stepJump(dt);
+    this._stepEnergy(dt);
     this._stepMelee(dt);
     if (p.dodgeT > 0) {
       p.dodgeT -= dt;

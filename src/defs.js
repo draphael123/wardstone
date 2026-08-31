@@ -91,13 +91,13 @@ export const PLAYER = {
   },
   // Blocking. Only with the sword — you cannot hold a shield up behind a
   // crossbow — which gives the swap a second reason to exist beyond reach.
-  // Blocking costs MANA — the same currency you build with. There is no stamina
+  // Blocking costs ENERGY — the same currency you build with. There is no stamina
   // bar in this game by choice, and inventing a guard meter would be stamina
   // wearing a hat. Draining the build purse instead means turtling has a real
   // price that is legible without a new UI element: hold the shield up all
   // fight and you cannot afford the wall that would have done the job for you.
   block: {
-    manaPerSec: 22,    // drained while braced; blocking stops when it runs dry
+    energyPerSec: 16,  // drained while braced; the guard drops when it runs dry
     reduce: 0.22,      // damage taken multiplier while braced
     slow: 0.42,        // movement multiplier
   },
@@ -189,6 +189,24 @@ export const STAGGER = {
   // 0.2m still reads as a jolt without turning every fight into a chase.
   knock: 0.2,       // m shoved away from the blow
   minDamage: 12,    // a graze does not stagger anything
+};
+
+// ENERGY — the knight's second resource, separate from mana.
+//
+// Mana is what you BUILD with and it is a flow you collect off the field.
+// Energy is what you FIGHT with: it refills on its own, quickly, and it is
+// spent on the committed things — a charged heavy, a shield bash, holding a
+// guard up. Light attacks are free, so you always have something to do.
+//
+// The point of splitting them is that the two halves of the game stop competing
+// for one pool: running your guard down should cost you the next bash, not the
+// wall you were saving for.
+export const ENERGY = {
+  max: 100,
+  regen: 26,         // per second once it starts coming back
+  delay: 0.55,       // s of no regen after spending, so it is a rhythm not a tap
+  heavy: 34,         // a charged swing
+  bash: 30,          // shield bash
 };
 
 export const AGGRO = {

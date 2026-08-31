@@ -1396,3 +1396,56 @@ you cannot afford the wall that would have done the job for you.
 before the first `step()`. An undefined dt turned `holdT` into **NaN**, after
 which the heavy attack could never fire again — for the rest of the run. Caught
 because the directed test reported `holdT NaN` rather than a wrong number.
+
+---
+
+# Energy, and scenery you cannot walk through
+
+## Energy
+
+A second resource, separate from mana, and the split is the point. **Mana is
+what you build with** and is a flow you collect off the field. **Energy is what
+you fight with**: it refills on its own, quickly, and pays for the committed
+things — a charged heavy (34), a shield bash (30), holding a guard up (16/s).
+
+Light attacks are free, so there is always something to do when it is empty.
+
+The two halves of the game stop competing for one pool: running your guard down
+should cost you the next bash, not the wall you were saving for. Blocking moved
+off mana onto energy for exactly that reason — the mana drain was a stopgap from
+when there was deliberately no stamina.
+
+Spending stalls the regen for 0.55 s, so it reads as a rhythm rather than a tap
+you hold open. A heavy attempted without the energy for it **falls through to a
+light swing** rather than doing nothing, because a held button that produces
+silence is indistinguishable from a broken one.
+
+The **charge meter overlays the energy bar** instead of being a fourth bar: it
+fills across exactly the slice of energy the swing will cost, so one shape shows
+both how charged you are and what it will take.
+
+## Shield Bash replaces Rally
+
+Rally was a panic button — a wide stun on a 24 s timer you saved for a bad
+moment and otherwise forgot about. An ability should be used *in* a fight, so
+the bash is short, frontal, cheap and frequent: 6.5 s, 3.2 m, shoves 2.6 m,
+interrupts the swing, sword only.
+
+It deliberately does **not** break poise. That belongs to the charged heavy, and
+two things doing the same job would make the heavy pointless.
+
+## Solid scenery
+
+Trees and boulders were pure decoration living in the renderer, so you walked
+through them and the clearing read as a painted backdrop.
+
+The collider positions are generated in `arena.js` and the renderer **draws that
+same list** — so what looks solid is solid, exactly, rather than collision you
+cannot see or scenery you can walk through. Nothing is placed on a lane, in a
+buildable cell, or within 12 m of the fire: a prop narrowing a lane would change
+the balance, and one on a build square would be a cell you could never use.
+
+The list is built on **first use**, not at module load or in `setMap()` — the
+lanes it needs may not be laid at load time, and `setMap()` is never called at
+all by the browser build. That combination left the colliders empty in the game
+while every headless test saw them populated.

@@ -9,6 +9,8 @@
 // Consequence worth stating: a lane can be sealed completely and that is legal.
 // Nothing here validates reachability, because "the wall is the point".
 
+import { makeRng } from './rand.js';
+
 import { WARDSTONE } from './defs.js';
 
 export const ARENA = {
@@ -92,12 +94,15 @@ export let LANE_BY_ID = Object.fromEntries(LANES.map(l => [l.id, l]));
 
 export function currentMap() { return MAPS[MAP_ID]; }
 
+export function rebuildProps() { PROPS = buildProps(); }
+
 export function setMap(id) {
   const m = MAPS[id];
   if (!m) throw new Error('no such map: ' + id);
   MAP_ID = id;
   LANES = m.lanes.map(buildLane);
   LANE_BY_ID = Object.fromEntries(LANES.map(l => [l.id, l]));
+  PROPS = null;                  // lanes moved; re-laid on next use
   return m;
 }
 
@@ -211,6 +216,56 @@ export function groundY(x, z) {
   const t = n.dist <= a ? 1 : (n.dist >= b ? 0 : 1 - (n.dist - a) / (b - a));
   const e = t * t * (3 - 2 * t);            // smoothstep
   return SWARD_Y + (LANE_Y - SWARD_Y) * e;
+}
+
+// ---------------------------------------------------------------------------
+// Solid scenery.
+//
+// Trees, boulders and cairns were pure decoration living in the renderer, so
+// you walked through them — reported, and it makes the whole clearing feel
+// like a painted backdrop rather than a place.
+//
+// The positions are generated HERE, deterministically, so the sim can collide
+// with exactly what the renderer draws. Nothing is placed on a lane, in a
+// buildable cell, or near the fire: a prop that blocked a lane would change the
+// balance, and one on a build cell would be a square you can never use.
+// ---------------------------------------------------------------------------
+let PROPS = null;
+// Built on FIRST USE rather than at module load or in setMap(). At load the
+// lanes it needs may not be laid yet, and setMap() is never called at all by
+// the browser build — which left the collider list empty and the scenery
+// walk-through-able while every headless test saw it populated.
+export function solidProps() {
+  if (PROPS === null) PROPS = buildProps();
+  return PROPS;
+}
+
+function buildProps() {
+  const rng = makeRng(90210);
+  const out = [];
+  const H = ARENA.half;
+  const tryPut = (x, z, r) => {
+    if (Math.hypot(x, z) < 12) return;               // keep the hearth clear
+    if (nearestLane(x, z).dist < 4.5 + r) return;    // never narrows a lane
+    const c = cellOf(x, z);
+    if (isBuildableCell(c.i, c.j)) return;           // never eats a build square
+    for (const p of out) {
+      if (Math.hypot(p.x - x, p.z - z) < p.r + r + 0.4) return;
+    }
+    out.push({ x, z, r });
+  };
+  // boulders and cairns in the open ground between lanes
+  for (let i = 0; i < 90; i++) {
+    const a = rng() * Math.PI * 2, d = 13 + rng() * (H - 16);
+    tryPut(Math.cos(a) * d, Math.sin(a) * d, 0.7 + rng() * 0.8);
+  }
+  // the treeline itself is solid, which is what stops you leaving the clearing
+  for (let i = 0; i < 150; i++) {
+    const a = (i / 150) * Math.PI * 2 + rng() * 0.04;
+    const d = H - 2 + rng() * 5;
+    tryPut(Math.cos(a) * d, Math.sin(a) * d, 0.85 + rng() * 0.5);
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------

@@ -211,13 +211,25 @@
      sat across the phase timer. */
   #hpWrap{position:absolute;left:max(16px,env(safe-area-inset-left));
     top:calc(max(14px,env(safe-area-inset-top)) + 78px);width:266px;pointer-events:none}
-  #hpTrack,#mpTrack{position:relative;overflow:hidden;
+  #hpTrack,#mpTrack,#enTrack{position:relative;overflow:hidden;
     border:1px solid rgba(0,0,0,.75);
     box-shadow:inset 0 0 0 1px rgba(255,255,255,.09), 0 2px 6px rgba(0,0,0,.5);
     background:linear-gradient(180deg,#1a1712,#0d0b09)}
   #hpTrack{height:17px}
   #mpTrack{height:12px;width:74%;margin-top:5px}
-  #hpTrack i,#mpTrack i{position:absolute;inset:0;transform-origin:left;display:block}
+  #hpTrack i,#mpTrack i,#enTrack i{position:absolute;inset:0;transform-origin:left;display:block}
+  /* ENERGY sits between health and mana because that is its place in the
+     hierarchy: it is what you spend to fight, not what you spend to build. */
+  #enTrack{height:10px;width:60%;margin-top:4px}
+  #enFill{background:linear-gradient(180deg,#4fb98a,#2c6f55);transform:scaleX(1);
+    transition:transform .12s linear;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.2),inset 0 -2px 3px rgba(0,0,0,.4)}
+  #enFill.low{background:linear-gradient(180deg,#c8a24a,#7d6222)}
+  /* The CHARGE meter overlays the energy bar rather than being a fourth bar:
+     charging is a thing you do WITH energy, and it costs exactly what the
+     overlay covers. */
+  #enCharge{background:rgba(255,240,200,.85);transform:scaleX(0);
+    transform-origin:left;mix-blend-mode:screen}
   #hpGhost{background:#d8c9a0;transform:scaleX(1);transition:transform .55s ease .25s}
   #hpFill{background:linear-gradient(180deg,#b4302c,#7d1c1a);transform:scaleX(1);
     transition:transform .1s linear;
@@ -678,6 +690,7 @@
   </div>
   <div id="hpWrap">
     <div id="hpTrack"><i id="hpGhost"></i><i id="hpFill"></i><b id="hpNum"></b></div>
+    <div id="enTrack"><i id="enFill"></i><i id="enCharge"></i></div>
     <div id="mpTrack"><i id="mpFill"></i><b id="mpNum"></b></div>
   </div>
   <div id="hint" class="gone"></div>
