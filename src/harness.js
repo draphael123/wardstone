@@ -23,7 +23,7 @@ import {
 } from './defs.js';
 import {
   LANES, LANE_BY_ID, laneAt, distToLane, cellOf, cellCenter,
-  isBuildableCell, CELL, setMap, MAPS, MAP_ID,
+  isBuildableCell, CELL, setMap, MAPS, MAP_ID, widthAt,
 } from './arena.js';
 
 const DT = 1 / 60;
@@ -53,12 +53,54 @@ function cellsAcross(lane, d, offsets) {
 // rather than hard-coded for a 6m lane — the second map has a 7m lane, and a
 // wall built to the wrong width leaves a gap the fuzzer would never find
 // because it is not a crash, just a lane that quietly does not hold.
+// The narrowest point within reach of where you wanted the wall.
+//
+// The bot used to wall at a fixed fraction of lane length, which was fine when
+// every lane was a constant 6m bore. Now that they pinch, that would measure
+// the chokepoints by ignoring them — a human walls the throat, so the
+// instrument has to as well or the design is never actually under test.
+function pinchNear(lane, d, window) {
+  // Searches the WHOLE lane, not a window around the intended distance.
+  //
+  // A window is what a bot with a fixed shopping list does; a human looks at
+  // the lane and walls its throat wherever that is. With a window the bot
+  // walled The Undercroft at a 7.2m section for six units — because that
+  // lane's throat is deep and fell outside the window — and then had nothing
+  // left for The Sluice, which went unsealed for the entire run.
+  //
+  // Bounded away from both ends: a wall on the doorstep has no ground in front
+  // of it to shoot across, and one on the fire is not a defence.
+  const lo = 4, hi = Math.max(lo, lane.total - 8);
+  let best = d, bw = Infinity;
+  for (let t = lo; t <= hi; t += 0.5) {
+    const q = widthAt(lane, t);
+    if (q < bw) { bw = q; best = t; }
+  }
+  // Only relocate for a throat that is actually worth walking to. On a lane of
+  // constant bore every point ties, the scan returns the first one, and every
+  // wall slides to the doorstep — which is how the constant-width gauntlet fell
+  // from 21/21 to 4/21 on a change that was supposed to be about the glade.
+  const here = widthAt(lane, d);
+  return bw < here * 0.8 ? best : d;
+}
+
 function sealCells(lane, d) {
   // Sample the whole cross-section finely and let the cell dedupe do the work.
   // Picking offsets by hand (every 2m from -half) depends on how the grid
   // happens to line up with the lane, and a wall one cell short does not fail
   // loudly — the lane just quietly leaks.
-  const half = lane.width / 2 + 0.6;
+  // The local width — but the WIDEST local width, sampled across the wall's own
+  // depth rather than at its centreline.
+  //
+  // A palisade occupies a 2m cell, so it spans d-1..d+1. Sealing to the width
+  // at d alone leaves a gap wherever the lane is opening out: the wall is two
+  // cells wide at a 3.2m throat while foes a metre downstream are walking a
+  // 4.5m bore, and they simply pass the end of it. That is exactly what broke
+  // the glade — the only map with pinches — while the constant-width gauntlet
+  // went untouched at 21/21.
+  let w = 0;
+  for (let t = d - 1.2; t <= d + 1.2; t += 0.4) w = Math.max(w, widthAt(lane, t));
+  const half = w / 2 + 0.6;
   const offs = [];
   for (let o = -half; o <= half + 1e-6; o += 0.5) offs.push(o);
   return cellsAcross(lane, d, offs);
@@ -104,18 +146,35 @@ function shoppingList(plan = 'balanced') {
   // different on each.
   const at = (lane, f, min) => Math.max(min || 6, lane.total * f);
 
-  // pass 1 — a wall near each door and a ballista covering it
+  // Where each lane gets walled. Recorded, because every gun in that lane is
+  // then placed RELATIVE TO IT.
+  //
+  // This is the whole lesson of the chokepoint pass. A wall is not worth
+  // anything on its own — it is worth what your guns kill while the queue is
+  // stopped at it. Walling the throat while the battery stayed at fixed
+  // fractions of lane length put the wall 23m from the nearest gun, outside
+  // its 20m reach, and the glade went from 19/21 to 0/21. The pinches were
+  // never the problem: the same pinches with the wall left at the door still
+  // won 19/21.
+  const wallD = {};
   for (const id of laneOrder) {
     const lane = LANE_BY_ID[id];
-    const d = at(lane, 0.16, 6);
+    wallD[id] = pinchNear(lane, at(lane, 0.16, 6));
+  }
+
+  // pass 1 — a wall at each lane's throat and a ballista covering it
+  for (const id of laneOrder) {
+    const lane = LANE_BY_ID[id];
+    const d = wallD[id];
     for (const c of sealCells(lane, d)) list.push({ ward: 'palisade', ...c });
     const b = onLaneCell(lane, d + 5);
     if (b) list.push({ ward: 'ballista', ...b });
   }
-  // pass 2 — a second gun per lane, further back
+  // pass 2 — a second gun per lane, just behind the wall rather than at a
+  // fixed fraction of the road
   for (const id of laneOrder) {
     const lane = LANE_BY_ID[id];
-    const c = supportCell(lane, at(lane, 0.34, 12), -1);
+    const c = supportCell(lane, Math.min(lane.total - 4, wallD[id] + 7), -1);
     if (c) list.push({ ward: 'ballista', ...c });
   }
   // pass 3 — snares just behind each wall, where the queue bunches up
@@ -123,10 +182,10 @@ function shoppingList(plan = 'balanced') {
     const lane = LANE_BY_ID[id];
     const c = cellsAcross(lane, at(lane, 0.24, 9), [0, -2, 2])[0];
   }
-  // pass 4 — a second ballista per lane, deeper in
+  // pass 4 — a third gun per lane, also anchored to the wall
   for (const id of laneOrder) {
     const lane = LANE_BY_ID[id];
-    const c = supportCell(lane, at(lane, 0.5, 18), 1);
+    const c = supportCell(lane, Math.min(lane.total - 3, wallD[id] + 12), 1);
     if (c) list.push({ ward: 'ballista', ...c });
   }
   // pass 5 — guns around the fire itself, the last line
@@ -539,10 +598,15 @@ export function runTests(log = console.log) {
     // The wall and the foe must be on the SAME line, or the foe walks past a
     // wall it was never touching and the test measures nothing.
     const lane = LANE_BY_ID.north;
-    const cells = cellsAcross(lane, 7, [-1]);
+    // On the CENTRELINE. This used to sit at offset -1, which stopped working
+    // the moment lanes could pinch: The Stair is 2.8m wide at its throat, so a
+    // breaker's offset is clamped to about 0.45 and it walked past a wall
+    // parked a metre off-axis. The test then measured a wall nothing was
+    // hitting and reported its hp going UP.
+    const cells = cellsAcross(lane, 7, [0]);
     const wall = w.build('palisade', cells[0].i, cells[0].j);
     w._spawn('north', 'breaker');
-    w.foes[0].off = -1;
+    w.foes[0].off = 0;
     w.phase = 'combat';
     // park the player on the wall and hold repair the entire time
     const hold = (world, dt) => {
@@ -997,6 +1061,39 @@ export function runTests(log = console.log) {
     ok('T30 and it closes to contact rather than hovering at the edge of reach',
       closest < 2.0,
       `closest approach ${closest.toFixed(2)}m (strike reach is about 2.45m, so it comes inside it)`);
+  }
+
+  // -------------------------------------------------------- chokepoints
+  {
+    log('');
+    log('[chokepoints]');
+    setMap('glade');
+    let worstSaving = Infinity, deepest = 0, report = [];
+    for (const lane of LANES) {
+      let tD = 0, tW = Infinity, wD = 0, wW = 0;
+      for (let d = 4; d <= lane.total - 8; d += 0.5) {
+        const q = widthAt(lane, d);
+        if (q < tW) { tW = q; tD = d; }
+        if (q > wW) { wW = q; wD = d; }
+      }
+      const cheap = sealCells(lane, tD).length;
+      const dear = sealCells(lane, wD).length;
+      worstSaving = Math.min(worstSaving, dear - cheap);
+      deepest = Math.max(deepest, tD / lane.total);
+      report.push(`${lane.name} ${cheap}u at ${tD.toFixed(0)}m vs ${dear}u at ${wD.toFixed(0)}m`);
+    }
+    ok('T31 every lane has a throat that is materially cheaper to wall',
+      worstSaving >= 2,
+      report.join(' | ') + ` — the thinnest saving is ${worstSaving} units`);
+
+    // The finding that cost the most to learn. A wall is worth what your guns
+    // kill while the queue is stopped at it, so a throat your battery cannot
+    // reach is a trap: walling these same lanes at their throats scored 0/21
+    // when the throats were deep, and 19/21 once they sat where you would
+    // want to fight anyway.
+    ok('T32 and every throat is somewhere you would fight anyway, not deep in',
+      deepest < 0.5,
+      `the deepest throat sits ${(deepest * 100).toFixed(0)}% along its lane (must stay in the near half)`);
   }
 
 

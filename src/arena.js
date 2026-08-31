@@ -39,12 +39,50 @@ export const MAPS = {
     theme: 'forest',
     blurb: 'Three tracks into the clearing, and one fire.',
     lanes: [
+      // `widths` is one entry PER POINT and interpolates along the lane, so a
+      // track pinches and opens instead of being a corridor of constant bore.
+      // That is the whole of the chokepoint design: a 3m pinch is sealed by two
+      // palisades where an 8m mouth needs five, so WHERE you wall a lane is a
+      // decision with a price attached rather than a formality.
+      //
+      // The three lanes deliberately choke in three different PLACES, which is
+      // what stops them being one lane drawn three times:
+      //   north  chokes in the middle, at the top of its dog-leg
+      //   east   chokes LATE, close enough to the fire to be a last stand
+      //   west   chokes at the MOUTH, so it can be corked before it starts
+      // Every throat sits in the first third of its lane. That is not an
+      // accident and it is the whole finding of this pass: a chokepoint deep
+      // in a lane is a TRAP, not an opportunity. Walling one 29m in costs two
+      // palisades instead of six and still loses, because a wall is worth
+      // nothing on its own — it is worth what your guns kill while the queue
+      // is stopped at it, and a wall that far in sits outside their reach.
+      // Measured: the same pinches walled at the throat 0/21, walled at the
+      // door 19/21. A chokepoint has to be somewhere you would want to fight
+      // anyway; then it makes the natural play CHEAPER instead of luring you
+      // somewhere your battery cannot follow.
+      //
+      // The three differ in the KIND of throat, not its depth:
+      //   north  one tight gate at 10m, then it opens right out
+      //   east   a long narrow neck, 10m to 19m — looser, but cheap for longer
+      //   west   a corridor from the doorstep, so it can be corked at the mouth
+      // The extra points on each first segment are COLLINEAR — they change no
+      // geometry at all, they exist so the width profile has the resolution to
+      // hold a throat FLAT for a few metres.
+      //
+      // A V-shaped pinch is not a chokepoint. A palisade fills a 2m cell, so
+      // sealing samples the width across d-1.2..d+1.2, and on a V that picks up
+      // the widening shoulders: the throat measured 3.4m and the wall still had
+      // to be built for 4.6m, saving one unit out of five. A flat bottom is
+      // what makes the saving real.
       { id: 'north', name: 'The Stair',
-        points: [[0, -34], [0, -24], [8, -18], [8, -9], [2, -3], [0, 0]], width: 6 },
+        points: [[0, -34], [0, -30], [0, -26], [0, -24], [8, -18], [8, -9], [2, -3], [0, 0]],
+        widths: [6.5, 3.0, 2.8, 2.8, 6.5, 7, 6.5, 6] },
       { id: 'east', name: 'The Undercroft',
-        points: [[34, 10], [24, 10], [17, 4], [9, 4], [3, 1.5], [0, 0]], width: 6 },
+        points: [[34, 10], [30, 10], [26, 10], [24, 10], [17, 4], [9, 4], [3, 1.5], [0, 0]],
+        widths: [7, 4.4, 2.9, 2.9, 3.3, 7.2, 6.5, 5.5] },
       { id: 'west', name: 'The Sluice',
-        points: [[-34, -2], [-24, -2], [-16, -6], [-8, -6], [-3, -2], [0, 0]], width: 6 },
+        points: [[-34, -2], [-30, -2], [-26, -2], [-24, -2], [-16, -6], [-8, -6], [-3, -2], [0, 0]],
+        widths: [2.8, 2.8, 3.2, 4.2, 7, 7.5, 7, 6] },
     ],
   },
 
@@ -78,7 +116,36 @@ function buildLane(raw) {
     segs.push({ ax: a[0], az: a[1], dx: dx / len, dz: dz / len, len, start: total });
     total += len;
   }
-  return { ...raw, segs, total };
+  // `width` survives as the lane's WIDEST point. Everything that needs the
+  // width somewhere specific asks widthAt(); everything that needs a safe
+  // bound — a spawn clamp, a render extent — can still read .width and never
+  // be too small.
+  const width = raw.widths ? Math.max(...raw.widths) : raw.width;
+  return { ...raw, segs, total, width };
+}
+
+// The lane's width at a distance along it. Linear between the authored points,
+// which is enough: a pinch reads as a funnel because the DIRT narrows, and a
+// smoother curve would not change where the two palisades go.
+export function widthAt(lane, d) {
+  const ws = lane.widths;
+  if (!ws) return lane.width;
+  const segs = lane.segs;
+  const dc = d < 0 ? 0 : (d > lane.total ? lane.total : d);
+  let i = segs.length - 1;
+  for (let k = 0; k < segs.length; k++) {
+    if (dc <= segs[k].start + segs[k].len) { i = k; break; }
+  }
+  const s = segs[i];
+  const t = s.len > 0 ? (dc - s.start) / s.len : 0;
+  const a = ws[i], b = ws[i + 1] == null ? ws[i] : ws[i + 1];
+  return a + (b - a) * (t < 0 ? 0 : t > 1 ? 1 : t);
+}
+
+// How wide the lane is where this point sits beside it. Used by anything that
+// has a world position rather than a lane distance.
+export function widthNear(lane, x, z) {
+  return widthAt(lane, alongLane(lane, x, z));
 }
 
 // `let`, not `const`: ES module named exports are LIVE bindings, so importers
@@ -180,6 +247,21 @@ export function distToLane(lane, x, z) {
     if (d < best) best = d;
   }
   return best;
+}
+
+// How far ALONG the lane the nearest point to (x,z) sits. Needed now that the
+// width varies: "how wide is the lane here" has no answer without it.
+export function alongLane(lane, x, z) {
+  let best = Infinity, along = 0;
+  for (const s of lane.segs) {
+    const px = x - s.ax, pz = z - s.az;
+    let t = px * s.dx + pz * s.dz;
+    t = t < 0 ? 0 : (t > s.len ? s.len : t);
+    const qx = px - s.dx * t, qz = pz - s.dz * t;
+    const d = Math.hypot(qx, qz);
+    if (d < best) { best = d; along = s.start + t; }
+  }
+  return along;
 }
 
 export function nearestLane(x, z) {
@@ -291,7 +373,7 @@ export function groundY(x, z) {
   if (n.lane) {
     // Blended across the verge rather than a hard step: a 12cm cliff at the edge
     // of every track would read as a stutter every time anything walked on.
-    const half = n.lane.width / 2;
+    const half = widthNear(n.lane, x, z) / 2;
     const a = half - 0.5, b = half + 0.7;
     const t = n.dist <= a ? 1 : (n.dist >= b ? 0 : 1 - (n.dist - a) / (b - a));
     const e = t * t * (3 - 2 * t);          // smoothstep

@@ -1759,3 +1759,90 @@ was wrong — a total could be restored by making foes hit harder while the
 swinging-at-air stayed exactly as it was.
 
 Both were checked against the old code first: **584 windups, 0 blows.**
+
+---
+
+# Chokepoints, and a chokepoint that was a trap
+
+Three requests: better level design, better chokepoints, the ballista in wave
+one. The middle one turned out to be the interesting one.
+
+## Lanes now pinch
+
+`widths` is one entry **per point** and interpolates along the lane, so a track
+narrows and opens instead of being a corridor of constant bore. That is the
+whole of it: a 2.8m throat is sealed by three palisades where a 7m stretch needs
+six, so *where* you wall a lane is a decision with a price attached.
+
+| lane | throat | wall there | widest | wall there |
+|---|---|---|---|---|
+| The Stair | 2.8m at 8m | **3 units** | 7.0m at 29m | 6 units |
+| The Undercroft | 2.9m at 8m | **4 units** | 7.2m at 28m | 6 units |
+| The Sluice | 2.8m at 4m | **3 units** | 7.5m at 27m | 5 units |
+
+The three differ in the *kind* of throat, not its depth: north is one tight gate
+that opens right out, east is a long narrow neck, west is a corridor from the
+doorstep.
+
+## A V is not a chokepoint
+
+The first attempt saved **one unit out of five**. A palisade fills a 2m cell, so
+sealing samples the width across `d±1.2` — and on a V-shaped pinch that picks up
+the widening shoulders. The throat measured 3.4m and the wall still had to be
+built for 4.6m.
+
+The fix is **collinear points**: extra points on each lane's first segment that
+change no geometry at all and exist purely so the width profile can hold a
+throat *flat* for a few metres.
+
+## The expensive finding: a deep chokepoint is a trap
+
+The first design put the throats deep — 27 to 29m along. The bot found them,
+walled them for two units instead of six, and the glade went from **19/21 to
+0/21**.
+
+The pinches were never the problem. The *same* pinches, with the wall left at
+the door, still won 19/21. Walling the throat scored 0/21.
+
+**A wall is worth nothing on its own. It is worth what your guns kill while the
+queue is stopped at it.** A throat 29m in sits outside a 20m gun's reach, so the
+wall stalls the wave somewhere the battery cannot shoot. Anchoring the guns to
+the wall was not enough either — it only got the glade to 1/21, because a queue
+stalled far from the fire is also a queue that spent the whole approach spread
+out and moving instead of bunched and stationary in a kill zone.
+
+So a chokepoint has to be **somewhere you would want to fight anyway**. Then it
+makes the natural play cheaper, instead of luring you somewhere your defence
+cannot follow. Every throat now sits in the near half of its lane (deepest:
+22%), and T32 asserts it.
+
+## The ballista from wave one
+
+It was held to wave 2 from when it was strong enough to trivialise the opening.
+At a fifth of that power it is no longer a gift, and gating the only gun in the
+game meant the first fight had exactly one verb in it. Measured neutral.
+
+## Two instrument failures, both mine
+
+**The sweep script was lying.** It cache-busted its imports with `?v=`, which
+gave it a different `arena` module instance than `sim.js` held — so `setMap()`
+had no effect on the world being simulated and every "gauntlet" number was
+really the glade, measured twice. Three rounds of conclusions were drawn off it
+before a baseline run against a known-good commit caught it. **Always baseline a
+new instrument against a known answer before trusting it.**
+
+**The wander was never implemented.** Commit `2b36f1b` added `WANDER_RATE` and
+`WANDER_AMT` and never used them. It shipped as two dead constants, and the
+reason it could be reported as "the balance did not move by a single point" is
+that the feature did nothing. It is now real — and the first working version
+deleted the two lines that move a lane foe in world space, so foes advanced
+their lane distance while standing at the door, attacking the fire from 40m away
+where nothing could reach them.
+
+## T7 broke for a good reason
+
+It parked a wall and a breaker at lane offset -1. The Stair is 2.8m wide at its
+throat now, so the pinch squeeze clamps a breaker's offset to about 0.45 — it
+walked past a wall a metre off-axis, and the test reported the wall's hp going
+*up*. Both are on the centreline now. The squeeze was right; the test's
+hard-coded offset was what the pinch invalidated.

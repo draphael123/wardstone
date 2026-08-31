@@ -17,7 +17,7 @@ import {
 } from './defs.js';
 import {
   LANES, ARENA, CELL, cellOf, cellCenter, laneAt, nearestLane, isBuildableCell,
-  currentMap, groundY, moundY, solidProps,
+  currentMap, groundY, moundY, solidProps, widthAt,
 } from './arena.js';
 import { makeRng } from './rand.js';
 import { AGGRO, STAGGER } from './defs.js';
@@ -1484,12 +1484,14 @@ export class Renderer {
         const a = laneAt(lane, d, 0), b = laneAt(lane, Math.min(lane.total, d + step), 0);
         const mx = (a.x + b.x) / 2, mz = (a.z + b.z) / 2;
         const ry = Math.atan2(b.x - a.x, b.z - a.z);
-        parts.push({ g: box(lane.width * (0.92 + rng() * 0.14), 0.09, step * 1.12),
+        // sampled at the midpoint, so the dirt itself narrows through a pinch
+        const lw = widthAt(lane, d + step / 2);
+        parts.push({ g: box(lw * (0.92 + rng() * 0.14), 0.09, step * 1.12),
                      x: mx, y: 0.24, z: mz, ry });
         // stones kicked to the verge
         if (rng() < 0.5) {
           const side = rng() < 0.5 ? -1 : 1;
-          const q = laneAt(lane, d, side * (lane.width / 2 + rng() * 0.5));
+          const q = laneAt(lane, d, side * (widthAt(lane, d) / 2 + rng() * 0.5));
           const sc = 0.28 + rng() * 0.42;
           edge.push({ g: box(sc, sc * 0.7, sc), x: q.x, y: 0.26, z: q.z, ry: rng() * 3 });
         }

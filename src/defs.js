@@ -386,7 +386,11 @@ export const WARDS = [
   },
   {
     id: 'ballista', name: 'Ballista', key: '2', kind: 'projectile',
-    cost: 70, du: 4, hp: 300, buildTime: 4.0, unlockWave: 1, radius: 0.8, targets: 'ground',
+    // Available from the FIRST muster. It was held back to wave 2 from when it
+    // was strong enough to trivialise the opening; at a fifth of that power it
+    // is no longer a gift, and gating the only gun in the game behind a wave
+    // meant the first fight had exactly one verb in it.
+    cost: 70, du: 4, hp: 300, buildTime: 4.0, unlockWave: 0, radius: 0.8, targets: 'ground',
     // Same sustained damage as before, delivered as rare HEAVY blows at long
     // reach. That makes it the answer to one big thing rather than a second
     // way to grind down a crowd, which is what made it blur with the tower.

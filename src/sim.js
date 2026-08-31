@@ -14,6 +14,7 @@ import {
 import {
   LANES, LANE_BY_ID, laneAt, cellOf, cellCenter, cellKey,
   isBuildableCell, clampToArena, nearestLane, distToLane, ARENA, currentMap, solidProps,
+  widthAt,
 } from './arena.js';
 import { makeRng } from './rand.js';
 
@@ -576,7 +577,7 @@ export class World {
     const lane = LANE_BY_ID[laneId];
     const def = FOE_BY_ID[foeId];
     if (!lane || !def) return;
-    const half = lane.width / 2 - def.radius - 0.2;
+    const half = widthAt(lane, 0) / 2 - def.radius - 0.2;
     // Same reasoning as the count: the premise foe does not soften on an
     // easier tier, or the easier tier stops being the same game.
     // Same floor as the count: a tier may make the premise foe tougher, never
@@ -607,6 +608,8 @@ export class World {
       fuseT: 0, blastTarget: null,
       // fliers cut the corner: they take the straight line to the stone
       fx: 0, fz: 0,
+      // its own phase, so a rank drifts as a rabble and not as one body
+      wph: this.rng.range(0, 6.283),
     };
     // Lane foes start at their door; an off-lane foe keeps the rim position it
     // was given, or this would put it straight back on the road.
@@ -1446,6 +1449,14 @@ export class World {
       // How far it has been pulled from the lane it left, not how far it is
       // from the player — otherwise backing away from a foe would call it off
       // at exactly the moment it should be committing to you.
+      // Squeezed by the pinch. The lane's width varies along it now, so a foe
+      // walking from an 8m mouth into a 3.2m throat has to be brought in with
+      // it — otherwise the funnel is only painted on the floor and the wave
+      // walks straight through the verge of it.
+      if (!def.offLane) {
+        const lh = World.laneHalf(f);
+        if (f.off > lh) f.off = lh; else if (f.off < -lh) f.off = -lh;
+      }
       const q = laneAt(f.lane, f.dist, f.off);
       const strayed = Math.hypot(f.x - q.x, f.z - q.z);
       // Reach and CONTACT are deliberately different distances. `hitPlayer` is
@@ -1657,8 +1668,18 @@ export class World {
           if (hitPlayer) f.targetKind = null;
         } else if (!blocked && !atStone) {
           f.dist += spd * dt;
-          const q = laneAt(f.lane, f.dist, f.off);
-          f.x = q.x; f.z = q.z;
+          // Drift across the track. A lane foe held ONE lateral offset for its
+          // whole life, so a wave came down the road in rigid parallel columns.
+          // This is the DERIVATIVE of a sine, integrated onto the offset, so
+          // each foe genuinely wanders instead of holding a line — and because
+          // it only ever touches the lateral offset, lane progress and arrival
+          // timing are untouched.
+          const w = Math.cos(this.t * WANDER_RATE * 6.283 + f.wph);
+          f.off += w * WANDER_AMT * WANDER_RATE * 6.283 * dt;
+          const lh = World.laneHalf(f);
+          if (f.off > lh) f.off = lh; else if (f.off < -lh) f.off = -lh;
+          const nq = laneAt(f.lane, f.dist, f.off);
+          f.x = nq.x; f.z = nq.z;
           f.targetKind = null;
         } else {
           f.targetKind = blocked ? 'ward' : 'stone';
@@ -1713,6 +1734,13 @@ export class World {
         }
       }
     }
+  }
+
+  // How far off its lane's centre this foe may sit, where it currently is.
+  // One place, because the spawn spread, the separation fold and the pinch
+  // squeeze all have to agree or a foe pops across the lane between them.
+  static laneHalf(f) {
+    return Math.max(0, widthAt(f.lane, f.dist) / 2 - f.def.radius - 0.15);
   }
 
   // The whole swing as a single 0..1 number, so the renderer never has to
@@ -1862,7 +1890,7 @@ export class World {
         // laneAt, and stays inside the lane it belongs to
         const nx = az, nz = -ax;                    // left normal of the tangent
         const lat = px * nx + pz * nz;
-        const half = f.lane.width / 2 - f.def.radius - 0.15;
+        const half = World.laneHalf(f);
         f.off = Math.max(-half, Math.min(half, f.off + lat));
       }
     }
